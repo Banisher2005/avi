@@ -43,12 +43,12 @@ def test_live_ollama_multiturn():
     router = Router(config)
 
     # Turn 1
-    resp1 = router.route_full("My project is called AVI.")
+    resp1 = router.route_full("My project name is AVI.")
     assert resp1.context is not None
     assert len(resp1.context) > 0
 
     # Turn 2 using context from Turn 1
-    resp2 = router.route_full("What is my project called?", context=resp1.context)
+    resp2 = router.route_full("What project name did I mention?", context=resp1.context)
     assert "avi" in resp2.text.lower()
     assert resp2.metrics is not None
     assert resp2.metrics.total_duration_ms > 0
