@@ -32,9 +32,21 @@ WantedBy=default.target
 def generate_desktop_entry(
     avi_binary_path: str | None = None,
     terminal_emulator: str = "auto",
+    gui: bool = False,
 ) -> str:
-    """Generate .desktop launcher entry for triggering an interactive AVI session."""
+    """Generate .desktop launcher entry for triggering an interactive AVI session or GTK assistant."""
     bin_path = avi_binary_path or shutil.which("avi") or "/usr/local/bin/avi"
+    if gui:
+        return f"""[Desktop Entry]
+Version=1.0
+Type=Application
+Name=AVI Desktop Assistant
+Comment=Instant local-first desktop AI assistant for Linux
+Exec={bin_path} activate
+Terminal=false
+Categories=Utility;System;Development;
+Keywords=ai;assistant;desktop;capability;
+"""
     return f"""[Desktop Entry]
 Version=1.0
 Type=Application
@@ -53,22 +65,24 @@ def get_hotkey_instructions() -> dict[str, Any]:
 
     if env.display_server == "wayland":
         instructions = (
-            "Under Wayland, security policies block arbitrary background processes from "
-            "intercepting keystrokes. To bind a global hotkey (e.g. Super+Space or Ctrl+Space):\n\n"
-            "1. GNOME: Settings -> Keyboard -> View and Customize Shortcuts -> Custom Shortcuts\n"
-            "   Add: Name='AVI', Command='gnome-terminal -- avi', Shortcut='<Ctrl>Space'\n\n"
-            "2. KDE: System Settings -> Shortcuts -> Custom Shortcuts\n"
-            "   Add: New -> Global Shortcut -> Command/URL -> 'konsole -e avi'\n\n"
+            "Under Wayland, compositor security prevents background processes from intercepting "
+            "global keystrokes. Bind a native compositor shortcut to activate the single-instance AVI popup:\n\n"
+            "1. GNOME: Settings -> Keyboard -> Keyboard Shortcuts -> Custom Shortcuts\n"
+            "   Add: Name='AVI Assistant', Command='avi activate', Shortcut='<Super>Space' (or '<Ctrl>Space')\n\n"
+            "2. KDE Plasma: System Settings -> Shortcuts -> Custom Shortcuts\n"
+            "   Add: New -> Global Shortcut -> Command/URL -> 'avi activate'\n\n"
             "3. Sway / Hyprland:\n"
-            "   In your config: bindsym $mod+Space exec alacritty -e avi"
+            "   Add to config: bindsym $mod+Space exec avi activate\n\n"
+            "Pressing the shortcut instantly summons the AVI desktop assistant without opening a terminal."
         )
     elif env.display_server == "x11":
         instructions = (
             "Under X11, you can bind a global hotkey via your desktop environment shortcut settings "
-            "or use standard tools like xbindkeys:\n\n"
+            "or standard tools like xbindkeys:\n\n"
             "Add to ~/.xbindkeysrc:\n"
-            '  "xterm -e avi"\n'
-            "  Control + space"
+            '  "avi activate"\n'
+            "  Mod4 + space\n\n"
+            "Pressing the shortcut instantly summons the AVI desktop assistant."
         )
     else:
         instructions = (

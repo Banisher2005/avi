@@ -248,7 +248,7 @@ def run_cli(argv: Sequence[str] | None = None) -> int:
             return run_gateway(args_list[1:])
         elif first == "hotkey":
             return run_hotkey(args_list[1:])
-        elif first == "ui":
+        elif first in ("ui", "activate"):
             return run_ui(args_list[1:])
 
     parser = build_parser()

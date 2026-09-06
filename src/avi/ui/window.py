@@ -251,6 +251,13 @@ class AviWindow:
         self.window.present()
         self.prompt_entry.grab_focus()
 
+    def present(self) -> None:
+        """Bring window to foreground and focus the prompt entry."""
+        if hasattr(self, "window") and self.window:
+            self.window.present()
+        if hasattr(self, "prompt_entry") and self.prompt_entry:
+            self.prompt_entry.grab_focus()
+
     # -----------------------------------------------------------------------
     # User interactions
     # -----------------------------------------------------------------------

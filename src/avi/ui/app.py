@@ -23,6 +23,7 @@ class AviApp:
         self.router = router
         self.config = config
         self.orchestrator = orchestrator
+        self.window: Any | None = None
 
     def run(self, allow_system_fallback: bool = False) -> int:
         """Start the GTK4 event loop. Returns exit code."""
@@ -58,15 +59,29 @@ class AviApp:
         app = Gtk.Application(application_id="io.github.banisher2005.avi")
 
         def _on_activate(gtk_app: Gtk.Application) -> None:
+            if self.window is not None:
+                self.window.present()
+                return
+
             # Apply CSS styling
             css_provider = Gtk.CssProvider()
             css_provider.load_from_data(CSS_STYLE)
-            Gtk.StyleContext.add_provider_for_display(
-                Gdk.Display.get_default(),
-                css_provider,
-                Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+            display = Gdk.Display.get_default()
+            if display:
+                Gtk.StyleContext.add_provider_for_display(
+                    display,
+                    css_provider,
+                    Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+                )
+            self.window = AviWindow(
+                gtk_app, self.router, self.config, orchestrator=self.orchestrator
             )
-            AviWindow(gtk_app, self.router, self.config, orchestrator=self.orchestrator)
+
+            def _on_destroy(*_args: Any) -> None:
+                self.window = None
+
+            if hasattr(self.window, "window"):
+                self.window.window.connect("destroy", _on_destroy)
 
         app.connect("activate", _on_activate)
         return app.run(None)
