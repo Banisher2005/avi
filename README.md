@@ -12,11 +12,13 @@ AVI is a fast, local-first AI assistant for Linux terminals. It delivers instant
 
 ## Why AVI?
 
-* **Near-Instant Response (< 200 ms)**: Designed from the ground up for speed. Zero bloated dependencies, minimal prompt overhead, and direct HTTP communication with local LLM runtimes.
+* **Near-Instant Response (< 100 ms)**: Designed from the ground up for speed. Zero bloated dependencies, minimal prompt overhead, and direct HTTP communication with local LLM runtimes.
+* **Deterministic Fast-Path (0 ms)**: Direct environment queries (directory, git branch, shell, OS) resolve immediately without invoking the neural network.
+* **Lazy Context Awareness**: Understands your current directory, shell, Git repository state, and previous command errors—only when relevant to your question.
 * **100% Local & Private**: All data stays on your machine. Powered by Ollama and lightweight local models like `qwen2.5:1.5b`.
 * **Clean Command Output**: Shell commands are delivered directly without extraneous conversational fluff or annoying markdown fences when you just need the syntax.
 * **Interactive Terminal REPL**: Full conversational session with readline support, command history, multi-turn memory, and signal handling.
-* **Modular Provider Architecture**: Built with clear interfaces for local inference engines today, fast-path routing tomorrow, and complex agent delegation in the future.
+* **Modular Architecture**: Built with decoupled interfaces for local inference engines, fast-path routing, context ingestion, and future agent delegation.
 * **Safe by Design**: Clear separation between generation and execution. AVI will never blindly execute dangerous commands without explicit safety pipelines and confirmation.
 
 ---
@@ -80,7 +82,55 @@ avi --version
 
 ## Usage
 
-### 1. Interactive Session Mode
+### 1. Deterministic Fast-Path Queries (Instant 0 ms)
+
+Common environment queries bypass the LLM and return instantly:
+
+```bash
+avi "what directory am I in?"
+# Output: /home/abhinav/avi  [Response: 0 ms]
+
+avi "what branch am I on?"
+# Output: feature/context-awareness  [Response: 6 ms]
+
+avi "what shell am I using?"
+# Output: zsh  [Response: 0 ms]
+
+avi "what OS is this?"
+# Output: Linux  [Response: 0 ms]
+```
+
+---
+
+### 2. Context-Aware Queries
+
+AVI lazily detects when context is required:
+
+```bash
+# Git-aware queries
+avi "recommend a command to clean up my git branch"
+# Injects current branch and status into context
+
+# Previous command error explanation
+AVI_PREV_CMD="npm run dev" AVI_PREV_EXIT_CODE=1 AVI_PREV_OUTPUT="Error: address already in use" \
+avi "why did my last command fail?"
+# Explains port collision and suggests lsof / kill commands
+```
+
+#### Shell Integration for Previous Command (Optional)
+
+To automatically record the last terminal command and exit code, add this hook to your `~/.zshrc` or `~/.bashrc`:
+
+```bash
+# In ~/.zshrc
+precmd() {
+  echo "{\"command\":\"$_ \",\"exit_code\":$?}" > ~/.local/share/avi/last_command.json 2>/dev/null
+}
+```
+
+---
+
+### 3. Interactive Session Mode
 
 Run `avi` without arguments to launch the stateful interactive REPL:
 
@@ -94,19 +144,19 @@ Example session:
 AVI Interactive Session (v0.1.0)
 Type 'exit', 'quit', 'clear', or 'history'. Press Ctrl+C or Ctrl+D to exit.
 
+AVI > what directory am I in?
+/home/abhinav/avi
+
+AVI > what branch am I on?
+feature/context-awareness
+
 AVI > what command shows my current directory?
 pwd
 
-AVI > my project is called AVI
-It seems you're working on a project called "AVI". How can I assist you with this project?
-
-AVI > what is my project called?
-Your project is called "AVI".
-
 AVI > history
-     1  what command shows my current directory?
-     2  my project is called AVI
-     3  what is my project called?
+     1  what directory am I in?
+     2  what branch am I on?
+     3  what command shows my current directory?
      4  history
 
 AVI > exit
@@ -120,16 +170,9 @@ AVI > exit
 | `clear` | Clears the terminal screen |
 | `history` | Displays command history for the session |
 
-#### Interactive Signals
-
-* **`Ctrl+C` while streaming**: Immediately cancels active model generation and returns to `AVI > ` without exiting.
-* **`Ctrl+C` at prompt**: Exits cleanly without a traceback.
-* **`Ctrl+D` at prompt**: Exits cleanly (standard EOF).
-* **Command History**: Preserved across sessions in `~/.local/share/avi/history` via standard Python `readline`.
-
 ---
 
-### 2. Single-Shot Mode
+### 4. Single-Shot Mode
 
 Pass a prompt directly on the command line for instant answers:
 
@@ -142,33 +185,11 @@ avi "what command shows the current directory?"
 avi "find files larger than 500MB"
 # Output: find . -type f -size +500M
 
-# Inspect open ports
-avi "how to check open ports listening on tcp"
-# Output: ss -tulpn
-```
-
-### Response Latency & Timing
-
-Track response duration in real-time with `-t` / `--timing`:
-
-```bash
-avi -t "what command shows the current directory?"
+# Response latency tracking
+avi -t "how to check open ports listening on tcp"
 # Output:
-# pwd
-# [Response: 86 ms]
-```
-
-### Custom Model or Host
-
-Override defaults dynamically via CLI flags or environment variables:
-
-```bash
-# CLI flag override
-avi --model qwen2.5:1.5b "explain grep"
-avi --host http://127.0.0.1:11434 "show disk usage"
-
-# Non-streaming mode
-avi --no-stream "list running processes sorted by memory"
+# ss -tulpn
+# [Response: 77 ms]
 ```
 
 ### Environment Configuration
@@ -180,39 +201,9 @@ avi --no-stream "list running processes sorted by memory"
 | `AVI_TIMEOUT` | Request timeout in seconds | `30.0` |
 | `AVI_TEMPERATURE` | Generation temperature | `0.1` |
 | `AVI_TIMING` | Always show response timing (`1` or `0`) | `0` |
-
----
-
-## Architecture
-
-AVI is designed around clean, decoupled components:
-
-```text
-                    AVI
-                     │
-              ┌──────┴──────┐
-              │             │
-        One-Shot CLI    Interactive REPL
-              │             │
-              └──────┬──────┘
-                     ▼
-                  Router
-                     │
-          ┌──────────┼──────────┐
-          │          │          │
-       Fast Path   Local LLM   Agent
-          │          │          │
-          │       Ollama    Antigravity
-          │
-          ▼
-      Tool Layer
-          │
-  ┌───────┼───────┐
-  │       │       │
-Shell   Files   Git
-```
-
-For in-depth architectural design, provider abstractions, and future integration plans, see [docs/architecture.md](docs/architecture.md).
+| `AVI_PREV_CMD` | Previous command text for context | `None` |
+| `AVI_PREV_EXIT_CODE`| Previous command exit code | `None` |
+| `AVI_PREV_OUTPUT` | Previous command output snippet | `None` |
 
 ---
 
@@ -249,16 +240,19 @@ pytest
   * Clean `Ctrl+C` stream cancellation and `Ctrl+D` handling
   * Local interactive commands (`exit`, `quit`, `clear`, `history`)
   * Top-level error boundary with clean diagnostics
-* [ ] **Phase 3: Context Subsystem**
-  * Minimal, explicit environment context (cwd, OS, shell, git branch)
-  * Privacy controls preventing broad filesystem dumping
+* [x] **Phase 3: Context Subsystem**
+  * Minimal, explicit environment context (cwd, OS, shell, git status)
+  * Strict lazy context injection (zero overhead on generic questions)
+  * Sub-millisecond deterministic fast-path for direct environment queries
+  * Previous command inspection support
+  * Strict privacy controls preventing broad filesystem or secret dumping
 * [ ] **Phase 4: Tool Execution Subsystem**
   * Safe execution wrappers for shell, file inspection, and git status
 * [ ] **Phase 5: Safety Subsystem & Risk Assessment**
   * Command classification (Safe, Confirmation Required, Blocked)
   * Safe execution verification pipeline
 * [ ] **Phase 6: Fast-Path Routing**
-  * Zero-latency deterministic resolution for common commands without invoking LLM
+  * Expanded zero-latency deterministic resolution for command templates
 * [ ] **Phase 7: Antigravity Integration**
   * Intelligent handoff of complex refactor and development tasks to Antigravity CLI
 * [ ] **Phase 8: Global Hotkey**
