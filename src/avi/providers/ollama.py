@@ -54,11 +54,17 @@ class OllamaProvider(BaseProvider):
         self.temperature = temperature
         self.keep_alive = keep_alive
         self._last_metrics: ResponseMetrics | None = None
+        self._last_context: list[int] | None = None
 
     @property
     def last_metrics(self) -> ResponseMetrics | None:
         """Metrics from the most recent request."""
         return self._last_metrics
+
+    @property
+    def last_context(self) -> list[int] | None:
+        """Conversation context token array from the most recent request."""
+        return self._last_context
 
     def get_model_name(self) -> str:
         """Return the active model name."""
@@ -74,10 +80,34 @@ class OllamaProvider(BaseProvider):
         except (urllib.error.URLError, socket.timeout, TimeoutError, OSError):
             return False
 
+    def warmup(self) -> bool:
+        """Warm up the model weights into GPU VRAM / system RAM."""
+        url = f"{self.host}/api/generate"
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "keep_alive": self.keep_alive,
+        }
+        req_data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            url,
+            data=req_data,
+            headers={
+                "Content-Type": "application/json",
+                "User-Agent": "avi/0.1.0",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                return resp.status == 200
+        except (urllib.error.URLError, socket.timeout, TimeoutError, OSError):
+            return False
+
     def generate(
         self,
         prompt: str,
         system_prompt: str | None = None,
+        context: list[int] | None = None,
         stream: bool = True,
     ) -> Iterator[str]:
         """Stream or yield text chunks from Ollama /api/generate."""
@@ -93,6 +123,8 @@ class OllamaProvider(BaseProvider):
         }
         if system_prompt:
             payload["system"] = system_prompt
+        if context:
+            payload["context"] = context
 
         req_data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(
@@ -131,6 +163,8 @@ class OllamaProvider(BaseProvider):
                         if data.get("done", False):
                             elapsed_ms = (time.perf_counter() - start_time) * 1000.0
                             self._last_metrics = self._parse_metrics(data, elapsed_ms)
+                            if "context" in data:
+                                self._last_context = data.get("context")
                 else:
                     body = resp.read().decode("utf-8")
                     try:
@@ -143,6 +177,8 @@ class OllamaProvider(BaseProvider):
 
                     elapsed_ms = (time.perf_counter() - start_time) * 1000.0
                     self._last_metrics = self._parse_metrics(data, elapsed_ms)
+                    if "context" in data:
+                        self._last_context = data.get("context")
                     yield data.get("response", "")
 
         except urllib.error.HTTPError as e:
@@ -180,10 +216,15 @@ class OllamaProvider(BaseProvider):
         self,
         prompt: str,
         system_prompt: str | None = None,
+        context: list[int] | None = None,
     ) -> ProviderResponse:
-        """Generate a complete response with timing metrics."""
-        chunks = list(self.generate(prompt=prompt, system_prompt=system_prompt, stream=False))
-        return ProviderResponse(text="".join(chunks), metrics=self.last_metrics)
+        """Generate a complete response with timing metrics and context."""
+        chunks = list(self.generate(prompt=prompt, system_prompt=system_prompt, context=context, stream=False))
+        return ProviderResponse(
+            text="".join(chunks),
+            metrics=self.last_metrics,
+            context=self.last_context,
+        )
 
     def _handle_api_error(self, error_message: str) -> None:
         """Handle error messages in Ollama JSON response."""

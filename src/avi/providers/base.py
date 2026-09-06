@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Iterator
+from typing import Any, Iterator
 
 
 @dataclass
@@ -23,6 +23,7 @@ class ProviderResponse:
 
     text: str
     metrics: ResponseMetrics | None = None
+    context: Any | None = None
 
 
 class BaseProvider(ABC):
@@ -33,6 +34,7 @@ class BaseProvider(ABC):
         self,
         prompt: str,
         system_prompt: str | None = None,
+        context: Any | None = None,
         stream: bool = True,
     ) -> Iterator[str]:
         """Stream or generate response chunks for a prompt."""
@@ -43,13 +45,19 @@ class BaseProvider(ABC):
         self,
         prompt: str,
         system_prompt: str | None = None,
+        context: Any | None = None,
     ) -> ProviderResponse:
-        """Generate a complete response along with metrics."""
+        """Generate a complete response along with metrics and conversation context."""
         pass
 
     @abstractmethod
     def is_available(self) -> bool:
         """Check if the backend is reachable and ready."""
+        pass
+
+    @abstractmethod
+    def warmup(self) -> bool:
+        """Warm up the model backend into memory."""
         pass
 
     @abstractmethod
@@ -61,4 +69,10 @@ class BaseProvider(ABC):
     @abstractmethod
     def last_metrics(self) -> ResponseMetrics | None:
         """Return the metrics from the most recent generation, if available."""
+        pass
+
+    @property
+    @abstractmethod
+    def last_context(self) -> Any | None:
+        """Return conversation context token state from the most recent generation."""
         pass

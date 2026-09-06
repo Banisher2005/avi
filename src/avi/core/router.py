@@ -1,6 +1,6 @@
 """Request routing subsystem for AVI."""
 
-from typing import Iterator
+from typing import Any, Iterator
 
 from avi.config import Config
 from avi.core.normalizer import normalize_response, normalize_stream
@@ -38,6 +38,15 @@ class Router:
         """Return metrics from the last request."""
         return self._provider.last_metrics
 
+    @property
+    def last_context(self) -> Any | None:
+        """Return conversation context token state from the last request."""
+        return self._provider.last_context
+
+    def warmup(self) -> bool:
+        """Trigger backend warmup to ensure sub-second response times."""
+        return self._provider.warmup()
+
     def check_fast_path(self, prompt: str) -> str | None:
         """Deterministic fast-path lookup without invoking an LLM.
 
@@ -52,7 +61,12 @@ class Router:
         """
         return False
 
-    def route(self, prompt: str, stream: bool = True) -> Iterator[str]:
+    def route(
+        self,
+        prompt: str,
+        context: Any | None = None,
+        stream: bool = True,
+    ) -> Iterator[str]:
         """Route request through fast-path or LLM provider with streaming."""
         # 1. Check Fast Path
         fast_result = self.check_fast_path(prompt)
@@ -64,6 +78,7 @@ class Router:
         raw_stream = self._provider.generate(
             prompt=prompt,
             system_prompt=self.config.system_prompt,
+            context=context,
             stream=stream,
         )
 
@@ -73,20 +88,27 @@ class Router:
             full_text = "".join(raw_stream)
             yield normalize_response(full_text)
 
-    def route_full(self, prompt: str) -> ProviderResponse:
-        """Route request and return complete response with timing metrics."""
+    def route_full(
+        self,
+        prompt: str,
+        context: Any | None = None,
+    ) -> ProviderResponse:
+        """Route request and return complete response with timing metrics and context."""
         fast_result = self.check_fast_path(prompt)
         if fast_result is not None:
             return ProviderResponse(
                 text=fast_result,
                 metrics=ResponseMetrics(total_duration_ms=0.0),
+                context=context,
             )
 
         resp = self._provider.generate_full(
             prompt=prompt,
             system_prompt=self.config.system_prompt,
+            context=context,
         )
         return ProviderResponse(
             text=normalize_response(resp.text),
             metrics=resp.metrics,
+            context=resp.context,
         )
