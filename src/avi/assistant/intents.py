@@ -1,5 +1,4 @@
-"""Deterministic natural-language intent recognition for assistant actions and tools."""
-
+import difflib
 import re
 from dataclasses import dataclass
 from enum import Enum
@@ -30,34 +29,54 @@ _SCREENSHOT_RE = re.compile(
 
 # Volume controls
 _MUTE_RE = re.compile(
-    r"^(?:please\s+)?mute(?:\s+(?:the\s+)?(?:volume|audio|sound))?$",
+    r"^(?:please\s+)?(?:mute|silence)(?:\s+(?:the|my|our)\s+|\s+)?(?:volume|audio|sound)?$|"
+    r"^(?:please\s+)?turn\s+off\s+(?:the\s+|my\s+|our\s+)?(?:sound|audio|volume)$",
     re.IGNORECASE,
 )
 
 _UNMUTE_RE = re.compile(
-    r"^(?:please\s+)?unmute(?:\s+(?:the\s+)?(?:volume|audio|sound))?$",
+    r"^(?:please\s+)?unmute(?:\s+(?:the|my|our)\s+|\s+)?(?:volume|audio|sound)?$|"
+    r"^(?:please\s+)?turn\s+(?:the\s+|my\s+|our\s+)?(?:sound|audio)\s+back\s+on$|"
+    r"^(?:please\s+)?turn\s+(?:on\s+)?(?:the\s+|my\s+|our\s+)?(?:sound|audio)\s+on$|"
+    r"^(?:please\s+)?turn\s+(?:the\s+|my\s+|our\s+)?(?:sound|audio)\s+on$|"
+    r"^(?:please\s+)?restore\s+(?:the\s+|my\s+|our\s+)?(?:sound|audio|volume)$",
     re.IGNORECASE,
 )
 
 _VOL_UP_RE = re.compile(
-    r"^(?:please\s+)?(?:turn\s+(?:(?:the\s+)?volume\s+|it\s+)?up|turn\s+up(?:\s+the)?\s+volume|raise(?:\s+the)?\s+volume|increase(?:\s+the)?\s+volume|boost(?:\s+the)?\s+volume|volume\s+up|(?:make\s+it\s+)?louder)$",
+    r"^(?:please\s+)?(?:turn\s+(?:(?:the|my|our)\s+)?volume\s+up|"
+    r"turn\s+it\s+up|"
+    r"turn\s+up(?:\s+(?:the|my|our))?\s+volume|"
+    r"raise(?:\s+(?:the|my|our))?\s+volume|"
+    r"increase(?:\s+(?:the|my|our))?\s+volume|"
+    r"boost(?:\s+(?:the|my|our))?\s+volume|"
+    r"volume\s+up|"
+    r"(?:make\s+it\s+)?louder)$",
     re.IGNORECASE,
 )
 
 _VOL_DOWN_RE = re.compile(
-    r"^(?:please\s+)?(?:turn\s+(?:(?:the\s+)?volume\s+|it\s+)?down|turn\s+down(?:\s+the)?\s+volume|lower(?:\s+the)?\s+volume|decrease(?:\s+the)?\s+volume|reduce(?:\s+the)?\s+volume|volume\s+down|(?:make\s+it\s+)?(?:quieter|softer))$",
+    r"^(?:please\s+)?(?:turn\s+(?:(?:the|my|our)\s+)?volume\s+down|"
+    r"turn\s+it\s+down|"
+    r"turn\s+down(?:\s+(?:the|my|our))?\s+volume|"
+    r"lower(?:\s+(?:the|my|our))?\s+volume|"
+    r"decrease(?:\s+(?:the|my|our))?\s+volume|"
+    r"reduce(?:\s+(?:the|my|our))?\s+volume|"
+    r"volume\s+down|"
+    r"(?:make\s+it\s+)?(?:quieter|softer))$",
     re.IGNORECASE,
 )
 
 _VOL_SET_RE = re.compile(
-    r"^(?:please\s+)?(?:(?:set|change)\s+(?:the\s+)?(?:volume|audio)(?:\s+to)?\s+(\d+)%?|volume\s+(\d+)%?)$",
+    r"^(?:please\s+)?(?:(?:set|change)\s+(?:(?:the|my|our)\s+)?(?:volume|audio)(?:\s+to)?\s+(\d+)%?|volume\s+(\d+)%?)$",
     re.IGNORECASE,
 )
 
 _VOL_GET_RE = re.compile(
-    r"^(?:what(?:'s|\s+is)\s+(?:the\s+)?(?:volume|audio\s+level)|check\s+(?:the\s+)?(?:volume|audio)|get\s+(?:the\s+)?volume|current\s+volume|volume\s+level|how\s+loud\s+is\s+it)\??$",
+    r"^(?:what(?:'s|\s+is)\s+(?:the\s+)?(?:volume|audio\s+level)|check\s+(?:(?:the|my|our)\s+)?(?:volume|audio)|get\s+(?:(?:the|my|our)\s+)?volume|current\s+volume|volume\s+level|how\s+loud\s+is\s+it)\??$",
     re.IGNORECASE,
 )
+
 
 # Media playback controls
 _MEDIA_RE = re.compile(
@@ -230,6 +249,62 @@ def parse_duration_seconds(amount_str: str, unit_str: str) -> float:
     elif unit in ("h", "hr", "hour"):
         return val * 3600.0
     return val
+
+
+_CANONICAL_DESKTOP_TARGETS = [
+    "increase volume",
+    "decrease volume",
+    "turn volume up",
+    "turn volume down",
+    "mute volume",
+    "unmute volume",
+    "take a screenshot",
+    "pause music",
+    "play music",
+]
+
+
+def _normalize_phrase_for_fuzzy(p: str) -> str:
+    s = p.strip().lower().rstrip("?.!")
+    s = re.sub(r"^(?:please\s+)?", "", s)
+    s = re.sub(r"\b(?:the|my|our|a)\b", "", s)
+    return " ".join(s.split())
+
+
+def find_desktop_typo(prompt: str) -> str | None:
+    """Detect obvious typos or near-matches for supported native desktop commands."""
+    clean = _normalize_phrase_for_fuzzy(prompt)
+    if not clean or len(clean) < 3:
+        return None
+
+    phrase_map = {_normalize_phrase_for_fuzzy(p): p for p in _CANONICAL_DESKTOP_TARGETS}
+
+    # 1. Whole phrase difflib close match
+    matches = difflib.get_close_matches(clean, list(phrase_map.keys()), n=1, cutoff=0.65)
+    if matches:
+        return phrase_map[matches[0]]
+
+    # 2. Token-by-token comparison for equal token counts (e.g. 'increse vol', 'turn volme up')
+    tokens = clean.split()
+    for norm_p, orig in phrase_map.items():
+        v_tokens = norm_p.split()
+        if len(tokens) == len(v_tokens):
+            matched = True
+            for t_in, t_target in zip(tokens, v_tokens):
+                if t_in == t_target:
+                    continue
+                if len(t_in) >= 3 and t_target.startswith(t_in):
+                    continue
+                if len(t_target) >= 3 and t_in.startswith(t_target):
+                    continue
+                if difflib.SequenceMatcher(None, t_in, t_target).ratio() >= 0.70:
+                    continue
+                matched = False
+                break
+            if matched:
+                return orig
+
+    return None
 
 
 def detect_assistant_intent(prompt: str, last_turn: Any | None = None) -> DetectedIntent:
@@ -660,6 +735,19 @@ def detect_assistant_intent(prompt: str, last_turn: Any | None = None) -> Detect
             intent_type=AssistantIntentType.MEDIA_CONTROL,
             raw_prompt=prompt,
             extra={"action": action},
+        )
+
+    # 18. Obvious near-match / typo of supported native desktop commands
+    typo_suggestion = find_desktop_typo(s)
+    if typo_suggestion:
+        return DetectedIntent(
+            intent_type=AssistantIntentType.CLARIFICATION,
+            raw_prompt=prompt,
+            extra={
+                "clarification_type": "typo",
+                "message": f"Did you mean '{typo_suggestion}'?",
+                "suggested": typo_suggestion,
+            },
         )
 
     return DetectedIntent(intent_type=AssistantIntentType.UNKNOWN, raw_prompt=prompt)

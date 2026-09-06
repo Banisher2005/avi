@@ -197,3 +197,158 @@ class TestCliRoutingIntegration:
         assert orch.is_assistant_request("generate a command to find python files") is False
         assert orch.is_assistant_request("ls -la /var/log") is False
         assert orch.is_assistant_request("curl -I https://google.com") is False
+
+    # ── Phase 12.2 Part 4: Typo & Near-Match Tests ────────────────────────
+
+    @pytest.mark.parametrize(
+        ("prompt", "expected_suggestion"),
+        [
+            ("incease volume", "increase volume"),
+            ("increse volume", "increase volume"),
+            ("increse vol", "increase volume"),
+            ("turn volme up", "turn volume up"),
+            ("mutee volume", "mute volume"),
+            ("unmutee volume", "unmute volume"),
+        ],
+    )
+    def test_cli_typo_requests_offer_clarification_without_shell(
+        self, capsys, prompt, expected_suggestion
+    ):
+        """Typos in desktop commands must offer clarification and NEVER generate shell commands."""
+        mock_router = MagicMock()
+        mock_router.route.side_effect = AssertionError(
+            "Router.route() must NOT be called for desktop typos"
+        )
+
+        with patch("avi.cli.Router", return_value=mock_router):
+            code = main([prompt])
+
+        assert code == 0
+        captured = capsys.readouterr()
+        assert "Did you mean" in captured.out
+        assert expected_suggestion in captured.out
+        assert "sudo" not in captured.out
+        assert "hdparm" not in captured.out
+        assert "Command:" not in captured.out
+        assert "[Blocked:" not in captured.out
+        assert "Execute? [y/N]" not in captured.out
+
+    # ── Phase 12.2 Part 5: Mute & Unmute Natural Language Variants ────────
+
+    @pytest.mark.parametrize(
+        "prompt",
+        [
+            "mute",
+            "mute volume",
+            "mute my volume",
+            "mute the volume",
+            "silence the volume",
+        ],
+    )
+    def test_cli_mute_natural_variants_route_to_capability(self, capsys, prompt):
+        """All natural variants of mute must route directly to desktop.volume.set (action=mute)."""
+        mock_router = MagicMock()
+        mock_router.route.side_effect = AssertionError(
+            "Router.route() must NOT be called for mute intent"
+        )
+
+        with (
+            patch("avi.cli.Router", return_value=mock_router),
+            patch(
+                "avi.capabilities.desktop.system_controls.shutil.which",
+                return_value="/usr/bin/wpctl",
+            ),
+            patch("avi.capabilities.desktop.system_controls.subprocess.run") as mock_subproc,
+        ):
+            mock_subproc.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+            code = main([prompt])
+
+        assert code == 0
+        captured = capsys.readouterr()
+        assert "muted" in captured.out.lower()
+        assert "sudo" not in captured.out
+        assert "amixer" not in captured.out
+        assert "Command:" not in captured.out
+
+    @pytest.mark.parametrize(
+        "prompt",
+        [
+            "unmute",
+            "unmute volume",
+            "unmute my volume",
+            "unmute the volume",
+            "turn sound back on",
+        ],
+    )
+    def test_cli_unmute_natural_variants_route_to_capability(self, capsys, prompt):
+        """All natural variants of unmute must route directly to desktop.volume.set (action=unmute)."""
+        mock_router = MagicMock()
+        mock_router.route.side_effect = AssertionError(
+            "Router.route() must NOT be called for unmute intent"
+        )
+
+        with (
+            patch("avi.cli.Router", return_value=mock_router),
+            patch(
+                "avi.capabilities.desktop.system_controls.shutil.which",
+                return_value="/usr/bin/wpctl",
+            ),
+            patch("avi.capabilities.desktop.system_controls.subprocess.run") as mock_subproc,
+        ):
+            mock_subproc.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+            code = main([prompt])
+
+        assert code == 0
+        captured = capsys.readouterr()
+        assert "unmuted" in captured.out.lower()
+        assert "sudo" not in captured.out
+        assert "amixer" not in captured.out
+        assert "Command:" not in captured.out
+
+    # ── Phase 12.2 Part 6 & 7: UI Runtime & Single-Instance Tests ─────────
+
+    def test_cli_activate_delegates_with_system_fallback(self):
+        """'avi activate' must invoke AviApp with allow_system_fallback=True."""
+        with patch("avi.ui.AviApp.run") as mock_app_run:
+            mock_app_run.return_value = 0
+            code = main(["activate"])
+
+        assert code == 0
+        mock_app_run.assert_called_once_with(allow_system_fallback=True)
+
+    def test_ui_app_sets_pythonpath_on_system_fallback(self):
+        """AviApp.run() must inject src into PYTHONPATH when delegating to system Python."""
+        from avi.ui.app import AviApp
+        from avi.ui.detector import GtkEnvironmentReport
+
+        fake_report = GtkEnvironmentReport(
+            python_executable="/home/user/.venv/bin/python3",
+            python_version="3.12.0",
+            is_virtualenv=True,
+            gi_importable=False,
+            gtk4_available=False,
+            display_available=True,
+            system_python_has_gtk4=True,
+            system_python_path="/usr/bin/python3",
+            system_python_version="3.14.0",
+            diagnostic_message="test",
+        )
+
+        app = AviApp(router=MagicMock(), config=Config())
+        with (
+            patch("avi.ui.app._GTK_AVAILABLE", False),
+            patch("avi.ui.app.diagnose_gtk_environment", return_value=fake_report),
+            patch("avi.ui.app.subprocess.run") as mock_subproc,
+        ):
+            mock_subproc.return_value = MagicMock(returncode=0)
+            code = app.run(allow_system_fallback=True)
+
+        assert code == 0
+        mock_subproc.assert_called_once()
+        call_cmd = mock_subproc.call_args[0][0]
+        call_env = mock_subproc.call_args[1]["env"]
+        assert call_cmd == ["/usr/bin/python3", "-m", "avi.cli", "ui"]
+        assert "PYTHONPATH" in call_env
+        assert "src" in call_env["PYTHONPATH"]

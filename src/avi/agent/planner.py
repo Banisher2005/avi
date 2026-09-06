@@ -223,7 +223,11 @@ class AgentPlanner:
             )
 
         # Volume controls
-        if re.match(r"^(?:please\s+)?mute(?:\s+(?:the\s+)?volume)?$", lower):
+        if re.match(
+            r"^(?:please\s+)?(?:mute|silence)(?:\s+(?:the|my|our)\s+|\s+)?(?:volume|audio|sound)?$|"
+            r"^(?:please\s+)?turn\s+off\s+(?:the\s+|my\s+|our\s+)?(?:sound|audio|volume)$",
+            lower,
+        ):
             return Plan(
                 user_goal=clean,
                 steps=[
@@ -235,7 +239,14 @@ class AgentPlanner:
                     )
                 ],
             )
-        if re.match(r"^(?:please\s+)?unmute(?:\s+(?:the\s+)?volume)?$", lower):
+        if re.match(
+            r"^(?:please\s+)?unmute(?:\s+(?:the|my|our)\s+|\s+)?(?:volume|audio|sound)?$|"
+            r"^(?:please\s+)?turn\s+(?:the\s+|my\s+|our\s+)?(?:sound|audio)\s+back\s+on$|"
+            r"^(?:please\s+)?turn\s+(?:on\s+)?(?:the\s+|my\s+|our\s+)?(?:sound|audio)\s+on$|"
+            r"^(?:please\s+)?turn\s+(?:the\s+|my\s+|our\s+)?(?:sound|audio)\s+on$|"
+            r"^(?:please\s+)?restore\s+(?:the\s+|my\s+|our\s+)?(?:sound|audio|volume)$",
+            lower,
+        ):
             return Plan(
                 user_goal=clean,
                 steps=[

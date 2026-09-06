@@ -105,6 +105,23 @@ class AssistantOrchestrator:
         if self.planner.create_plan(normalized_prompt) is not None:
             return True
 
+        # 5. Desktop domain boundary: prevent desktop action terms from falling through to shell generator
+        desktop_keywords = {
+            "volume",
+            "volme",
+            "vol",
+            "sound",
+            "audio",
+            "screenshot",
+            "screnshot",
+            "screeshot",
+            "mute",
+            "unmute",
+        }
+        lower_tokens = set(re.findall(r"\b\w+\b", normalized_prompt.lower()))
+        if lower_tokens.intersection(desktop_keywords):
+            return True
+
         return False
 
     def handle(
@@ -599,6 +616,33 @@ class AssistantOrchestrator:
                                 ),
                                 context=context,
                             )
+
+        # ── Step 2.5: Desktop domain boundary ────────────────────────────
+        # Prevent unresolved desktop requests from falling through to LLM shell generator
+        if result is None:
+            desktop_keywords = {
+                "volume",
+                "volme",
+                "vol",
+                "sound",
+                "audio",
+                "screenshot",
+                "screnshot",
+                "screeshot",
+                "mute",
+                "unmute",
+            }
+            lower_tokens = set(re.findall(r"\b\w+\b", normalized_prompt.lower()))
+            if lower_tokens.intersection(desktop_keywords):
+                result = OrchestratorResult(
+                    text=(
+                        "Could you clarify your desktop request? For volume, you can say "
+                        "'increase volume', 'decrease volume', 'mute', or 'set volume to 50%'. "
+                        "For screenshots, say 'take a screenshot'."
+                    ),
+                    metrics=ResponseMetrics(total_duration_ms=(time.perf_counter() - t0) * 1000.0),
+                    context=context,
+                )
 
         # ── Step 3: Fallback to Router (Deterministic Fast-Path, Tools, LLM) ──
         if result is None:

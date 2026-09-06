@@ -194,13 +194,13 @@ def run_hotkey(args: Sequence[str] | None = None) -> int:
     return 0
 
 
-def run_ui(args: Sequence[str] | None = None) -> int:
+def run_ui(args: Sequence[str] | None = None, is_activate: bool = False) -> int:
     """Launch the AVI GTK4 desktop popup window."""
     from avi.ui import AviApp
 
     parser = argparse.ArgumentParser(
-        prog="avi ui",
-        description="Launch the AVI keyboard-first desktop popup window (GTK4).",
+        prog="avi ui" if not is_activate else "avi activate",
+        description="Launch or activate the AVI keyboard-first desktop popup window (GTK4).",
     )
     parser.add_argument(
         "-p",
@@ -234,8 +234,9 @@ def run_ui(args: Sequence[str] | None = None) -> int:
     config = Config.load(**overrides)
     router = Router(config)
     orchestrator = AssistantOrchestrator(config=config, router=router)
+    allow_fallback = opts.use_system_python or is_activate
     return AviApp(router, config, orchestrator=orchestrator).run(
-        allow_system_fallback=opts.use_system_python
+        allow_system_fallback=allow_fallback
     )
 
 
@@ -248,7 +249,9 @@ def run_cli(argv: Sequence[str] | None = None) -> int:
             return run_gateway(args_list[1:])
         elif first == "hotkey":
             return run_hotkey(args_list[1:])
-        elif first in ("ui", "activate"):
+        elif first == "activate":
+            return run_ui(args_list[1:], is_activate=True)
+        elif first == "ui":
             return run_ui(args_list[1:])
 
     parser = build_parser()

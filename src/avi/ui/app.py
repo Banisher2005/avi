@@ -3,6 +3,7 @@
 import os
 import subprocess
 import sys
+from pathlib import Path
 from typing import Any
 
 from avi.ui.detector import diagnose_gtk_environment
@@ -34,9 +35,14 @@ class AviApp:
                 and report.system_python_has_gtk4
                 and report.system_python_path
             ):
-                # Delegate to the system python which has GTK4 bindings
-                cmd = [report.system_python_path, "-m", "avi.cli", "ui"]
+                # Clean subprocess boundary to system Python which has PyGObject / GTK4 bindings
+                src_path = str(Path(__file__).resolve().parent.parent.parent)
                 env = dict(os.environ)
+                existing_pythonpath = env.get("PYTHONPATH", "")
+                env["PYTHONPATH"] = (
+                    f"{src_path}:{existing_pythonpath}" if existing_pythonpath else src_path
+                )
+                cmd = [report.system_python_path, "-m", "avi.cli", "ui"]
                 proc = subprocess.run(cmd, env=env)
                 return proc.returncode
 
