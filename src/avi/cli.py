@@ -7,6 +7,7 @@ from typing import Sequence
 from avi import __version__
 from avi.config import Config
 from avi.core.router import Router
+from avi.core.session import InteractiveSession
 from avi.providers.ollama import OllamaError
 
 
@@ -20,7 +21,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "prompt",
         nargs="*",
-        help="Prompt or instruction for AVI (e.g. 'what command shows the current directory?')",
+        help="Prompt or instruction for AVI. If omitted, launches an interactive session.",
     )
     parser.add_argument(
         "-v",
@@ -56,15 +57,10 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    """Main CLI execution handler."""
+def run_cli(argv: Sequence[str] | None = None) -> int:
+    """Internal CLI execution logic."""
     parser = build_parser()
     args = parser.parse_args(argv)
-
-    raw_prompt = " ".join(args.prompt).strip() if args.prompt else ""
-    if not raw_prompt:
-        parser.print_help()
-        return 0
 
     # Build config from environment/defaults + CLI overrides
     overrides = {}
@@ -80,31 +76,43 @@ def main(argv: Sequence[str] | None = None) -> int:
     config = Config.load(**overrides)
     router = Router(config)
 
+    raw_prompt = " ".join(args.prompt).strip() if args.prompt else ""
+
+    # Interactive mode when no prompt is supplied
+    if not raw_prompt:
+        session = InteractiveSession(router, config)
+        return session.run()
+
+    # Single-shot execution mode
+    if config.stream:
+        last_char = ""
+        for chunk in router.route(raw_prompt, stream=True):
+            sys.stdout.write(chunk)
+            sys.stdout.flush()
+            if chunk:
+                last_char = chunk[-1]
+        if last_char and last_char != "\n":
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+    else:
+        resp = router.route_full(raw_prompt)
+        if resp.text:
+            sys.stdout.write(resp.text.rstrip("\n") + "\n")
+            sys.stdout.flush()
+
+    if config.show_timing:
+        metrics = router.last_metrics
+        if metrics is not None and metrics.total_duration_ms is not None:
+            sys.stderr.write(f"[Response: {metrics.total_duration_ms:.0f} ms]\n")
+            sys.stderr.flush()
+
+    return 0
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Main CLI entry point with top-level error boundary."""
     try:
-        if config.stream:
-            last_char = ""
-            for chunk in router.route(raw_prompt, stream=True):
-                sys.stdout.write(chunk)
-                sys.stdout.flush()
-                if chunk:
-                    last_char = chunk[-1]
-            if last_char and last_char != "\n":
-                sys.stdout.write("\n")
-                sys.stdout.flush()
-        else:
-            resp = router.route_full(raw_prompt)
-            if resp.text:
-                sys.stdout.write(resp.text.rstrip("\n") + "\n")
-                sys.stdout.flush()
-
-        if config.show_timing:
-            metrics = router.last_metrics
-            if metrics is not None and metrics.total_duration_ms is not None:
-                sys.stderr.write(f"[Response: {metrics.total_duration_ms:.0f} ms]\n")
-                sys.stderr.flush()
-
-        return 0
-
+        return run_cli(argv)
     except OllamaError as err:
         sys.stderr.write(f"Error: {err}\n")
         sys.stderr.flush()
@@ -113,6 +121,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         sys.stderr.write("\nAborted.\n")
         sys.stderr.flush()
         return 130
+    except Exception as err:
+        sys.stderr.write(f"Unexpected error: {err}\n")
+        sys.stderr.flush()
+        return 1
 
 
 if __name__ == "__main__":
