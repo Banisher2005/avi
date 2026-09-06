@@ -1,8 +1,6 @@
 """Systemd user service and desktop shortcut generation for AVI."""
 
-import os
 import shutil
-from pathlib import Path
 from typing import Any
 
 from avi.hotkey.detector import detect_desktop_environment
@@ -69,7 +67,7 @@ def get_hotkey_instructions() -> dict[str, Any]:
             "Under X11, you can bind a global hotkey via your desktop environment shortcut settings "
             "or use standard tools like xbindkeys:\n\n"
             "Add to ~/.xbindkeysrc:\n"
-            "  \"xterm -e avi\"\n"
+            '  "xterm -e avi"\n'
             "  Control + space"
         )
     else:

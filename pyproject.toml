@@ -41,6 +41,7 @@ ui = []
 # Development and testing
 dev = [
     "pytest>=8.0.0",
+    "ruff>=0.1.0",
 ]
 # All optional groups combined
 all = []

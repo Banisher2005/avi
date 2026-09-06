@@ -2,11 +2,11 @@
 
 from avi.providers.antigravity import AntigravityProvider
 from avi.providers.base import (
+    AgentRequest,
+    AgentResponse,
     AIProvider,
     BaseProvider,
     LLMProvider,
-    AgentRequest,
-    AgentResponse,
     ProviderCapabilities,
     ProviderHealth,
     ProviderResponse,

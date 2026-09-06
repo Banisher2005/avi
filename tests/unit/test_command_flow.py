@@ -4,12 +4,9 @@ import io
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from avi.config import Config
 from avi.core.router import Router
 from avi.core.session import InteractiveSession
-from avi.execution.models import CommandRequest, ExecutionResult
 from avi.providers.base import BaseProvider, ProviderResponse, ResponseMetrics
 
 
@@ -197,7 +194,7 @@ def test_fast_path_branch_uses_git_tool():
 def test_malformed_proposal_not_executed(tmp_path):
     config = Config.load()
     # Model generates malformed command syntax with unclosed quote
-    provider = MockProposalProvider("COMMAND: rm \"unclosed quote")
+    provider = MockProposalProvider('COMMAND: rm "unclosed quote')
     router = Router(config, provider=provider)
 
     with patch.object(router, "execute_command") as mock_exec:
@@ -214,5 +211,4 @@ def test_malformed_proposal_not_executed(tmp_path):
 
         code = session.run()
         assert code == 0
-        output = out_stream.getvalue()
         mock_exec.assert_not_called()

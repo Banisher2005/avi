@@ -1,11 +1,8 @@
 """Desktop and system actions for applications, URLs, files, and directories."""
 
-import os
-from pathlib import Path
-import shutil
 import subprocess
-import urllib.parse
 import webbrowser
+from pathlib import Path
 from typing import Sequence
 
 from avi.actions.base import ActionResult, BaseAction

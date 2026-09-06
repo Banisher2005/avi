@@ -115,7 +115,9 @@ class JsonRpcDispatcher:
     def _process_single_request(self, req: Any) -> dict[str, Any] | None:
         """Execute a single JSON-RPC 2.0 request dict."""
         if not isinstance(req, dict):
-            return make_jsonrpc_error(None, INVALID_REQUEST, "Invalid Request: expected JSON object")
+            return make_jsonrpc_error(
+                None, INVALID_REQUEST, "Invalid Request: expected JSON object"
+            )
 
         req_id = req.get("id")
         is_notification = "id" not in req
@@ -124,19 +126,25 @@ class JsonRpcDispatcher:
         if req.get("jsonrpc") != "2.0":
             if is_notification:
                 return None
-            return make_jsonrpc_error(req_id, INVALID_REQUEST, "Invalid Request: jsonrpc must be '2.0'")
+            return make_jsonrpc_error(
+                req_id, INVALID_REQUEST, "Invalid Request: jsonrpc must be '2.0'"
+            )
 
         method = req.get("method")
         if not isinstance(method, str):
             if is_notification:
                 return None
-            return make_jsonrpc_error(req_id, INVALID_REQUEST, "Invalid Request: method must be string")
+            return make_jsonrpc_error(
+                req_id, INVALID_REQUEST, "Invalid Request: method must be string"
+            )
 
         params = req.get("params", {})
         if not isinstance(params, (dict, list)):
             if is_notification:
                 return None
-            return make_jsonrpc_error(req_id, INVALID_PARAMS, "Invalid params: must be object or array")
+            return make_jsonrpc_error(
+                req_id, INVALID_PARAMS, "Invalid params: must be object or array"
+            )
 
         # Optional Auth Token verification
         if self.auth_token:
@@ -146,7 +154,9 @@ class JsonRpcDispatcher:
             if client_token != self.auth_token:
                 if is_notification:
                     return None
-                return make_jsonrpc_error(req_id, AUTH_REQUIRED, "Authentication required: invalid or missing token")
+                return make_jsonrpc_error(
+                    req_id, AUTH_REQUIRED, "Authentication required: invalid or missing token"
+                )
 
         handler = self._methods.get(method)
         if handler is None:
@@ -211,11 +221,13 @@ class JsonRpcDispatcher:
         discovered = self.gateway.list_tools()
         tools_list: list[dict[str, Any]] = []
         for t in discovered:
-            tools_list.append({
-                "name": t["name"],
-                "description": t["description"],
-                "inputSchema": t["input_schema"],
-            })
+            tools_list.append(
+                {
+                    "name": t["name"],
+                    "description": t["description"],
+                    "inputSchema": t["input_schema"],
+                }
+            )
         return {"tools": tools_list}
 
     def _handle_tools_call(self, params: Any, req_id: Any) -> dict[str, Any]:

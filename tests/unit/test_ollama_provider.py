@@ -4,7 +4,7 @@ import io
 import json
 import socket
 import urllib.error
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -57,16 +57,19 @@ def test_ollama_provider_stream_success():
     stream_lines = [
         json.dumps({"response": "p", "done": False}) + "\n",
         json.dumps({"response": "wd", "done": False}) + "\n",
-        json.dumps({
-            "response": "",
-            "done": True,
-            "total_duration": 150_000_000,
-            "load_duration": 1_000_000,
-            "prompt_eval_duration": 50_000_000,
-            "eval_duration": 90_000_000,
-            "prompt_eval_count": 20,
-            "eval_count": 2,
-        }) + "\n",
+        json.dumps(
+            {
+                "response": "",
+                "done": True,
+                "total_duration": 150_000_000,
+                "load_duration": 1_000_000,
+                "prompt_eval_duration": 50_000_000,
+                "eval_duration": 90_000_000,
+                "prompt_eval_count": 20,
+                "eval_count": 2,
+            }
+        )
+        + "\n",
     ]
 
     with patch("urllib.request.urlopen", return_value=MockHTTPResponse(stream_lines)):
@@ -83,11 +86,16 @@ def test_ollama_provider_stream_success():
 
 def test_ollama_provider_generate_full():
     provider = OllamaProvider()
-    response_body = json.dumps({
-        "response": "pwd",
-        "done": True,
-        "total_duration": 120_000_000,
-    }) + "\n"
+    response_body = (
+        json.dumps(
+            {
+                "response": "pwd",
+                "done": True,
+                "total_duration": 120_000_000,
+            }
+        )
+        + "\n"
+    )
 
     with patch("urllib.request.urlopen", return_value=MockHTTPResponse([response_body])):
         result = provider.generate_full("what command shows current directory?")
@@ -149,7 +157,10 @@ def test_is_available():
     provider = OllamaProvider()
 
     # When available (200)
-    with patch("urllib.request.urlopen", return_value=MockHTTPResponse(['{"version":"0.33.3"}'], status=200)):
+    with patch(
+        "urllib.request.urlopen",
+        return_value=MockHTTPResponse(['{"version":"0.33.3"}'], status=200),
+    ):
         assert provider.is_available() is True
 
     # When unavailable (connection error)
@@ -159,12 +170,17 @@ def test_is_available():
 
 def test_ollama_provider_context_handling():
     provider = OllamaProvider()
-    response_body = json.dumps({
-        "response": "AVI",
-        "done": True,
-        "total_duration": 100_000_000,
-        "context": [101, 102, 103],
-    }) + "\n"
+    response_body = (
+        json.dumps(
+            {
+                "response": "AVI",
+                "done": True,
+                "total_duration": 100_000_000,
+                "context": [101, 102, 103],
+            }
+        )
+        + "\n"
+    )
 
     with patch("urllib.request.urlopen", return_value=MockHTTPResponse([response_body])):
         result = provider.generate_full("what is my project called?", context=[101, 102])
@@ -175,7 +191,10 @@ def test_ollama_provider_context_handling():
 
 def test_ollama_provider_warmup_success():
     provider = OllamaProvider()
-    with patch("urllib.request.urlopen", return_value=MockHTTPResponse(['{"done":true,"done_reason":"load"}'], status=200)):
+    with patch(
+        "urllib.request.urlopen",
+        return_value=MockHTTPResponse(['{"done":true,"done_reason":"load"}'], status=200),
+    ):
         assert provider.warmup() is True
 
 

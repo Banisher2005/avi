@@ -10,7 +10,6 @@ from avi.config import Config
 from avi.providers.base import BaseProvider
 from avi.providers.models import ProviderNotAvailableError
 
-
 ProviderFactory = Callable[[Config, dict[str, Any]], BaseProvider]
 
 
@@ -84,7 +83,9 @@ def _create_ollama_provider(config: Config, **kwargs: Any) -> BaseProvider:
 def _create_antigravity_provider(config: Config, **kwargs: Any) -> BaseProvider:
     from avi.providers.antigravity import AntigravityProvider
 
-    model = kwargs.get("model", getattr(config, "antigravity_model", None) or "gemini-3.8-flash-high")
+    model = kwargs.get(
+        "model", getattr(config, "antigravity_model", None) or "gemini-3.8-flash-high"
+    )
     binary = kwargs.get("binary", getattr(config, "antigravity_bin", None))
     timeout = kwargs.get("timeout", config.timeout)
     runner = kwargs.get("runner")

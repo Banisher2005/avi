@@ -88,9 +88,7 @@ def test_cli_connection_error(capsys):
 
 def test_cli_model_not_found_error(capsys):
     mock_router = MagicMock()
-    mock_router.route.side_effect = OllamaModelNotFoundError(
-        "Model 'missing' not found in Ollama"
-    )
+    mock_router.route.side_effect = OllamaModelNotFoundError("Model 'missing' not found in Ollama")
 
     with patch("avi.cli.Router", return_value=mock_router):
         code = main(["what command shows current directory?"])

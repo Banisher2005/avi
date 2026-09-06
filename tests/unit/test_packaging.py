@@ -24,6 +24,7 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 # 1. Version consistency
 # ============================================================
 
+
 class TestVersionConsistency:
     """pyproject.toml version must equal avi.__version__."""
 
@@ -37,6 +38,7 @@ class TestVersionConsistency:
 
     def test_versions_match(self):
         import avi
+
         toml_ver = self._read_toml_version()
         assert avi.__version__ == toml_ver, (
             f"pyproject.toml version {toml_ver!r} != avi.__version__ {avi.__version__!r}"
@@ -44,6 +46,7 @@ class TestVersionConsistency:
 
     def test_version_is_semver(self):
         import avi
+
         parts = avi.__version__.split(".")
         assert len(parts) == 3, f"Expected semver x.y.z, got {avi.__version__!r}"
         assert all(p.isdigit() for p in parts), f"Non-numeric version part in {avi.__version__!r}"
@@ -51,6 +54,7 @@ class TestVersionConsistency:
     def test_version_minimum(self):
         """Must be >= 0.2.0 (Phase 10 baseline)."""
         import avi
+
         major, minor, patch = (int(x) for x in avi.__version__.split(".")[:3])
         assert (major, minor, patch) >= (0, 2, 0), f"Version {avi.__version__} too old"
 
@@ -110,6 +114,7 @@ def test_module_importable(module_name: str):
 # 3. CLI entry-point
 # ============================================================
 
+
 class TestCliEntryPoint:
     """The 'avi' script entry-point must work."""
 
@@ -136,11 +141,13 @@ class TestCliEntryPoint:
 
     def test_main_callable(self):
         from avi.cli import main
+
         assert callable(main)
 
     def test_main_returns_int(self):
         """main(['--help']) exits via SystemExit with an integer code."""
         from avi.cli import main
+
         with pytest.raises(SystemExit) as exc_info:
             main(["--help"])
         # argparse --help exits with 0
@@ -151,6 +158,7 @@ class TestCliEntryPoint:
 # ============================================================
 # 4. Package files
 # ============================================================
+
 
 class TestPackageFiles:
     """Required distribution files must exist and have expected content."""
@@ -163,10 +171,9 @@ class TestPackageFiles:
 
     def test_changelog_has_current_version(self):
         import avi
+
         changelog = (PROJECT_ROOT / "CHANGELOG.md").read_text()
-        assert avi.__version__ in changelog, (
-            f"CHANGELOG.md must contain version {avi.__version__}"
-        )
+        assert avi.__version__ in changelog, f"CHANGELOG.md must contain version {avi.__version__}"
 
     def test_license_exists(self):
         assert (PROJECT_ROOT / "LICENSE").is_file()
@@ -215,6 +222,7 @@ class TestPackageFiles:
 # 5. GitHub Actions workflows
 # ============================================================
 
+
 class TestGitHubWorkflows:
     """CI and Release workflow files must exist and be well-formed YAML."""
 
@@ -255,6 +263,7 @@ class TestGitHubWorkflows:
 # ============================================================
 # 6. Build sanity (wheel can be built)
 # ============================================================
+
 
 class TestBuildSanity:
     """Verify the wheel build produces expected outputs."""

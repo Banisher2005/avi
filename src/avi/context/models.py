@@ -1,7 +1,6 @@
 """Data models for terminal and repository context."""
 
 from dataclasses import dataclass
-from typing import Any
 
 
 @dataclass
@@ -14,12 +13,7 @@ class TerminalContext:
 
     def format_text(self) -> str:
         """Format as concise key-value lines."""
-        return (
-            f"[terminal]\n"
-            f"cwd={self.cwd}\n"
-            f"shell={self.shell}\n"
-            f"os={self.os_name}"
-        )
+        return f"[terminal]\ncwd={self.cwd}\nshell={self.shell}\nos={self.os_name}"
 
 
 @dataclass

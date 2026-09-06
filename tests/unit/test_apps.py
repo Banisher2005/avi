@@ -1,8 +1,6 @@
 """Unit tests for ApplicationResolver and application models."""
 
-import os
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -76,10 +74,7 @@ class TestApplicationResolverDesktopEntries:
     def test_ignores_hidden_and_nodisplay_entries(self, tmp_path):
         hidden_file = tmp_path / "hidden.desktop"
         hidden_file.write_text(
-            "[Desktop Entry]\n"
-            "Name=Hidden Tool\n"
-            "Exec=hidden-tool\n"
-            "NoDisplay=true\n"
+            "[Desktop Entry]\nName=Hidden Tool\nExec=hidden-tool\nNoDisplay=true\n"
         )
 
         resolver = ApplicationResolver(desktop_dirs=[tmp_path])
@@ -90,14 +85,24 @@ class TestApplicationResolverDesktopEntries:
 class TestApplicationResolverResolution:
     def test_resolves_alias_via_path(self):
         resolver = ApplicationResolver(desktop_dirs=[])
-        with patch("shutil.which", side_effect=lambda bin_name: f"/usr/bin/{bin_name}" if bin_name == "brave-origin" else None):
+        with patch(
+            "shutil.which",
+            side_effect=lambda bin_name: (
+                f"/usr/bin/{bin_name}" if bin_name == "brave-origin" else None
+            ),
+        ):
             res = resolver.resolve("open brave")
             assert res.installed is True
             assert res.executable == "/usr/bin/brave-origin"
 
     def test_resolves_antigravity_to_agy(self):
         resolver = ApplicationResolver()
-        with patch("shutil.which", side_effect=lambda bin_name: f"/home/user/.local/bin/{bin_name}" if bin_name == "agy" else None):
+        with patch(
+            "shutil.which",
+            side_effect=lambda bin_name: (
+                f"/home/user/.local/bin/{bin_name}" if bin_name == "agy" else None
+            ),
+        ):
             res = resolver.resolve("open antigravity")
             assert res.installed is True
             assert res.executable == "/home/user/.local/bin/agy"

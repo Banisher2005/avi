@@ -8,9 +8,9 @@ import urllib.request
 from typing import Any, Iterator
 
 from avi.providers.base import (
-    BaseProvider,
     AgentRequest,
     AgentResponse,
+    BaseProvider,
     ProviderCapabilities,
     ProviderHealth,
     ProviderResponse,
@@ -27,26 +27,31 @@ from avi.providers.models import (
 
 class OllamaError(ProviderError):
     """Base exception for Ollama provider errors."""
+
     pass
 
 
 class OllamaConnectionError(OllamaError, ProviderConnectionError):
     """Raised when Ollama is unreachable or connection is refused."""
+
     pass
 
 
 class OllamaModelNotFoundError(OllamaError, ProviderModelNotFoundError):
     """Raised when the specified model is not found in Ollama."""
+
     pass
 
 
 class OllamaTimeoutError(OllamaError, ProviderTimeoutError):
     """Raised when a request to Ollama times out."""
+
     pass
 
 
 class OllamaAPIError(OllamaError, ProviderAPIError):
     """Raised when Ollama returns an unexpected API error."""
+
     pass
 
 
@@ -105,7 +110,9 @@ class OllamaProvider(BaseProvider):
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
         return ProviderHealth(
             healthy=healthy,
-            message="Ollama server ready" if healthy else f"Cannot connect to Ollama at {self.host}",
+            message="Ollama server ready"
+            if healthy
+            else f"Cannot connect to Ollama at {self.host}",
             latency_ms=elapsed_ms if healthy else None,
             details={"host": self.host, "model": self.model},
         )
@@ -276,7 +283,9 @@ class OllamaProvider(BaseProvider):
         context: list[int] | None = None,
     ) -> ProviderResponse:
         """Generate a complete response with timing metrics and context."""
-        chunks = list(self.generate(prompt=prompt, system_prompt=system_prompt, context=context, stream=False))
+        chunks = list(
+            self.generate(prompt=prompt, system_prompt=system_prompt, context=context, stream=False)
+        )
         return ProviderResponse(
             text="".join(chunks),
             metrics=self.last_metrics,
@@ -287,8 +296,7 @@ class OllamaProvider(BaseProvider):
         """Handle error messages in Ollama JSON response."""
         if "not found" in error_message.lower():
             raise OllamaModelNotFoundError(
-                f"Model '{self.model}' not found in Ollama. "
-                f"Pull it using: ollama pull {self.model}"
+                f"Model '{self.model}' not found in Ollama. Pull it using: ollama pull {self.model}"
             )
         raise OllamaAPIError(f"Ollama error: {error_message}")
 

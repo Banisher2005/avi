@@ -1,8 +1,7 @@
 """Git inspection tools (strictly read-only)."""
 
-import os
-from pathlib import Path
 import subprocess
+from pathlib import Path
 from typing import Any
 
 from avi.context.collectors import collect_git_context

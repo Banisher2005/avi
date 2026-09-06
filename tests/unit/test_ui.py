@@ -12,10 +12,10 @@ import pytest
 from avi.ui import check_display, is_ui_available
 from avi.ui.window import _GTK_AVAILABLE
 
-
 # ============================================================
 # 1. Display & availability probes (no GTK needed)
 # ============================================================
+
 
 class TestDisplayDetection:
     """Tests for display server detection helpers."""
@@ -53,6 +53,7 @@ class TestUiAvailability:
     def test_is_ui_available_no_gtk(self):
         """When _GTK_AVAILABLE is False, is_ui_available must always return False."""
         import avi.ui as ui_mod
+
         old = ui_mod._GTK_AVAILABLE
         ui_mod._GTK_AVAILABLE = False
         try:
@@ -65,6 +66,7 @@ class TestUiAvailability:
 # ============================================================
 # 2. AviApp.run() — headless-safe error paths
 # ============================================================
+
 
 class TestAviAppHeadless:
     """Tests for AviApp.run() in headless / no-GTK environments."""
@@ -111,6 +113,7 @@ class TestAviAppHeadless:
 # 3. CLI ui subcommand
 # ============================================================
 
+
 class TestCliUiSubcommand:
     """Tests for 'avi ui' CLI subcommand dispatch."""
 
@@ -150,8 +153,10 @@ class TestCliUiSubcommand:
             mock_app_cls.return_value = mock_instance
 
             # cli.run_ui imports AviApp from avi.ui.app via the module
-            with patch("avi.ui.app._GTK_AVAILABLE", True), \
-                 patch("avi.ui.app.check_display", return_value=True):
+            with (
+                patch("avi.ui.app._GTK_AVAILABLE", True),
+                patch("avi.ui.app.check_display", return_value=True),
+            ):
                 # Also need to patch the AviApp used in run_ui
                 with patch("avi.cli.run_ui") as mock_run_ui:
                     mock_run_ui.return_value = 0
@@ -164,11 +169,13 @@ class TestCliUiSubcommand:
 # 4. CSS and window constants sanity check
 # ============================================================
 
+
 class TestUiConstants:
     """Sanity checks for CSS and window constants."""
 
     def test_css_style_is_bytes(self):
         from avi.ui.window import CSS_STYLE
+
         assert isinstance(CSS_STYLE, bytes)
         assert b"avi-prompt-entry" in CSS_STYLE
         assert b"avi-response-view" in CSS_STYLE
@@ -176,11 +183,13 @@ class TestUiConstants:
 
     def test_gtk_available_is_bool(self):
         from avi.ui.window import _GTK_AVAILABLE
+
         assert isinstance(_GTK_AVAILABLE, bool)
         # Just confirm it's a bool — value depends on runtime environment
 
     def test_check_display_imported(self):
         from avi.ui.window import check_display
+
         assert callable(check_display)
 
 
@@ -188,14 +197,17 @@ class TestUiConstants:
 # 5. GTK-specific tests (skipped when GTK4 not in venv)
 # ============================================================
 
+
 @pytest.mark.skipif(not _GTK_AVAILABLE, reason="GTK4 not available in this Python environment")
 class TestGtkWindow:
     """Tests that require GTK4 to be installed in the Python environment."""
 
     def test_avi_window_can_import(self):
         from avi.ui.window import AviWindow
+
         assert AviWindow is not None
 
     def test_avi_app_can_import(self):
         from avi.ui.app import AviApp
+
         assert AviApp is not None

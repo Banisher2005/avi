@@ -47,14 +47,17 @@ class ProcessesTool(BaseTool):
                 timeout=1.5,
             )
             if proc.returncode != 0:
-                return ToolResult(success=False, error=f"ps execution failed: {proc.stderr.strip()}")
+                return ToolResult(
+                    success=False, error=f"ps execution failed: {proc.stderr.strip()}"
+                )
 
             lines = proc.stdout.strip().splitlines()
             if len(lines) <= 1:
-                return ToolResult(success=True, data=[], display_override="No process information returned.")
+                return ToolResult(
+                    success=True, data=[], display_override="No process information returned."
+                )
 
-            # Skip header line
-            header = lines[0]
+            # Skip header line, process rows
             process_rows: list[dict[str, Any]] = []
 
             for line in lines[1 : limit + 1]:
@@ -65,12 +68,14 @@ class ProcessesTool(BaseTool):
                         comm = parts[1]
                         cpu = float(parts[2])
                         mem = float(parts[3])
-                        process_rows.append({
-                            "pid": pid,
-                            "name": comm,
-                            "cpu_percent": cpu,
-                            "memory_percent": mem,
-                        })
+                        process_rows.append(
+                            {
+                                "pid": pid,
+                                "name": comm,
+                                "cpu_percent": cpu,
+                                "memory_percent": mem,
+                            }
+                        )
                     except ValueError:
                         continue
 
@@ -137,7 +142,9 @@ class DiskUsageTool(BaseTool):
                 display_override="\n".join(lines),
             )
         except (OSError, ValueError) as err:
-            return ToolResult(success=False, error=f"Could not inspect disk usage for '{path}': {err}")
+            return ToolResult(
+                success=False, error=f"Could not inspect disk usage for '{path}': {err}"
+            )
 
 
 class SystemInfoTool(BaseTool):

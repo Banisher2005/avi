@@ -1,16 +1,17 @@
 """Unit tests for AI Provider abstraction, models, registry, and adapters."""
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
+
 import pytest
 
 from avi.config import Config
 from avi.core.router import Router
 from avi.execution import CommandRequest
 from avi.providers import (
-    AIProvider,
     AgentRequest,
     AgentResponse,
+    AIProvider,
     AntigravityProvider,
     BaseProvider,
     LocalProvider,
@@ -32,19 +33,17 @@ from avi.providers import (
     ResponseMetrics,
     ToolCall,
     create_default_provider_registry,
-    get_default_registry,
     get_provider,
     list_providers,
     register_provider,
     remove_provider,
 )
 from avi.safety import RiskLevel
-from avi.tools.base import ToolResult
-
 
 # ---------------------------------------------------------------------------
 # Fake Providers for Provider Independence Testing
 # ---------------------------------------------------------------------------
+
 
 class FakeProviderA(BaseProvider):
     """Deterministic Fake Provider A."""
@@ -180,6 +179,7 @@ class ToolCallingProvider(BaseProvider):
 # 1. Provider Abstraction & Model Tests
 # ---------------------------------------------------------------------------
 
+
 def test_ai_provider_alias():
     assert AIProvider is BaseProvider
 
@@ -205,7 +205,9 @@ def test_provider_capabilities_model():
 
 
 def test_provider_health_model():
-    health = ProviderHealth(healthy=True, message="Operational", latency_ms=15.2, details={"version": "1.0"})
+    health = ProviderHealth(
+        healthy=True, message="Operational", latency_ms=15.2, details={"version": "1.0"}
+    )
     assert health.healthy is True
     assert health.message == "Operational"
     assert health.latency_ms == 15.2
@@ -220,7 +222,9 @@ def test_tool_call_model():
 
 
 def test_agent_request_and_response():
-    req = AgentRequest(prompt="check system status", system_prompt="be concise", context=None, stream=False)
+    req = AgentRequest(
+        prompt="check system status", system_prompt="be concise", context=None, stream=False
+    )
     assert req.prompt == "check system status"
     assert req.system_prompt == "be concise"
     assert req.stream is False
@@ -238,7 +242,9 @@ def test_agent_request_and_response():
 
 
 def test_backwards_compatibility_provider_response():
-    resp = ProviderResponse(text="test text", metrics=ResponseMetrics(total_duration_ms=5.0), context=[1, 2])
+    resp = ProviderResponse(
+        text="test text", metrics=ResponseMetrics(total_duration_ms=5.0), context=[1, 2]
+    )
     assert resp.text == "test text"
     assert resp.metrics.total_duration_ms == 5.0
     assert resp.context == [1, 2]
@@ -288,6 +294,7 @@ def test_base_provider_default_methods():
 # 2. Exception Hierarchy Tests
 # ---------------------------------------------------------------------------
 
+
 def test_exception_hierarchy():
     assert issubclass(OllamaError, ProviderError)
     assert issubclass(OllamaConnectionError, (OllamaError, ProviderConnectionError))
@@ -300,6 +307,7 @@ def test_exception_hierarchy():
 # ---------------------------------------------------------------------------
 # 3. Provider Registry Tests
 # ---------------------------------------------------------------------------
+
 
 def test_default_provider_registry():
     registry = create_default_provider_registry()
@@ -353,6 +361,7 @@ def test_global_registry_functions():
 # 4. LocalProvider / OllamaProvider Tests
 # ---------------------------------------------------------------------------
 
+
 def test_local_provider_is_ollama_provider():
     assert LocalProvider is OllamaProvider
 
@@ -382,6 +391,7 @@ def test_ollama_provider_health_check():
 # ---------------------------------------------------------------------------
 # 5. Antigravity Adapter Tests
 # ---------------------------------------------------------------------------
+
 
 def test_antigravity_provider_capabilities():
     provider = AntigravityProvider()
@@ -435,10 +445,7 @@ def test_antigravity_provider_send_success():
 
 def test_antigravity_provider_send_extracts_structured_tool_call():
     def fake_runner(cmd, timeout):
-        payload = json.dumps({
-            "tool": "filesystem.list_directory",
-            "arguments": {"path": "/tmp"}
-        })
+        payload = json.dumps({"tool": "filesystem.list_directory", "arguments": {"path": "/tmp"}})
         return 0, payload, ""
 
     provider = AntigravityProvider(runner=fake_runner)
@@ -463,6 +470,7 @@ def test_antigravity_provider_error_handling():
 # ---------------------------------------------------------------------------
 # 6. Provider Independence & Provider Switching Tests
 # ---------------------------------------------------------------------------
+
 
 def test_router_works_with_provider_a_and_provider_b():
     config = Config.load()
@@ -499,6 +507,7 @@ def test_router_switching_via_registry():
 # ---------------------------------------------------------------------------
 # 7. SAFETY INVARIANT MUST REMAIN INDEPENDENT OF PROVIDER
 # ---------------------------------------------------------------------------
+
 
 def test_all_providers_route_commands_through_safety_engine():
     """Prove that regardless of provider, command proposals strictly pass through SafetyEngine."""
@@ -541,6 +550,7 @@ def test_all_providers_route_commands_through_safety_engine():
 # 8. Tool Calling Architecture Tests
 # ---------------------------------------------------------------------------
 
+
 def test_router_executes_tool_call_through_tool_registry():
     config = Config.load()
     tool_call = ToolCall(name="system.system_info", arguments={})
@@ -568,6 +578,7 @@ def test_router_handles_unknown_tool_call():
 # 9. Configuration & CLI Integration Tests
 # ---------------------------------------------------------------------------
 
+
 def test_config_provider_environment_variable(monkeypatch):
     monkeypatch.setenv("AVI_PROVIDER", "antigravity")
     config = Config.load()
@@ -585,6 +596,7 @@ def test_config_antigravity_options(monkeypatch):
 # ---------------------------------------------------------------------------
 # 10. Capability Negotiation & Session Tests
 # ---------------------------------------------------------------------------
+
 
 def test_capability_negotiation():
     prov_a = FakeProviderA()
@@ -622,23 +634,30 @@ def test_antigravity_health_check_binary_not_found():
 
 def test_session_handles_generic_provider_error(tmp_path):
     import io
+
     from avi.core.session import InteractiveSession
 
     class FailingProvider(BaseProvider):
         def get_model_name(self):
             return "failing"
+
         def is_available(self):
             return True
+
         def warmup(self):
             return True
+
         @property
         def last_metrics(self):
             return None
+
         @property
         def last_context(self):
             return None
+
         def send(self, request):
             raise ProviderError("Custom provider failed to connect")
+
         def stream(self, request):
             raise ProviderError("Custom provider failed to connect")
 
@@ -664,6 +683,7 @@ def test_session_handles_generic_provider_error(tmp_path):
 def test_provider_fastpath_latency_benchmark():
     """Verify that FastPath in-memory resolution remains ~5.3 µs per resolution."""
     import time
+
     config = Config.load()
     router = Router(config, provider=FakeProviderA())
 

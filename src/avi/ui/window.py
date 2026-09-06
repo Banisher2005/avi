@@ -16,15 +16,16 @@ Key design decisions:
   - All AVI routing happens in a background thread via Router; UI never blocks
 """
 
-import sys
 import threading
 from typing import Any
 
 try:
     import gi
+
     gi.require_version("Gtk", "4.0")
     gi.require_version("Gdk", "4.0")
     from gi.repository import Gdk, GLib, Gtk, Pango
+
     _GTK_AVAILABLE = True
 except (ImportError, ValueError):
     _GTK_AVAILABLE = False
@@ -33,6 +34,7 @@ except (ImportError, ValueError):
 def check_display() -> bool:
     """Return True if a display server (Wayland or X11) is available."""
     import os
+
     return bool(os.getenv("WAYLAND_DISPLAY") or os.getenv("DISPLAY"))
 
 
@@ -106,7 +108,9 @@ window {
 class AviWindow:
     """Main AVI popup window."""
 
-    def __init__(self, app: "Gtk.Application", router: Any, config: Any, orchestrator: Any | None = None) -> None:
+    def __init__(
+        self, app: "Gtk.Application", router: Any, config: Any, orchestrator: Any | None = None
+    ) -> None:
         self.app = app
         self.router = router
         self.config = config
@@ -140,7 +144,9 @@ class AviWindow:
 
         # AVI label / logo
         avi_label = Gtk.Label(label="⚡ AVI")
-        avi_label.set_markup("<span foreground='#89b4fa' font_desc='monospace bold 13'>⚡ AVI</span>")
+        avi_label.set_markup(
+            "<span foreground='#89b4fa' font_desc='monospace bold 13'>⚡ AVI</span>"
+        )
         avi_label.set_margin_start(14)
         avi_label.set_margin_top(10)
         avi_label.set_margin_bottom(10)
@@ -366,9 +372,6 @@ class AviWindow:
     def _run_confirmed_command(self, proposal: Any) -> None:
         """Background: execute a confirmed CONFIRM-level CommandRequest."""
         try:
-            from avi.execution.models import CommandRequest
-            from avi.safety.models import RiskLevel
-
             assessment = self.router.evaluate_command(proposal)
             if assessment.is_blocked:
                 GLib.idle_add(self._show_error, f"Blocked: {assessment.reason}")

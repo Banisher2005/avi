@@ -12,12 +12,11 @@ import time
 from typing import Any, Callable, Iterator
 
 from avi.providers.base import (
-    BaseProvider,
     AgentRequest,
     AgentResponse,
+    BaseProvider,
     ProviderCapabilities,
     ProviderHealth,
-    ProviderResponse,
     ResponseMetrics,
     ToolCall,
 )
@@ -71,12 +70,7 @@ class AntigravityProvider(BaseProvider):
     ) -> None:
         self.model = model
         self.timeout = timeout
-        self.binary = (
-            binary
-            or os.getenv("AVI_ANTIGRAVITY_BIN")
-            or shutil.which("agy")
-            or "agy"
-        )
+        self.binary = binary or os.getenv("AVI_ANTIGRAVITY_BIN") or shutil.which("agy") or "agy"
         self._runner = runner or _default_subprocess_runner
         self._last_metrics: ResponseMetrics | None = None
         self._last_context: Any | None = None

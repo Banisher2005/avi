@@ -17,11 +17,8 @@ from avi.execution.models import CommandRequest
 from avi.gateway.models import (
     GatewayConfirmation,
     GatewayExecutionResponse,
-    GatewayToolDefinition,
 )
-from avi.providers.models import AgentRequest, ToolCall
-from avi.safety.models import RiskLevel
-
+from avi.providers.models import ToolCall
 
 DEFAULT_CONFIRMATION_TTL_SECONDS = 300.0  # 5 minutes
 
@@ -206,7 +203,9 @@ class GatewayCore:
                 "cwd": snapshot.terminal.cwd,
                 "os": snapshot.terminal.os_name,
                 "shell": snapshot.terminal.shell,
-            } if snapshot.terminal else None,
+            }
+            if snapshot.terminal
+            else None,
             "git": {
                 "is_repo": snapshot.git.is_repo,
                 "root": snapshot.git.root,
@@ -214,11 +213,15 @@ class GatewayCore:
                 "is_dirty": snapshot.git.is_dirty,
                 "modified_count": snapshot.git.modified_count,
                 "untracked_count": snapshot.git.untracked_count,
-            } if snapshot.git else None,
+            }
+            if snapshot.git
+            else None,
             "previous_command": {
                 "command": snapshot.previous_command.command,
                 "exit_code": snapshot.previous_command.exit_code,
-            } if snapshot.previous_command else None,
+            }
+            if snapshot.previous_command
+            else None,
         }
 
     # -----------------------------------------------------------------------

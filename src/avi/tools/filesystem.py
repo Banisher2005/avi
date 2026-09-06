@@ -53,19 +53,25 @@ class ListDirectoryTool(BaseTool):
                         is_directory = entry.is_dir(follow_symlinks=False)
                         stat_res = entry.stat(follow_symlinks=False)
                         size = None if is_directory else stat_res.st_size
-                        entries.append({
-                            "name": entry.name,
-                            "type": "dir" if is_directory else "file",
-                            "size_bytes": size,
-                        })
+                        entries.append(
+                            {
+                                "name": entry.name,
+                                "type": "dir" if is_directory else "file",
+                                "size_bytes": size,
+                            }
+                        )
                     except (OSError, PermissionError):
-                        entries.append({
-                            "name": entry.name,
-                            "type": "unknown",
-                            "size_bytes": None,
-                        })
+                        entries.append(
+                            {
+                                "name": entry.name,
+                                "type": "unknown",
+                                "size_bytes": None,
+                            }
+                        )
         except PermissionError:
-            return ToolResult(success=False, error=f"Permission denied accessing directory '{path}'.")
+            return ToolResult(
+                success=False, error=f"Permission denied accessing directory '{path}'."
+            )
         except OSError as err:
             return ToolResult(success=False, error=f"Error reading directory '{path}': {err}")
 
@@ -79,7 +85,9 @@ class ListDirectoryTool(BaseTool):
         else:
             for item in entries:
                 name_display = item["name"] + ("/" if item["type"] == "dir" else "")
-                size_display = "[dir]" if item["type"] == "dir" else format_bytes(item["size_bytes"])
+                size_display = (
+                    "[dir]" if item["type"] == "dir" else format_bytes(item["size_bytes"])
+                )
                 lines.append(f"  {name_display:<32} {size_display}")
 
         structured_data = {
@@ -118,7 +126,9 @@ class FileMetadataTool(BaseTool):
                 return ToolResult(success=False, error=f"File '{target_path}' does not exist.")
 
             stat_res = target_path.stat()
-            mod_dt = datetime.fromtimestamp(stat_res.st_mtime, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+            mod_dt = datetime.fromtimestamp(stat_res.st_mtime, tz=timezone.utc).strftime(
+                "%Y-%m-%d %H:%M:%S UTC"
+            )
             is_file = target_path.is_file()
             is_dir = target_path.is_dir()
             file_type = "file" if is_file else ("dir" if is_dir else "other")
@@ -145,6 +155,8 @@ class FileMetadataTool(BaseTool):
                 display_override="\n".join(lines),
             )
         except PermissionError:
-            return ToolResult(success=False, error=f"Permission denied accessing metadata for '{path}'.")
+            return ToolResult(
+                success=False, error=f"Permission denied accessing metadata for '{path}'."
+            )
         except OSError as err:
             return ToolResult(success=False, error=f"Error inspecting file '{path}': {err}")

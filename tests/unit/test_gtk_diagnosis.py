@@ -3,9 +3,11 @@
 import sys
 from unittest.mock import patch
 
-import pytest
-
-from avi.ui.detector import GtkEnvironmentReport, check_display_server, check_gtk4_in_python, diagnose_gtk_environment
+from avi.ui.detector import (
+    GtkEnvironmentReport,
+    check_display_server,
+    diagnose_gtk_environment,
+)
 
 
 class TestGtkEnvironmentDiagnosis:

@@ -3,49 +3,57 @@
 from dataclasses import dataclass, field
 from typing import Any
 
-
 # ---------------------------------------------------------------------------
 # Provider Exception Hierarchy
 # ---------------------------------------------------------------------------
 
+
 class ProviderError(Exception):
     """Base exception for all AI model provider errors."""
+
     pass
 
 
 class ProviderConnectionError(ProviderError):
     """Raised when provider backend is unreachable or connection is refused."""
+
     pass
 
 
 class ProviderTimeoutError(ProviderError):
     """Raised when a request to a provider times out."""
+
     pass
 
 
 class ProviderModelNotFoundError(ProviderError):
     """Raised when the requested model is not found or not supported."""
+
     pass
 
 
 class ProviderAuthError(ProviderError):
     """Raised on authentication or authorization failure."""
+
     pass
 
 
 class ProviderAPIError(ProviderError):
     """Raised when a provider returns an unexpected API error."""
+
     pass
 
 
 class ProviderNotAvailableError(ProviderError, ValueError):
     """Raised when a requested provider is not installed or available."""
+
     pass
 
 
 # ---------------------------------------------------------------------------
 # Provider Capabilities & Health
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class ProviderCapabilities:
@@ -87,6 +95,7 @@ class ProviderHealth:
 # ---------------------------------------------------------------------------
 # Normalized Tool Calls & Requests / Responses
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class ToolCall:

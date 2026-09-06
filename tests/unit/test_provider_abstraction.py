@@ -3,19 +3,12 @@
 from typing import Any
 from unittest.mock import MagicMock
 
-import pytest
-
 from avi.config import Config
-from avi.core.router import Router
 from avi.providers.base import (
-    AIProvider,
     AgentRequest,
     AgentResponse,
     BaseProvider,
     LLMProvider,
-    ProviderCapabilities,
-    ProviderHealth,
-    ProviderResponse,
     ResponseMetrics,
     ToolCall,
 )

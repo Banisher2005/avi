@@ -196,7 +196,7 @@ def run_hotkey(args: Sequence[str] | None = None) -> int:
 
 def run_ui(args: Sequence[str] | None = None) -> int:
     """Launch the AVI GTK4 desktop popup window."""
-    from avi.ui import AviApp, is_ui_available
+    from avi.ui import AviApp
 
     parser = argparse.ArgumentParser(
         prog="avi ui",
@@ -223,7 +223,6 @@ def run_ui(args: Sequence[str] | None = None) -> int:
     )
     opts = parser.parse_args(args)
 
-    from avi.ui import AviApp
     from avi.orchestrator import AssistantOrchestrator
 
     overrides = {}
@@ -235,7 +234,9 @@ def run_ui(args: Sequence[str] | None = None) -> int:
     config = Config.load(**overrides)
     router = Router(config)
     orchestrator = AssistantOrchestrator(config=config, router=router)
-    return AviApp(router, config, orchestrator=orchestrator).run(allow_system_fallback=opts.use_system_python)
+    return AviApp(router, config, orchestrator=orchestrator).run(
+        allow_system_fallback=opts.use_system_python
+    )
 
 
 def run_cli(argv: Sequence[str] | None = None) -> int:
@@ -269,6 +270,7 @@ def run_cli(argv: Sequence[str] | None = None) -> int:
     config = Config.load(**overrides)
     router = Router(config)
     from avi.orchestrator import AssistantOrchestrator
+
     orchestrator = AssistantOrchestrator(config=config, router=router)
 
     raw_prompt = " ".join(args.prompt).strip() if args.prompt else ""
@@ -281,7 +283,8 @@ def run_cli(argv: Sequence[str] | None = None) -> int:
         return session.run()
 
     # 1. Check Assistant Orchestrator (intents, actions, conversational read-only tools)
-    from avi.assistant.intents import detect_assistant_intent, AssistantIntentType
+    from avi.assistant.intents import AssistantIntentType, detect_assistant_intent
+
     intent = detect_assistant_intent(raw_prompt)
     if intent.intent_type != AssistantIntentType.UNKNOWN:
         res = orchestrator.handle(raw_prompt, auto_execute_actions=True)
@@ -321,7 +324,9 @@ def run_cli(argv: Sequence[str] | None = None) -> int:
         for chunk in stream_iter:
             buffered += chunk
             clean_buf = buffered.strip().upper()
-            if any(clean_buf.startswith(p) for p in ("COMMAND:", "PROPOSAL:", "```JSON", '{"', "{")):
+            if any(
+                clean_buf.startswith(p) for p in ("COMMAND:", "PROPOSAL:", "```JSON", '{"', "{")
+            ):
                 is_proposal = True
                 break
             if len(buffered.strip()) >= 12:

@@ -6,7 +6,7 @@ import sys
 from typing import Any
 
 from avi.ui.detector import diagnose_gtk_environment
-from avi.ui.window import CSS_STYLE, AviWindow, _GTK_AVAILABLE, check_display
+from avi.ui.window import _GTK_AVAILABLE, CSS_STYLE, AviWindow, check_display
 
 
 class AviApp:
@@ -28,12 +28,14 @@ class AviApp:
         """Start the GTK4 event loop. Returns exit code."""
         if not _GTK_AVAILABLE:
             report = diagnose_gtk_environment()
-            if allow_system_fallback and report.system_python_has_gtk4 and report.system_python_path:
+            if (
+                allow_system_fallback
+                and report.system_python_has_gtk4
+                and report.system_python_path
+            ):
                 # Delegate to the system python which has GTK4 bindings
                 cmd = [report.system_python_path, "-m", "avi.cli", "ui"]
                 env = dict(os.environ)
-                # Ensure src is on pythonpath if not globally installed
-                src_dir = str(report.python_executable)
                 proc = subprocess.run(cmd, env=env)
                 return proc.returncode
 
@@ -49,8 +51,9 @@ class AviApp:
 
         # Import GTK here (only reached when _GTK_AVAILABLE is True)
         import gi
+
         gi.require_version("Gtk", "4.0")
-        from gi.repository import Gdk, GLib, Gtk
+        from gi.repository import Gdk, Gtk
 
         app = Gtk.Application(application_id="io.github.banisher2005.avi")
 

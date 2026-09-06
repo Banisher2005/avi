@@ -6,126 +6,132 @@ Evaluates proposed commands and classifies them into:
 - BLOCK: catastrophic, malicious, or malformed commands that are strictly refused
 """
 
-import os
-from pathlib import Path
-from typing import Sequence
-
 from avi.execution.models import CommandRequest
 from avi.safety.models import ActionCategory, RiskLevel, SafetyAssessment
 from avi.safety.parser import ParsedCommand, parse_command_safety
 
 # Critical system directories that must never be targeted by destructive operations
-CRITICAL_SYSTEM_PATHS = frozenset({
-    "/",
-    "/*",
-    "*",
-    "/etc",
-    "/boot",
-    "/sys",
-    "/proc",
-    "/dev",
-    "/var",
-    "/usr",
-    "/bin",
-    "/sbin",
-    "/lib",
-    "/lib64",
-    "/root",
-    "~",
-    "~/*",
-    "$HOME",
-    "/home",
-})
+CRITICAL_SYSTEM_PATHS = frozenset(
+    {
+        "/",
+        "/*",
+        "*",
+        "/etc",
+        "/boot",
+        "/sys",
+        "/proc",
+        "/dev",
+        "/var",
+        "/usr",
+        "/bin",
+        "/sbin",
+        "/lib",
+        "/lib64",
+        "/root",
+        "~",
+        "~/*",
+        "$HOME",
+        "/home",
+    }
+)
 
 # Read-only programs allowed without confirmation (provided arguments are safe)
-SAFE_READ_ONLY_PROGRAMS = frozenset({
-    "pwd",
-    "ls",
-    "du",
-    "df",
-    "ps",
-    "uname",
-    "whoami",
-    "uptime",
-    "cat",
-    "head",
-    "tail",
-    "wc",
-    "which",
-    "whereis",
-    "echo",
-    "grep",
-    "egrep",
-    "fgrep",
-    "rg",
-    "file",
-    "stat",
-    "ss",
-    "free",
-})
+SAFE_READ_ONLY_PROGRAMS = frozenset(
+    {
+        "pwd",
+        "ls",
+        "du",
+        "df",
+        "ps",
+        "uname",
+        "whoami",
+        "uptime",
+        "cat",
+        "head",
+        "tail",
+        "wc",
+        "which",
+        "whereis",
+        "echo",
+        "grep",
+        "egrep",
+        "fgrep",
+        "rg",
+        "file",
+        "stat",
+        "ss",
+        "free",
+    }
+)
 
 # Known state-modifying programs requiring user confirmation
-CONFIRM_MODIFYING_PROGRAMS = frozenset({
-    "rm",
-    "mv",
-    "cp",
-    "mkdir",
-    "rmdir",
-    "touch",
-    "truncate",
-    "chmod",
-    "chown",
-    "chgrp",
-    "kill",
-    "pkill",
-    "killall",
-    "systemctl",
-    "service",
-    "tar",
-    "unzip",
-    "gzip",
-    "gunzip",
-    "bzip2",
-    "xz",
-    "sed",
-    "awk",
-    "apt",
-    "apt-get",
-    "dnf",
-    "yum",
-    "pacman",
-    "zypper",
-    "pip",
-    "npm",
-    "yarn",
-    "cargo",
-    "pnpm",
-    "ln",
-})
+CONFIRM_MODIFYING_PROGRAMS = frozenset(
+    {
+        "rm",
+        "mv",
+        "cp",
+        "mkdir",
+        "rmdir",
+        "touch",
+        "truncate",
+        "chmod",
+        "chown",
+        "chgrp",
+        "kill",
+        "pkill",
+        "killall",
+        "systemctl",
+        "service",
+        "tar",
+        "unzip",
+        "gzip",
+        "gunzip",
+        "bzip2",
+        "xz",
+        "sed",
+        "awk",
+        "apt",
+        "apt-get",
+        "dnf",
+        "yum",
+        "pacman",
+        "zypper",
+        "pip",
+        "npm",
+        "yarn",
+        "cargo",
+        "pnpm",
+        "ln",
+    }
+)
 
 # Destructive storage formatters/partitioners
-BLOCKED_FORMAT_PROGRAMS = frozenset({
-    "mkfs",
-    "mkfs.ext4",
-    "mkfs.ext3",
-    "mkfs.ext2",
-    "mkfs.xfs",
-    "mkfs.btrfs",
-    "mkfs.vfat",
-    "wipefs",
-    "fdisk",
-    "parted",
-    "gdisk",
-    "sfdisk",
-})
+BLOCKED_FORMAT_PROGRAMS = frozenset(
+    {
+        "mkfs",
+        "mkfs.ext4",
+        "mkfs.ext3",
+        "mkfs.ext2",
+        "mkfs.xfs",
+        "mkfs.btrfs",
+        "mkfs.vfat",
+        "wipefs",
+        "fdisk",
+        "parted",
+        "gdisk",
+        "sfdisk",
+    }
+)
 
 # Power management / shutdown
-BLOCKED_POWER_PROGRAMS = frozenset({
-    "shutdown",
-    "reboot",
-    "poweroff",
-    "halt",
-})
+BLOCKED_POWER_PROGRAMS = frozenset(
+    {
+        "shutdown",
+        "reboot",
+        "poweroff",
+        "halt",
+    }
+)
 
 
 class SafetyEngine:

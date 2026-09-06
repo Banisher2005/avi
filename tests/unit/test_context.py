@@ -2,10 +2,7 @@
 
 import json
 from pathlib import Path
-import subprocess
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from avi.config import Config
 from avi.context.collectors import (
@@ -169,11 +166,9 @@ def test_collect_previous_command_env(monkeypatch):
 
 def test_collect_previous_command_file(tmp_path, monkeypatch):
     fake_file = tmp_path / "last_command.json"
-    fake_file.write_text(json.dumps({
-        "command": "cargo build",
-        "exit_code": 101,
-        "output": "compilation error"
-    }))
+    fake_file.write_text(
+        json.dumps({"command": "cargo build", "exit_code": 101, "output": "compilation error"})
+    )
 
     with patch("avi.context.collectors.LAST_COMMAND_FILE", fake_file):
         ctx = collect_previous_command_context()

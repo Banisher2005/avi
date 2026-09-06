@@ -20,4 +20,3 @@ __all__ = [
     "normalize_stream",
     "resolve_command_template",
 ]
-
