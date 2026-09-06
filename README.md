@@ -142,6 +142,25 @@ avi "open https://github.com"
 
 avi "open ~/Documents"
 # Output: Opened /home/abhinav/Documents in file manager.
+
+# Desktop screenshots (LOCAL_ONLY, privacy-safe)
+avi "take a screenshot"
+# Output: Captured screenshot (1920x1080) to /home/abhinav/Pictures/Screenshots/screenshot_20260906_191000.png
+
+# Multi-step workflows (piped execution)
+avi "take a screenshot and open it"
+# Output: Successfully captured screenshot and opened it in default viewer.
+
+avi "find the newest PDF in ~/Downloads and open it"
+# Output: Found /home/abhinav/Downloads/invoice.pdf and opened it.
+
+# Audio volume & media playback controls
+avi "mute system audio"
+avi "set volume to 50%"
+avi "pause music"
+
+# Desktop notifications
+avi "notify me meeting starts now"
 ```
 
 > [!TIP]
@@ -389,10 +408,15 @@ avi hotkey
 avi hotkey --systemd
 ```
 
-### Wayland & GNOME Setup
-Under Wayland, arbitrary background key-grabbing is blocked by compositor security policies. Bind a custom shortcut:
-1. Open **Settings** -> **Keyboard** -> **View and Customize Shortcuts** -> **Custom Shortcuts**.
-2. Add: Name=`AVI Assistant`, Command=`gnome-terminal -- avi`, Shortcut=`<Ctrl>Space` or `<Super>Space`.
+### One-Button Instant Desktop Activation (`avi activate`)
+Bind a global keybinding (such as `Super+Space`) to `avi activate`.
+If the popup is already running, `avi activate` instantly brings the existing window to the front and focuses the input prompt using FreeDesktop DBus single-instance communication—without launching duplicate processes:
+
+- **GNOME**: Settings -> Keyboard -> Custom Shortcuts -> Command: `avi activate`
+- **KDE Plasma**: System Settings -> Shortcuts -> Custom Shortcuts -> Command: `avi activate`
+- **Sway**: `bindsym $mod+space exec avi activate`
+- **Hyprland**: `bind = $mainMod, SPACE, exec, avi activate`
+- **Terminal Mode**: Use `avi activate --terminal` (runs `gnome-terminal -- avi`) if you prefer an instant terminal popup.
 
 ---
 
@@ -458,17 +482,23 @@ avi ui --use-system-python
 Run the test suite with `pytest`:
 
 ```bash
-# Run all 654 unit and integration tests
+# Run all 768 unit and integration tests (766 passing, 2 conditionally skipped)
 pytest
+
+# Run agent capabilities and screenshot tests
+pytest tests/unit/test_capabilities.py tests/unit/test_screenshot.py
+
+# Run agent planner and acceptance tests
+pytest tests/unit/test_agent_planner.py tests/integration/test_agent_acceptance.py
+
+# Run assistant orchestrator, actions, and app tests
+pytest tests/unit/test_assistant.py tests/unit/test_actions.py tests/unit/test_apps.py
 
 # Run packaging and distribution tests
 pytest tests/unit/test_packaging.py
 
 # Run UI tests
 pytest tests/unit/test_ui.py
-
-# Run assistant orchestrator, actions, and app tests
-pytest tests/unit/test_assistant.py tests/unit/test_actions.py tests/unit/test_apps.py
 
 # Run gateway and MCP tests
 pytest tests/unit/test_gateway.py
@@ -565,6 +595,15 @@ pytest tests/unit/test_providers.py
   * Granular 6-tier risk & capability taxonomy (`READ_ONLY`, `LOW_RISK_ACTION`, `EXTERNAL_ACTION`, `FILESYSTEM_WRITE`, `DESTRUCTIVE`, `PRIVILEGED`)
   * Dynamic GTK4 multi-python ABI diagnosis and `--use-system-python` option
   * Provider abstraction refinement (`LLMProvider`) separating model reasoning from runtime execution
+* [x] **Phase 12: AVI Agent Runtime + One-Button Desktop Assistant**
+  * Unified capability system (`BaseCapability`, `CapabilityRegistry`, `CapabilityResult`)
+  * Desktop capabilities: screenshot capture (Wayland/X11), notifications, volume/audio controls, media playback, application launcher
+  * Filesystem capabilities: bounded recursive search, directory creation, safe copy, move, and delete
+  * Bounded multi-step `AgentPlanner` and `AgentExecutor` with dataflow piping and partial failure recovery
+  * Strict privacy boundaries: `LOCAL_ONLY` screenshot artifacts stored locally, never uploaded to remote providers
+  * Honest vision negotiation: upfront capability inspection declaring when active model lacks image analysis
+  * One-button desktop assistant: `avi activate` with single-instance GTK4 window handling and compositor hotkey integration (GNOME, KDE, Sway, Hyprland, X11)
+  * 766 passed unit and integration tests (100% clean)
 
 ---
 

@@ -190,7 +190,14 @@ Headless and Wayland-friendly desktop integration:
 Adding a new AI provider requires **zero modifications to AVI Core, Router, SafetyEngine, or CommandExecutor**:
 
 ```python
-from avi.providers import AIProvider, AgentRequest, AgentResponse, ProviderCapabilities, register_provider
+from avi.providers import (
+    AIProvider,
+    AgentRequest,
+    AgentResponse,
+    ProviderCapabilities,
+    register_provider,
+)
+
 
 class CloudProvider(AIProvider):
     def __init__(self, api_key: str, model: str = "claude-3-7-sonnet"):
@@ -221,6 +228,7 @@ class CloudProvider(AIProvider):
 
     def stream(self, request: AgentRequest):
         yield "response text"
+
 
 # Register dynamically:
 register_provider("cloud", lambda cfg, **kw: CloudProvider(api_key="...", model=cfg.model))
@@ -486,6 +494,60 @@ The safety engine (`avi.safety`) replaces single-category filesystem warnings wi
 Linux desktop installations frequently encounter Python interpreter ABI mismatches when running GUI toolkits from virtual environments. For example, system packages like `python3-gi` and `gir1.2-gtk-4.0` may reside in `/usr/lib/python3/dist-packages` under Python 3.14, while a development virtualenv uses Python 3.12.
 - `diagnose_gtk_environment()` analyzes the active Python executable, virtualenv state, display servers (Wayland `$WAYLAND_DISPLAY`, X11 `$DISPLAY`), and PyGObject availability.
 - It returns structured diagnosis strings explaining the exact discrepancy and recommending `avi ui --use-system-python` or recreating the venv with `--system-site-packages`.
+
+---
+
+## 8. Agent Runtime & Unified Capabilities (Phase 12)
+
+### 8.1 Architectural Vision
+Phase 12 evolves AVI into a full Linux computer assistant ("JARVIS-style" desktop agent) with bounded multi-step autonomous planning, typed desktop/filesystem capabilities, strict privacy boundaries, and one-button instant activation.
+
+### 8.2 Unified Capability System (`avi.capabilities`)
+Standardizes all operations under a typed capability model:
+- `BaseCapability`: Declares name, description, `ActionCategory`, JSON schema, `DataClassification`, confirmation requirement, and `execute(params) -> CapabilityResult`.
+- `DataClassification`:
+  - `LOCAL_ONLY`: Artifacts confined strictly to local storage (e.g. screenshots). Never uploaded to cloud/remote providers without user consent.
+  - `PROVIDER_ELIGIBLE`: Structured text and metrics safe for LLM context.
+  - `USER_CONFIRMATION_REQUIRED`: Sensitive data requiring user approval.
+- `ExecutionStatus`: `SUCCESS`, `PARTIAL_SUCCESS`, `FAILED`, `CANCELLED`, `CONFIRMATION_REQUIRED`.
+- `CapabilityRegistry`: Central registry managing capability lookup, aliases, schemas, and execution gating.
+- `ToolCapabilityAdapter` & `ActionCapabilityAdapter`: Backward-compatible bridging of Phase 3/4 tools and Phase 11 actions.
+
+### 8.3 Desktop & Filesystem Capabilities
+- **Desktop Capabilities (`avi.capabilities.desktop`)**:
+  - `desktop.screenshot`: Wayland (`grim`, `gnome-screenshot`) and X11 (`scrot`, `maim`, `import`, `spectacle`) screen capture with local PNG dimensions parser and `LOCAL_ONLY` privacy classification.
+  - `desktop.notification`: Desktop alerts via `notify-send` (`shell=False`).
+  - `desktop.volume.get` / `desktop.volume.set`: Audio volume and mute control via `wpctl` or `amixer`.
+  - `desktop.media.control`: Media playback (`play`, `pause`, `next`, `previous`, `stop`) via `playerctl`.
+  - `desktop.app.launch`: Resolves and launches FreeDesktop applications asynchronously.
+  - `desktop.url.open` / `desktop.file.open` / `desktop.directory.open`: Safe resource opening via `xdg-open`.
+- **Filesystem Capabilities (`avi.capabilities.filesystem`)**:
+  - `filesystem.search`: Safe bounded file search with glob pattern, extension filter, max depth, and recency sorting.
+  - `filesystem.create_directory`, `filesystem.copy`, `filesystem.move`: Safe directory and file operations.
+  - `filesystem.delete`: Destructive operation with safety checks (refuses root `/` and user home `~`) requiring explicit confirmation.
+
+### 8.4 Multi-Step Agent Planner & Executor (`avi.agent`)
+- **`AgentPlanner`**: Decomposes natural language requests into deterministic multi-step plans (`PlanStep` sequences):
+  - Screenshot + Open: captures screen and immediately opens it in default viewer.
+  - Screenshot + Notify: captures screen and displays a notification.
+  - Screenshot + Move: captures screen and moves the file to specified target.
+  - Search + Open: finds newest file matching criteria and opens it.
+  - System controls + Notify: adjusts volume/playback and sends confirmation notification.
+- **`AgentExecutor`**:
+  - Piped data flow: passes output from previous step (e.g., captured screenshot path) into subsequent step inputs.
+  - Bounded execution: enforces max steps (default 5) and execution timeout.
+  - Partial failure handling: isolates non-critical step failures and continues execution when possible.
+  - Confirmation gating: halts and requests user confirmation for destructive or privileged operations.
+
+### 8.5 Privacy Invariant & Honest Vision Negotiation
+- **Privacy Invariant**: All screenshots and visual artifacts are classified as `LOCAL_ONLY`. They are stored in `~/Pictures/Screenshots/` and are never silently uploaded to remote APIs.
+- **Honest Vision Negotiation**: AVI inspects the active provider's `capabilities().vision`. If vision is not supported, AVI honestly states that screen analysis is unavailable on the current model rather than hallucinating or dropping the task silently.
+
+### 8.6 One-Button Desktop Assistant (`avi activate`)
+- FreeDesktop DBus single-instance application model (`io.github.banisher2005.avi`).
+- Launching `avi activate` or pressing a global hotkey presents the existing window (`window.present()`) and immediately grabs keyboard focus (`prompt_entry.grab_focus()`) without creating duplicate processes.
+- Native compositor configuration guides provided for GNOME, KDE, Sway, Hyprland, and X11.
+
 
 
 

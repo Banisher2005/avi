@@ -1,7 +1,5 @@
 """Transports for AVI Universal Protocol Gateway (stdio and local TCP)."""
 
-import io
-import os
 import socket
 import sys
 import threading

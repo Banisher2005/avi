@@ -7,6 +7,40 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.4.0] — 2026-09-06
+
+### Added
+
+#### Phase 12 — AVI Agent Runtime + One-Button Desktop Assistant
+- **Unified Capability Subsystem (`src/avi/capabilities/`)**:
+  - `BaseCapability`, `CapabilityResult`, `CapabilityRegistry`, `DataClassification`, and `ExecutionStatus`.
+  - Adapters: `ToolCapabilityAdapter` and `ActionCapabilityAdapter`.
+- **Desktop Capabilities (`src/avi/capabilities/desktop/`)**:
+  - `desktop.screenshot`: Wayland (`grim`, `gnome-screenshot`) and X11 (`scrot`, `maim`, `import`, `spectacle`) screen capture with local PNG IHDR dimension parsing and `LOCAL_ONLY` privacy boundary.
+  - `desktop.notification`: Desktop notification alerts via `notify-send` (`shell=False`).
+  - `desktop.volume.get` & `desktop.volume.set`: Volume level inspection, setting, and muting via `wpctl` or `amixer`.
+  - `desktop.media.control`: Media playback controls (play, pause, next, previous, stop) via `playerctl`.
+  - `desktop.app.launch`, `desktop.url.open`, `desktop.file.open`, `desktop.directory.open`: Safe desktop application and resource launching.
+- **Filesystem Capabilities (`src/avi/capabilities/filesystem/`)**:
+  - `filesystem.search`: Safe bounded search with glob pattern, extension filter, bounded depth, and recency sorting.
+  - `filesystem.create_directory`, `filesystem.copy`, `filesystem.move`: Directory and file operations.
+  - `filesystem.delete`: Destructive operation with safety checks (refusing `/` and `~`) requiring explicit confirmation.
+- **Agent Planner & Execution Engine (`src/avi/agent/`)**:
+  - `AssistantInput`, `Plan`, `PlanStep`, and `PlanExecutionResult` models.
+  - `AgentPlanner`: Deterministic decomposition of single and multi-step plans (e.g., screenshot + open, search + open, volume/media control + notify).
+  - `AgentExecutor`: Piped dataflow, bounded step execution (max 5 steps), step timeout, confirmation enforcement, and partial failure recovery.
+- **Privacy Boundaries & Honest Vision Negotiation**:
+  - `LOCAL_ONLY` data classification ensuring visual artifacts are never sent to remote providers without explicit consent.
+  - Upfront `ProviderCapabilities.vision` capability check honestly stating when the active model cannot read screen contents.
+- **One-Button Desktop Assistant (`avi activate`)**:
+  - `avi activate` CLI command.
+  - Single-instance GTK4 window handling (`present()` and `grab_focus()` on subsequent activations) without duplicate processes.
+  - Desktop entry generator and compositor hotkey setup guides for GNOME, KDE, Sway, Hyprland, and X11.
+- **Comprehensive Test Suite**:
+  - Added unit, integration, and packaging tests covering capabilities, screenshots, agent planner, executor, and the Part 19 acceptance scenarios (total 766 passing tests).
+
+---
+
 ## [0.3.0] — 2026-09-06
 
 ### Added

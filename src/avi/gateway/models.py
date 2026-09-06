@@ -1,6 +1,6 @@
 """Normalized Gateway models for protocol-agnostic communication."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 

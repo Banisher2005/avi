@@ -6,7 +6,7 @@ import json
 import socket
 import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -15,24 +15,18 @@ from avi.core.router import Router
 from avi.gateway.core import GatewayCore
 from avi.gateway.jsonrpc import (
     AUTH_REQUIRED,
-    CONFIRMATION_REQUIRED,
     INVALID_PARAMS,
     INVALID_REQUEST,
     METHOD_NOT_FOUND,
     PARSE_ERROR,
-    SAFETY_BLOCKED,
     JsonRpcDispatcher,
-    make_jsonrpc_error,
-    make_jsonrpc_response,
 )
-from avi.gateway.models import GatewayConfirmation, GatewayExecutionResponse
 from avi.gateway.transports import StdioTransport, TcpTransport
-from avi.safety.models import SafetyAssessment, RiskLevel
-
 
 # ===========================================================================
 # 1. GatewayCore Tests
 # ===========================================================================
+
 
 class TestGatewayCore:
     """Unit tests for GatewayCore operations."""
@@ -172,6 +166,7 @@ class TestGatewayCore:
     def test_send_agent_request(self, gateway: GatewayCore):
         with patch.object(gateway.router, "route_full") as mock_route:
             from avi.providers.base import ProviderResponse
+
             mock_route.return_value = ProviderResponse(text="ls -la")
 
             res = gateway.send_agent_request("how do i list files?")
@@ -206,6 +201,7 @@ class TestGatewayCore:
 # ===========================================================================
 # 2. JsonRpcDispatcher & Standard JSON-RPC 2.0 Tests
 # ===========================================================================
+
 
 class TestJsonRpcDispatcher:
     """Unit tests for JSON-RPC 2.0 and MCP protocol dispatch."""
@@ -251,7 +247,9 @@ class TestJsonRpcDispatcher:
         assert res["error"]["code"] == METHOD_NOT_FOUND
 
     def test_invalid_params_type(self, dispatcher: JsonRpcDispatcher):
-        req = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping", "params": "string_not_allowed"})
+        req = json.dumps(
+            {"jsonrpc": "2.0", "id": 1, "method": "ping", "params": "string_not_allowed"}
+        )
         res = json.loads(dispatcher.handle_message(req))
         assert res["error"]["code"] == INVALID_PARAMS
 
@@ -299,12 +297,21 @@ class TestJsonRpcDispatcher:
         assert res_unauth["error"]["code"] == AUTH_REQUIRED
 
         # With wrong auth_token
-        req_wrong = json.dumps({"jsonrpc": "2.0", "id": 2, "method": "ping", "params": {"auth_token": "wrong"}})
+        req_wrong = json.dumps(
+            {"jsonrpc": "2.0", "id": 2, "method": "ping", "params": {"auth_token": "wrong"}}
+        )
         res_wrong = json.loads(dispatcher.handle_message(req_wrong))
         assert res_wrong["error"]["code"] == AUTH_REQUIRED
 
         # With correct auth_token
-        req_ok = json.dumps({"jsonrpc": "2.0", "id": 3, "method": "ping", "params": {"auth_token": "secret-token-42"}})
+        req_ok = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "ping",
+                "params": {"auth_token": "secret-token-42"},
+            }
+        )
         res_ok = json.loads(dispatcher.handle_message(req_ok))
         assert res_ok["result"] == {}
 
@@ -312,6 +319,7 @@ class TestJsonRpcDispatcher:
 # ===========================================================================
 # 3. Model Context Protocol (MCP) Compatibility Tests
 # ===========================================================================
+
 
 class TestMcpProtocol:
     """Unit tests for Model Context Protocol (MCP) conformance."""
@@ -321,16 +329,18 @@ class TestMcpProtocol:
         return JsonRpcDispatcher()
 
     def test_mcp_initialize_handshake(self, dispatcher: JsonRpcDispatcher):
-        req = json.dumps({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {},
-                "clientInfo": {"name": "test-client", "version": "1.0"},
-            },
-        })
+        req = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test-client", "version": "1.0"},
+                },
+            }
+        )
         res = json.loads(dispatcher.handle_message(req))
         assert res["id"] == 1
         result = res["result"]
@@ -359,15 +369,17 @@ class TestMcpProtocol:
             assert t["inputSchema"]["type"] == "object"
 
     def test_mcp_tools_call_success(self, dispatcher: JsonRpcDispatcher):
-        req = json.dumps({
-            "jsonrpc": "2.0",
-            "id": 12,
-            "method": "tools/call",
-            "params": {
-                "name": "system.system_info",
-                "arguments": {},
-            },
-        })
+        req = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 12,
+                "method": "tools/call",
+                "params": {
+                    "name": "system.system_info",
+                    "arguments": {},
+                },
+            }
+        )
         res = json.loads(dispatcher.handle_message(req))
         result = res["result"]
         assert result["isError"] is False
@@ -377,30 +389,34 @@ class TestMcpProtocol:
         assert result["data"]["os"] is not None
 
     def test_mcp_tools_call_failure(self, dispatcher: JsonRpcDispatcher):
-        req = json.dumps({
-            "jsonrpc": "2.0",
-            "id": 13,
-            "method": "tools/call",
-            "params": {
-                "name": "filesystem.file_metadata",
-                "arguments": {},  # missing required 'path'
-            },
-        })
+        req = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 13,
+                "method": "tools/call",
+                "params": {
+                    "name": "filesystem.file_metadata",
+                    "arguments": {},  # missing required 'path'
+                },
+            }
+        )
         res = json.loads(dispatcher.handle_message(req))
         result = res["result"]
         assert result["isError"] is True
         assert "path" in result["content"][0]["text"].lower()
 
     def test_mcp_tools_call_invalid_params(self, dispatcher: JsonRpcDispatcher):
-        req = json.dumps({
-            "jsonrpc": "2.0",
-            "id": 14,
-            "method": "tools/call",
-            "params": {
-                # missing 'name'
-                "arguments": {},
-            },
-        })
+        req = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 14,
+                "method": "tools/call",
+                "params": {
+                    # missing 'name'
+                    "arguments": {},
+                },
+            }
+        )
         res = json.loads(dispatcher.handle_message(req))
         assert res["error"]["code"] == INVALID_PARAMS
 
@@ -408,6 +424,7 @@ class TestMcpProtocol:
 # ===========================================================================
 # 4. Extended Gateway RPC Methods Tests
 # ===========================================================================
+
 
 class TestExtendedRpcMethods:
     """Unit tests for AVI gateway extension RPC methods."""
@@ -432,22 +449,26 @@ class TestExtendedRpcMethods:
         assert "terminal" in res["result"]
 
     def test_rpc_command_evaluate(self, dispatcher: JsonRpcDispatcher):
-        req = json.dumps({
-            "jsonrpc": "2.0",
-            "id": 23,
-            "method": "command/evaluate",
-            "params": {"command": "git status"},
-        })
+        req = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 23,
+                "method": "command/evaluate",
+                "params": {"command": "git status"},
+            }
+        )
         res = json.loads(dispatcher.handle_message(req))
         assert res["result"]["is_safe"] is True
 
     def test_rpc_command_execute(self, dispatcher: JsonRpcDispatcher):
-        req = json.dumps({
-            "jsonrpc": "2.0",
-            "id": 24,
-            "method": "command/execute",
-            "params": {"command": "echo 'gateway_rpc_test'"},
-        })
+        req = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 24,
+                "method": "command/execute",
+                "params": {"command": "echo 'gateway_rpc_test'"},
+            }
+        )
         res = json.loads(dispatcher.handle_message(req))
         assert "result" in res
         assert res["result"]["status"] == "executed"
@@ -456,14 +477,17 @@ class TestExtendedRpcMethods:
     def test_rpc_agent_send(self, dispatcher: JsonRpcDispatcher):
         with patch.object(dispatcher.gateway.router, "route_full") as mock_route:
             from avi.providers.base import ProviderResponse
+
             mock_route.return_value = ProviderResponse(text="echo hello")
 
-            req = json.dumps({
-                "jsonrpc": "2.0",
-                "id": 25,
-                "method": "agent/send",
-                "params": {"prompt": "say hello"},
-            })
+            req = json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 25,
+                    "method": "agent/send",
+                    "params": {"prompt": "say hello"},
+                }
+            )
             res = json.loads(dispatcher.handle_message(req))
             assert res["result"]["text"] == "echo hello"
 
@@ -472,13 +496,16 @@ class TestExtendedRpcMethods:
 # 5. Transports Tests
 # ===========================================================================
 
+
 class TestTransports:
     """Unit tests for StdioTransport and TcpTransport."""
 
     def test_stdio_transport_run(self):
         input_data = (
-            json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"}) + "\n"
-            + json.dumps({"jsonrpc": "2.0", "id": 2, "method": "health"}) + "\n"
+            json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"})
+            + "\n"
+            + json.dumps({"jsonrpc": "2.0", "id": 2, "method": "health"})
+            + "\n"
         )
         in_stream = io.StringIO(input_data)
         out_stream = io.StringIO()
@@ -488,7 +515,9 @@ class TestTransports:
         code = transport.run()
         assert code == 0
 
-        output_lines = [line.strip() for line in out_stream.getvalue().strip().split("\n") if line.strip()]
+        output_lines = [
+            line.strip() for line in out_stream.getvalue().strip().split("\n") if line.strip()
+        ]
         assert len(output_lines) == 2
         resp1 = json.loads(output_lines[0])
         resp2 = json.loads(output_lines[1])
@@ -535,6 +564,7 @@ class TestTransports:
 # 6. Safety & Security Invariant Tests
 # ===========================================================================
 
+
 class TestSecurityInvariants:
     """Hard architectural security invariant verification using Python AST analysis."""
 
@@ -551,7 +581,10 @@ class TestSecurityInvariants:
                 if isinstance(node, ast.Call):
                     for keyword in node.keywords:
                         if keyword.arg == "shell":
-                            if isinstance(keyword.value, ast.Constant) and keyword.value.value is True:
+                            if (
+                                isinstance(keyword.value, ast.Constant)
+                                and keyword.value.value is True
+                            ):
                                 violations.append(f"{py_file}:{node.lineno}: shell=True in call")
 
         assert violations == [], f"Found shell=True call: {violations}"

@@ -1,10 +1,9 @@
 """Unit tests for AVI configuration."""
 
 import json
-from pathlib import Path
 from unittest.mock import patch
 
-from avi.config import Config, DEFAULT_MODEL, DEFAULT_OLLAMA_HOST
+from avi.config import DEFAULT_MODEL, DEFAULT_OLLAMA_HOST, Config
 
 
 def test_default_config():

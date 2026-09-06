@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "avi"
-version = "0.3.0"
+version = "0.4.0"
 description = "Fast, local-first AI terminal assistant for Linux"
 readme = "README.md"
 license = { text = "MIT" }
@@ -41,6 +41,7 @@ ui = []
 # Development and testing
 dev = [
     "pytest>=8.0.0",
+    "ruff>=0.1.0",
 ]
 # All optional groups combined
 all = []

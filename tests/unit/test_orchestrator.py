@@ -2,17 +2,13 @@
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from avi.apps.models import ApplicationResolution
 from avi.config import Config
 from avi.core.router import Router
-from avi.execution.models import CommandRequest, ExecutionResult
 from avi.orchestrator.orchestrator import AssistantOrchestrator
 from avi.providers.base import BaseProvider, ProviderResponse, ResponseMetrics
-from avi.safety.models import ActionCategory, RiskLevel, SafetyAssessment
+from avi.safety.models import RiskLevel
 from avi.tools.base import ToolResult
-from avi.tools.registry import ToolRegistry
 
 
 class DummyProvider(BaseProvider):

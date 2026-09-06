@@ -1,7 +1,5 @@
 """Unit tests for the ActionCategory risk model and confirmation prompt formatting."""
 
-import pytest
-
 from avi.execution.models import CommandRequest
 from avi.safety.engine import SafetyEngine
 from avi.safety.models import ActionCategory, RiskLevel, SafetyAssessment

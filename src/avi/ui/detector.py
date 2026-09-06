@@ -1,12 +1,12 @@
 """Diagnostics for GTK4 runtime environment and Python ABI compatibility."""
 
-from dataclasses import dataclass
 import os
-from pathlib import Path
 import platform
 import shutil
 import subprocess
 import sys
+from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -71,9 +71,9 @@ def diagnose_gtk_environment() -> GtkEnvironmentReport:
 
     try:
         import gi
+
         gi_ok = True
         gi.require_version("Gtk", "4.0")
-        from gi.repository import Gtk
         gtk4_ok = True
     except Exception:
         gtk4_ok = False
@@ -84,7 +84,12 @@ def diagnose_gtk_environment() -> GtkEnvironmentReport:
     sys_py_ver = None
 
     if not gtk4_ok:
-        candidates = ["/usr/bin/python3", "/usr/bin/python3.14", "/usr/bin/python3.13", "/usr/bin/python3.12"]
+        candidates = [
+            "/usr/bin/python3",
+            "/usr/bin/python3.14",
+            "/usr/bin/python3.13",
+            "/usr/bin/python3.12",
+        ]
         # Also check base prefix if in venv
         if is_venv:
             base_bin = Path(base_prefix) / "bin" / "python3"
@@ -106,8 +111,12 @@ def diagnose_gtk_environment() -> GtkEnvironmentReport:
     elif gtk4_ok and not display_ok:
         msg = "No display server detected (WAYLAND_DISPLAY or DISPLAY not set). Cannot launch desktop UI."
     elif sys_has_gtk4 and sys_py_path:
-        lines.append(f"PyGObject (GTK4) is installed system-wide for {sys_py_path} (Python {sys_py_ver}),")
-        lines.append(f"but AVI is running inside an isolated Python {current_ver} virtual environment:")
+        lines.append(
+            f"PyGObject (GTK4) is installed system-wide for {sys_py_path} (Python {sys_py_ver}),"
+        )
+        lines.append(
+            f"but AVI is running inside an isolated Python {current_ver} virtual environment:"
+        )
         lines.append(f"  {current_exe}")
         lines.append("")
         lines.append("C-extension modules like '_gi' cannot cross Python ABI versions.")

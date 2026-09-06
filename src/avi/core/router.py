@@ -22,14 +22,13 @@ from avi.execution import (
 )
 from avi.providers.base import (
     AgentRequest,
-    AgentResponse,
     BaseProvider,
     ProviderResponse,
     ResponseMetrics,
     ToolCall,
 )
 from avi.providers.registry import ProviderRegistry, get_default_registry
-from avi.safety import RiskLevel, SafetyAssessment, SafetyEngine
+from avi.safety import SafetyAssessment, SafetyEngine
 from avi.tools.base import ToolResult
 from avi.tools.registry import ToolRegistry, create_default_registry
 
@@ -218,7 +217,9 @@ class Router:
         """
         return False
 
-    def assemble_system_prompt(self, prompt: str, explicit_snapshot: ContextSnapshot | None = None) -> str:
+    def assemble_system_prompt(
+        self, prompt: str, explicit_snapshot: ContextSnapshot | None = None
+    ) -> str:
         """Assemble system prompt with lazy, minimal context injection."""
         base_prompt = self.config.system_prompt
 
@@ -255,7 +256,9 @@ class Router:
         cmd_syntax = resolve_command_template(prompt)
         if cmd_syntax is not None:
             t0 = time.perf_counter()
-            self._fast_path_metrics = ResponseMetrics(total_duration_ms=(time.perf_counter() - t0) * 1000.0)
+            self._fast_path_metrics = ResponseMetrics(
+                total_duration_ms=(time.perf_counter() - t0) * 1000.0
+            )
             yield cmd_syntax
             return
 
@@ -316,7 +319,9 @@ class Router:
         cmd_syntax = resolve_command_template(prompt)
         if cmd_syntax is not None:
             t0 = time.perf_counter()
-            self._fast_path_metrics = ResponseMetrics(total_duration_ms=(time.perf_counter() - t0) * 1000.0)
+            self._fast_path_metrics = ResponseMetrics(
+                total_duration_ms=(time.perf_counter() - t0) * 1000.0
+            )
             return ProviderResponse(
                 text=cmd_syntax,
                 metrics=self._fast_path_metrics,

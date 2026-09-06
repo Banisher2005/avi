@@ -4,7 +4,6 @@ import re
 import shlex
 from dataclasses import dataclass, field
 
-
 COMPOUND_TOKENS = frozenset({"&&", "||", ";", "|", "|&", "&"})
 REDIRECTION_TOKENS = frozenset({">", ">>", "<", "<<", "<<<", ">&", "&>"})
 FORK_BOMB_PATTERN = re.compile(r":\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:")

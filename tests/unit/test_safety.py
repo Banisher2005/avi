@@ -5,7 +5,6 @@ import pytest
 from avi.execution.models import CommandRequest
 from avi.safety.engine import SafetyEngine
 from avi.safety.models import RiskLevel
-from avi.safety.parser import parse_command_safety
 
 
 @pytest.fixture
@@ -47,7 +46,9 @@ def engine():
 )
 def test_safe_commands(engine, cmd):
     assessment = engine.evaluate(cmd)
-    assert assessment.level == RiskLevel.SAFE, f"Expected SAFE for {cmd}, got {assessment.level}: {assessment.reason}"
+    assert assessment.level == RiskLevel.SAFE, (
+        f"Expected SAFE for {cmd}, got {assessment.level}: {assessment.reason}"
+    )
     assert assessment.is_safe is True
     assert assessment.requires_confirmation is False
     assert assessment.is_blocked is False
@@ -91,7 +92,9 @@ def test_safe_commands(engine, cmd):
 )
 def test_confirmation_commands(engine, cmd):
     assessment = engine.evaluate(cmd)
-    assert assessment.level == RiskLevel.CONFIRM, f"Expected CONFIRM for {cmd}, got {assessment.level}: {assessment.reason}"
+    assert assessment.level == RiskLevel.CONFIRM, (
+        f"Expected CONFIRM for {cmd}, got {assessment.level}: {assessment.reason}"
+    )
     assert assessment.requires_confirmation is True
     assert assessment.is_safe is False
     assert assessment.is_blocked is False
@@ -134,7 +137,9 @@ def test_confirmation_commands(engine, cmd):
 )
 def test_blocked_catastrophic_commands(engine, cmd):
     assessment = engine.evaluate(cmd)
-    assert assessment.level == RiskLevel.BLOCK, f"Expected BLOCK for {cmd}, got {assessment.level}: {assessment.reason}"
+    assert assessment.level == RiskLevel.BLOCK, (
+        f"Expected BLOCK for {cmd}, got {assessment.level}: {assessment.reason}"
+    )
     assert assessment.is_blocked is True
     assert assessment.is_safe is False
     assert assessment.requires_confirmation is False
@@ -155,7 +160,9 @@ def test_blocked_catastrophic_commands(engine, cmd):
 )
 def test_compound_commands_blocked(engine, cmd):
     assessment = engine.evaluate(cmd)
-    assert assessment.level == RiskLevel.BLOCK, f"Expected BLOCK for compound {cmd}, got {assessment.level}"
+    assert assessment.level == RiskLevel.BLOCK, (
+        f"Expected BLOCK for compound {cmd}, got {assessment.level}"
+    )
     assert assessment.is_blocked is True
 
 
@@ -171,7 +178,9 @@ def test_compound_commands_blocked(engine, cmd):
 )
 def test_substitutions_blocked(engine, cmd):
     assessment = engine.evaluate(cmd)
-    assert assessment.level == RiskLevel.BLOCK, f"Expected BLOCK for substitution {cmd}, got {assessment.level}"
+    assert assessment.level == RiskLevel.BLOCK, (
+        f"Expected BLOCK for substitution {cmd}, got {assessment.level}"
+    )
     assert assessment.is_blocked is True
 
 
@@ -188,7 +197,9 @@ def test_substitutions_blocked(engine, cmd):
 )
 def test_redirections_blocked(engine, cmd):
     assessment = engine.evaluate(cmd)
-    assert assessment.level == RiskLevel.BLOCK, f"Expected BLOCK for redirection {cmd}, got {assessment.level}"
+    assert assessment.level == RiskLevel.BLOCK, (
+        f"Expected BLOCK for redirection {cmd}, got {assessment.level}"
+    )
     assert assessment.is_blocked is True
 
 

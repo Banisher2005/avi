@@ -1,17 +1,17 @@
 """Comprehensive unit and security tests for Phase 6 deterministic fastpath routing."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
+
 import pytest
 
 from avi.config import Config
 from avi.core.fastpath import (
     FastPathRegistry,
-    IntentTemplate,
     is_safe_parameter,
     resolve_command_template,
 )
 from avi.core.router import Router
-from avi.execution.models import CommandRequest
+from avi.providers.base import BaseProvider, ProviderResponse
 from avi.safety.models import RiskLevel
 
 
@@ -133,11 +133,11 @@ def test_exact_deterministic_matches(registry, prompt, expected_program, expecte
         ("find sql files", "find", [".", "-name", "*.sql"]),
         ("find files modified today", "find", [".", "-mtime", "0"]),
         ("find files modified in the last 7 days", "find", [".", "-mtime", "-7"]),
-        ("grep for \"TODO\" in files", "grep", ["-r", "--", "TODO", "."]),
+        ('grep for "TODO" in files', "grep", ["-r", "--", "TODO", "."]),
         ("grep for 'FIXME' in files", "grep", ["-r", "--", "FIXME", "."]),
         ("grep for bug in files", "grep", ["-r", "--", "bug", "."]),
-        ("search for \"pattern\" in files", "grep", ["-r", "--", "pattern", "."]),
-        ("search files for \"TODO\"", "grep", ["-r", "--", "TODO", "."]),
+        ('search for "pattern" in files', "grep", ["-r", "--", "pattern", "."]),
+        ('search files for "TODO"', "grep", ["-r", "--", "TODO", "."]),
     ],
 )
 def test_parameterized_templates(registry, prompt, expected_program, expected_args):
@@ -158,7 +158,7 @@ def test_parameterized_templates(registry, prompt, expected_program, expected_ar
         ("what is my current directory???", "pwd"),
         ("git status!", "git"),
         ("find Python files.", "find"),
-        ("Grep For \"TODO\" In Files", "grep"),
+        ('Grep For "TODO" In Files', "grep"),
         ("FREE MEMORY", "free"),
         ("SYSTEM UPTIME", "uptime"),
         ("Show Git Remotes?", "git"),
@@ -199,24 +199,24 @@ def test_ambiguous_prompts_return_none(registry, prompt):
 @pytest.mark.parametrize(
     "malicious_prompt",
     [
-        "grep for \"TODO; rm -rf /\" in files",
-        "grep for \"TODO && echo hi\" in files",
-        "grep for \"TODO || ls\" in files",
-        "grep for \"TODO | cat\" in files",
-        "grep for \"$(whoami)\" in files",
-        "grep for \"`id`\" in files",
-        "grep for \"test > out.txt\" in files",
-        "grep for \"test >> out.txt\" in files",
-        "grep for \"test < in.txt\" in files",
-        "grep for \"test \n rm file\" in files",
-        "grep for \"unclosed quote in files",
+        'grep for "TODO; rm -rf /" in files',
+        'grep for "TODO && echo hi" in files',
+        'grep for "TODO || ls" in files',
+        'grep for "TODO | cat" in files',
+        'grep for "$(whoami)" in files',
+        'grep for "`id`" in files',
+        'grep for "test > out.txt" in files',
+        'grep for "test >> out.txt" in files',
+        'grep for "test < in.txt" in files',
+        'grep for "test \n rm file" in files',
+        'grep for "unclosed quote in files',
         "grep for 'single quote in files",
-        "grep for \"foo\\bar\" in files",
-        "grep for \"${PATH}\" in files",
-        "grep for \"$USER\" in files",
-        "grep for \"test\x00data\" in files",
-        "grep for \"test\x01data\" in files",
-        "grep for \"test\x1fdata\" in files",
+        'grep for "foo\\bar" in files',
+        'grep for "${PATH}" in files',
+        'grep for "$USER" in files',
+        'grep for "test\x00data" in files',
+        'grep for "test\x01data" in files',
+        'grep for "test\x1fdata" in files',
     ],
 )
 def test_malicious_parameters_rejected(registry, malicious_prompt):
@@ -253,7 +253,7 @@ def test_is_safe_parameter_rules():
     assert is_safe_parameter("`whoami`") is False
     assert is_safe_parameter("val > file") is False
     assert is_safe_parameter("val < file") is False
-    assert is_safe_parameter("unclosed \" quote") is False
+    assert is_safe_parameter('unclosed " quote') is False
     assert is_safe_parameter("escaped \\ backslash") is False
     assert is_safe_parameter("control\x00byte") is False
     assert is_safe_parameter("bell\x07char") is False
@@ -266,7 +266,7 @@ def test_fastpath_bypasses_provider_in_router():
     router = Router(config, provider=mock_provider)
 
     # Run a fast-path query: show git diff
-    chunks = list(router.route("show git diff"))
+    list(router.route("show git diff"))
     # Verify provider was NOT called
     mock_provider.generate.assert_not_called()
     mock_provider.generate_full.assert_not_called()
@@ -304,9 +304,6 @@ def test_fastpath_route_full_execution():
 
 
 # 11. Command template syntax resolution tests
-from avi.providers.base import BaseProvider, ProviderResponse
-
-
 class FailingProvider(BaseProvider):
     def generate(self, prompt, system_prompt=None, context=None, stream=True):
         raise AssertionError("LLM must not be invoked for a fast-path command template")
@@ -338,9 +335,15 @@ def test_command_templates_cover_common_queries():
     assert resolve_command_template("what command lists the files here?") == "ls -la"
     assert resolve_command_template("how do I check disk space?") == "df -h"
     assert resolve_command_template("what command shows running processes?") == "ps aux"
-    assert resolve_command_template("what command shows my current git branch?") == "git branch --show-current"
+    assert (
+        resolve_command_template("what command shows my current git branch?")
+        == "git branch --show-current"
+    )
     assert resolve_command_template("what command checks git status?") == "git status"
-    assert resolve_command_template("what command shows recent git commits?") == "git log --oneline -10"
+    assert (
+        resolve_command_template("what command shows recent git commits?")
+        == "git log --oneline -10"
+    )
     assert resolve_command_template("what command shows listening ports?") == "ss -tulpn"
     assert resolve_command_template("what command shows system uptime?") == "uptime"
     assert resolve_command_template("what command checks free memory?") == "free -h"
@@ -394,6 +397,7 @@ def test_registry_structure_and_helpers(registry):
 
     # Verify all registered templates produce CommandRequests classified by SafetyEngine
     from avi.safety.engine import SafetyEngine
+
     engine = SafetyEngine()
 
     sample_prompts = [
@@ -421,5 +425,3 @@ def test_registry_structure_and_helpers(registry):
         assert req is not None, f"Sample prompt {p!r} failed to resolve"
         assessment = engine.evaluate(req)
         assert assessment.is_safe, f"Sample prompt {p!r} produced unsafe assessment: {assessment}"
-
-

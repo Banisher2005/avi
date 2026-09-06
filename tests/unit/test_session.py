@@ -1,10 +1,7 @@
 """Unit tests for InteractiveSession."""
 
 import io
-from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import patch
 
 from avi.config import Config
 from avi.core.router import Router
@@ -29,7 +26,9 @@ class MockInteractiveProvider(BaseProvider):
 
     def generate_full(self, prompt, system_prompt=None, context=None):
         chunks = list(self.generate(prompt, system_prompt, context, stream=False))
-        return ProviderResponse(text="".join(chunks), metrics=self._metrics, context=self._last_context)
+        return ProviderResponse(
+            text="".join(chunks), metrics=self._metrics, context=self._last_context
+        )
 
     def is_available(self):
         return True

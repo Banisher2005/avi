@@ -3,8 +3,6 @@
 import os
 from unittest.mock import patch
 
-import pytest
-
 from avi.hotkey.detector import detect_desktop_environment
 from avi.hotkey.service import (
     generate_desktop_entry,
@@ -14,7 +12,15 @@ from avi.hotkey.service import (
 
 
 def test_detect_desktop_environment_wayland():
-    with patch.dict(os.environ, {"WAYLAND_DISPLAY": "wayland-0", "XDG_SESSION_TYPE": "wayland", "XDG_CURRENT_DESKTOP": "GNOME"}, clear=True):
+    with patch.dict(
+        os.environ,
+        {
+            "WAYLAND_DISPLAY": "wayland-0",
+            "XDG_SESSION_TYPE": "wayland",
+            "XDG_CURRENT_DESKTOP": "GNOME",
+        },
+        clear=True,
+    ):
         info = detect_desktop_environment()
         assert info.display_server == "wayland"
         assert info.is_headless is False
@@ -24,7 +30,11 @@ def test_detect_desktop_environment_wayland():
 
 
 def test_detect_desktop_environment_x11():
-    with patch.dict(os.environ, {"DISPLAY": ":0", "XDG_SESSION_TYPE": "x11", "XDG_CURRENT_DESKTOP": "XFCE"}, clear=True):
+    with patch.dict(
+        os.environ,
+        {"DISPLAY": ":0", "XDG_SESSION_TYPE": "x11", "XDG_CURRENT_DESKTOP": "XFCE"},
+        clear=True,
+    ):
         info = detect_desktop_environment()
         assert info.display_server == "x11"
         assert info.is_headless is False
@@ -43,7 +53,15 @@ def test_detect_desktop_environment_headless():
 
 
 def test_get_hotkey_instructions_wayland():
-    with patch.dict(os.environ, {"WAYLAND_DISPLAY": "wayland-0", "XDG_SESSION_TYPE": "wayland", "XDG_CURRENT_DESKTOP": "GNOME"}, clear=True):
+    with patch.dict(
+        os.environ,
+        {
+            "WAYLAND_DISPLAY": "wayland-0",
+            "XDG_SESSION_TYPE": "wayland",
+            "XDG_CURRENT_DESKTOP": "GNOME",
+        },
+        clear=True,
+    ):
         res = get_hotkey_instructions()
         assert res["display_server"] == "wayland"
         assert "GNOME" in res["instructions"]

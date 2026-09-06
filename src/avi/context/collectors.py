@@ -2,10 +2,10 @@
 
 import json
 import os
-from pathlib import Path
 import platform
 import re
 import subprocess
+from pathlib import Path
 from typing import Set
 
 from avi.context.models import (

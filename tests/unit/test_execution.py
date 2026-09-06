@@ -1,22 +1,11 @@
 """Unit tests for CommandExecutor and execution subsystem."""
 
-import os
 import stat
-import subprocess
 import sys
 import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
-from avi.execution.errors import (
-    CommandNotFoundError,
-    CommandTimeoutError,
-    ExecutionError,
-    InvalidCommandError,
-    PermissionDeniedError,
-)
 from avi.execution.executor import CommandExecutor
 from avi.execution.models import CommandRequest, ExecutionResult, extract_command_proposal
 

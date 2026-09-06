@@ -1,11 +1,7 @@
 """Unit tests for native assistant actions."""
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
-from avi.actions.base import ActionResult
 from avi.actions.system import OpenAppAction, OpenDirAction, OpenFileAction, OpenUrlAction
 from avi.actions.timer import TimerAction, format_duration
 from avi.apps.models import ApplicationResolution

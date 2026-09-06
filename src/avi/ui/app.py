@@ -3,10 +3,11 @@
 import os
 import subprocess
 import sys
+from pathlib import Path
 from typing import Any
 
 from avi.ui.detector import diagnose_gtk_environment
-from avi.ui.window import CSS_STYLE, AviWindow, _GTK_AVAILABLE, check_display
+from avi.ui.window import _GTK_AVAILABLE, CSS_STYLE, AviWindow, check_display
 
 
 class AviApp:
@@ -23,17 +24,26 @@ class AviApp:
         self.router = router
         self.config = config
         self.orchestrator = orchestrator
+        self.window: Any | None = None
 
     def run(self, allow_system_fallback: bool = False) -> int:
         """Start the GTK4 event loop. Returns exit code."""
         if not _GTK_AVAILABLE:
             report = diagnose_gtk_environment()
-            if allow_system_fallback and report.system_python_has_gtk4 and report.system_python_path:
-                # Delegate to the system python which has GTK4 bindings
-                cmd = [report.system_python_path, "-m", "avi.cli", "ui"]
+            if (
+                allow_system_fallback
+                and report.system_python_has_gtk4
+                and report.system_python_path
+            ):
+                # Clean subprocess boundary to system Python which has PyGObject / GTK4 bindings
+                src_path = str(Path(__file__).resolve().parent.parent.parent)
                 env = dict(os.environ)
-                # Ensure src is on pythonpath if not globally installed
-                src_dir = str(report.python_executable)
+                existing_pythonpath = env.get("PYTHONPATH", "")
+                env["PYTHONPATH"] = (
+                    f"{src_path}:{existing_pythonpath}" if existing_pythonpath else src_path
+                )
+                forward_args = sys.argv[1:] if len(sys.argv) > 1 else ["ui"]
+                cmd = [report.system_python_path, "-m", "avi.cli"] + forward_args
                 proc = subprocess.run(cmd, env=env)
                 return proc.returncode
 
@@ -49,21 +59,37 @@ class AviApp:
 
         # Import GTK here (only reached when _GTK_AVAILABLE is True)
         import gi
+
         gi.require_version("Gtk", "4.0")
-        from gi.repository import Gdk, GLib, Gtk
+        from gi.repository import Gdk, Gtk
 
         app = Gtk.Application(application_id="io.github.banisher2005.avi")
 
         def _on_activate(gtk_app: Gtk.Application) -> None:
+            if self.window is not None:
+                self.window.present()
+                return
+
             # Apply CSS styling
             css_provider = Gtk.CssProvider()
             css_provider.load_from_data(CSS_STYLE)
-            Gtk.StyleContext.add_provider_for_display(
-                Gdk.Display.get_default(),
-                css_provider,
-                Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+            display = Gdk.Display.get_default()
+            if display:
+                Gtk.StyleContext.add_provider_for_display(
+                    display,
+                    css_provider,
+                    Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+                )
+            self.window = AviWindow(
+                gtk_app, self.router, self.config, orchestrator=self.orchestrator
             )
-            AviWindow(gtk_app, self.router, self.config, orchestrator=self.orchestrator)
+
+            def _on_close_request(*_args: Any) -> bool:
+                self.window = None
+                return False
+
+            if hasattr(self.window, "window") and self.window.window is not None:
+                self.window.window.connect("close-request", _on_close_request)
 
         app.connect("activate", _on_activate)
         return app.run(None)

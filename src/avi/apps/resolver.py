@@ -8,12 +8,12 @@ Discovers installed applications on Linux using:
 
 import configparser
 import os
-from pathlib import Path
 import platform
 import re
 import shlex
 import shutil
 import subprocess
+from pathlib import Path
 from typing import Sequence
 
 from avi.apps.models import ApplicationResolution
@@ -180,7 +180,9 @@ class ApplicationResolver:
         for key, info in desktop_entries.items():
             if normalized == key or normalized in info["name"].lower():
                 binary = info["exec"]
-                full_path = shutil.which(binary) or (binary if os.path.isabs(binary) and os.access(binary, os.X_OK) else None)
+                full_path = shutil.which(binary) or (
+                    binary if os.path.isabs(binary) and os.access(binary, os.X_OK) else None
+                )
                 if full_path:
                     return ApplicationResolution(
                         requested_name=query,
@@ -213,7 +215,9 @@ class ApplicationResolver:
             for key, info in desktop_entries.items():
                 if cand in key or cand in info["exec"].lower():
                     binary = info["exec"]
-                    full_path = shutil.which(binary) or (binary if os.path.isabs(binary) and os.access(binary, os.X_OK) else None)
+                    full_path = shutil.which(binary) or (
+                        binary if os.path.isabs(binary) and os.access(binary, os.X_OK) else None
+                    )
                     if full_path:
                         return ApplicationResolution(
                             requested_name=query,
@@ -246,7 +250,10 @@ class ApplicationResolver:
         Security invariant: strictly uses subprocess.Popen(..., shell=False).
         """
         if not resolution.is_resolved or not resolution.executable:
-            return False, f"Application '{resolution.canonical_name}' is not installed or executable not found."
+            return (
+                False,
+                f"Application '{resolution.canonical_name}' is not installed or executable not found.",
+            )
 
         cmd = [resolution.executable]
         if extra_args:

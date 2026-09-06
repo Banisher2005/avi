@@ -1,25 +1,19 @@
 """Unit tests for read-only tool subsystem."""
 
-import os
-from pathlib import Path
-import shutil
-import subprocess
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from avi.config import Config
 from avi.core.router import Router
-from avi.tools.base import BaseTool, ToolResult
+from avi.tools.base import ToolResult
 from avi.tools.filesystem import FileMetadataTool, ListDirectoryTool, format_bytes
 from avi.tools.git import GitBranchTool, GitLogTool, GitStatusTool
 from avi.tools.registry import ToolRegistry, create_default_registry
 from avi.tools.system import DiskUsageTool, ProcessesTool, SystemInfoTool
 
-
 # =====================================================================
 # 1. Formatters and ToolResult
 # =====================================================================
+
 
 def test_format_bytes():
     assert format_bytes(0) == "0 B"
@@ -41,6 +35,7 @@ def test_tool_result_format_display():
 # =====================================================================
 # 2. Filesystem Tools
 # =====================================================================
+
 
 def test_list_directory_valid(tmp_path):
     (tmp_path / "file1.txt").write_text("hello")
@@ -128,6 +123,7 @@ def test_file_metadata_permission_error(tmp_path):
 # 3. System Tools
 # =====================================================================
 
+
 def test_processes_tool_success():
     fake_ps_output = (
         "    PID COMMAND         %CPU %MEM\n"
@@ -197,6 +193,7 @@ def test_system_info_tool():
 # =====================================================================
 # 4. Git Tools
 # =====================================================================
+
 
 def test_git_status_tool_repo(tmp_path):
     tool = GitStatusTool()
@@ -281,6 +278,7 @@ def test_git_log_tool_non_repo():
 # 5. Registry Tests
 # =====================================================================
 
+
 def test_registry_registration_and_lookup():
     reg = ToolRegistry()
     dummy_tool = ListDirectoryTool()
@@ -313,6 +311,7 @@ def test_default_registry_contains_all_8_tools():
 # =====================================================================
 # 6. Router Deterministic Tool Selection & Security
 # =====================================================================
+
 
 def test_router_tool_selection():
     config = Config.load()

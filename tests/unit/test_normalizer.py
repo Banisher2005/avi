@@ -1,6 +1,6 @@
 """Unit tests for output normalizer."""
 
-from avi.core.normalizer import StreamNormalizer, normalize_response, normalize_stream
+from avi.core.normalizer import normalize_response, normalize_stream
 
 
 def test_normalize_plain_command():
