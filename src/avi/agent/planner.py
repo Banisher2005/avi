@@ -206,7 +206,7 @@ class AgentPlanner:
 
         # Screenshot
         if re.match(
-            r"^(?:please\s+)?(?:take(?:\s+a)?\s+screenshot|capture(?:\s+the|\s+my)?\s+screen|screenshot)$",
+            r"^(?:please\s+)?(?:take(?:\s+a)?(?:\s+full)?\s+screenshot(?:\s+(?:of|for)\s+(?:my\s+)?(?:screen|desktop))?|capture(?:\s+the|\s+a|\s+my)?\s+screen(?:\s+shot)?|screenshot)$",
             lower,
         ):
             return Plan(
@@ -264,7 +264,9 @@ class AgentPlanner:
                 ],
             )
         if re.match(
-            r"^(?:please\s+)?(?:turn\s+up|raise|increase|boost)\s+(?:the\s+)?volume$|^volume\s+up$",
+            r"^(?:please\s+)?(?:turn\s+up|raise|increase|boost)(?:\s+(?:the\s+)?volume)?(?:\s+(?:by\s+)?\d+%?)?$|"
+            r"^volume\s+up(?:\s+(?:by\s+)?\d+%?)?$|"
+            r"^(?:make\s+it\s+)?louder(?:\s+(?:by\s+)?\d+%?)?$",
             lower,
         ):
             return Plan(
@@ -279,7 +281,9 @@ class AgentPlanner:
                 ],
             )
         if re.match(
-            r"^(?:please\s+)?(?:turn\s+down|lower|decrease|reduce)\s+(?:the\s+)?volume$|^volume\s+down$",
+            r"^(?:please\s+)?(?:turn\s+down|lower|decrease|reduce)(?:\s+(?:the\s+)?volume)?(?:\s+(?:by\s+)?\d+%?)?$|"
+            r"^volume\s+down(?:\s+(?:by\s+)?\d+%?)?$|"
+            r"^(?:make\s+it\s+)?quieter(?:\s+(?:by\s+)?\d+%?)?$",
             lower,
         ):
             return Plan(

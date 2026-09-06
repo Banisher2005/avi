@@ -22,6 +22,49 @@ _OPEN_PREFIX_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Screenshot capture intent
+_SCREENSHOT_RE = re.compile(
+    r"^(?:please\s+)?(?:take(?:\s+a)?\s+screen\s*shot|capture(?:\s+(?:the|my))?\s+screen|screen\s*shot|grab(?:\s+a)?\s+screen\s*shot)$",
+    re.IGNORECASE,
+)
+
+# Volume controls
+_MUTE_RE = re.compile(
+    r"^(?:please\s+)?mute(?:\s+(?:the\s+)?(?:volume|audio|sound))?$",
+    re.IGNORECASE,
+)
+
+_UNMUTE_RE = re.compile(
+    r"^(?:please\s+)?unmute(?:\s+(?:the\s+)?(?:volume|audio|sound))?$",
+    re.IGNORECASE,
+)
+
+_VOL_UP_RE = re.compile(
+    r"^(?:please\s+)?(?:turn\s+(?:(?:the\s+)?volume\s+|it\s+)?up|turn\s+up(?:\s+the)?\s+volume|raise(?:\s+the)?\s+volume|increase(?:\s+the)?\s+volume|boost(?:\s+the)?\s+volume|volume\s+up|(?:make\s+it\s+)?louder)$",
+    re.IGNORECASE,
+)
+
+_VOL_DOWN_RE = re.compile(
+    r"^(?:please\s+)?(?:turn\s+(?:(?:the\s+)?volume\s+|it\s+)?down|turn\s+down(?:\s+the)?\s+volume|lower(?:\s+the)?\s+volume|decrease(?:\s+the)?\s+volume|reduce(?:\s+the)?\s+volume|volume\s+down|(?:make\s+it\s+)?(?:quieter|softer))$",
+    re.IGNORECASE,
+)
+
+_VOL_SET_RE = re.compile(
+    r"^(?:please\s+)?(?:(?:set|change)\s+(?:the\s+)?(?:volume|audio)(?:\s+to)?\s+(\d+)%?|volume\s+(\d+)%?)$",
+    re.IGNORECASE,
+)
+
+_VOL_GET_RE = re.compile(
+    r"^(?:what(?:'s|\s+is)\s+(?:the\s+)?(?:volume|audio\s+level)|check\s+(?:the\s+)?(?:volume|audio)|get\s+(?:the\s+)?volume|current\s+volume|volume\s+level|how\s+loud\s+is\s+it)\??$",
+    re.IGNORECASE,
+)
+
+# Media playback controls
+_MEDIA_RE = re.compile(
+    r"^(?:please\s+)?(?:pause\s+(?:music|song|playback|audio|video)|stop\s+(?:music|playback)|resume\s+(?:music|playback)|play\s+(?:music|playback)|next\s+(?:song|track)|previous\s+(?:song|track))$",
+    re.IGNORECASE,
+)
+
 # Common top-level domains and web identifiers
 _URL_DOMAIN_RE = re.compile(
     r"^(?:https?://)?(?:[a-zA-Z0-9-]+\.)+(?:com|org|net|io|edu|gov|co|ai|dev|app|me|info|tv)(?:/[^\s]*)?$",
@@ -61,6 +104,10 @@ class AssistantIntentType(str, Enum):
     OPEN_FILE = "OPEN_FILE"
     OPEN_DIR = "OPEN_DIR"
     OPEN_APP = "OPEN_APP"
+    SCREENSHOT = "SCREENSHOT"
+    VOLUME_SET = "VOLUME_SET"
+    VOLUME_GET = "VOLUME_GET"
+    MEDIA_CONTROL = "MEDIA_CONTROL"
     UNKNOWN = "UNKNOWN"
 
 
@@ -546,6 +593,73 @@ def detect_assistant_intent(prompt: str, last_turn: Any | None = None) -> Detect
             intent_type=AssistantIntentType.OPEN_APP,
             raw_prompt=prompt,
             target=target,
+        )
+
+    # 15. Desktop Screenshot
+    if _SCREENSHOT_RE.match(s):
+        return DetectedIntent(
+            intent_type=AssistantIntentType.SCREENSHOT,
+            raw_prompt=prompt,
+        )
+
+    # 16. Volume Controls
+    if _MUTE_RE.match(s):
+        return DetectedIntent(
+            intent_type=AssistantIntentType.VOLUME_SET,
+            raw_prompt=prompt,
+            extra={"action": "mute"},
+        )
+    if _UNMUTE_RE.match(s):
+        return DetectedIntent(
+            intent_type=AssistantIntentType.VOLUME_SET,
+            raw_prompt=prompt,
+            extra={"action": "unmute"},
+        )
+    if _VOL_UP_RE.match(s):
+        return DetectedIntent(
+            intent_type=AssistantIntentType.VOLUME_SET,
+            raw_prompt=prompt,
+            extra={"action": "raise", "delta": 5},
+        )
+    if _VOL_DOWN_RE.match(s):
+        return DetectedIntent(
+            intent_type=AssistantIntentType.VOLUME_SET,
+            raw_prompt=prompt,
+            extra={"action": "lower", "delta": 5},
+        )
+    vol_set_match = _VOL_SET_RE.match(s)
+    if vol_set_match:
+        lvl_str = vol_set_match.group(1) or vol_set_match.group(2)
+        return DetectedIntent(
+            intent_type=AssistantIntentType.VOLUME_SET,
+            raw_prompt=prompt,
+            extra={"action": "set", "level": int(lvl_str)},
+        )
+    if _VOL_GET_RE.match(s):
+        return DetectedIntent(
+            intent_type=AssistantIntentType.VOLUME_GET,
+            raw_prompt=prompt,
+        )
+
+    # 17. Media Controls
+    media_match = _MEDIA_RE.match(s)
+    if media_match:
+        lower_media = s.lower()
+        action = "play"
+        if "pause" in lower_media:
+            action = "pause"
+        elif "stop" in lower_media:
+            action = "stop"
+        elif "next" in lower_media:
+            action = "next"
+        elif "prev" in lower_media:
+            action = "previous"
+        elif "resume" in lower_media or "play" in lower_media:
+            action = "play"
+        return DetectedIntent(
+            intent_type=AssistantIntentType.MEDIA_CONTROL,
+            raw_prompt=prompt,
+            extra={"action": action},
         )
 
     return DetectedIntent(intent_type=AssistantIntentType.UNKNOWN, raw_prompt=prompt)

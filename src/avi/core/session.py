@@ -218,8 +218,8 @@ class InteractiveSession:
     def _process_turn(self, query: str) -> None:
         """Dispatch a single conversation turn to the router with signal handling."""
         try:
-            # 0. Check Assistant Orchestrator for native assistant intents (greetings, courtesies, tools, actions, clarification)
-            if self.orchestrator is not None:
+            # 0. Check Assistant Orchestrator for native assistant intents (greetings, courtesies, tools, actions, capabilities, clarification)
+            if self.orchestrator is not None and self.orchestrator.is_assistant_request(query):
                 from avi.assistant.intents import AssistantIntentType, detect_assistant_intent
 
                 last_turn = (
@@ -229,7 +229,6 @@ class InteractiveSession:
                 )
                 intent = detect_assistant_intent(query, last_turn=last_turn)
                 if intent.intent_type not in (
-                    AssistantIntentType.UNKNOWN,
                     AssistantIntentType.GREETING,
                     AssistantIntentType.SMALL_TALK,
                 ):

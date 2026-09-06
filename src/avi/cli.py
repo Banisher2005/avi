@@ -282,11 +282,8 @@ def run_cli(argv: Sequence[str] | None = None) -> int:
         session = InteractiveSession(router, config, orchestrator=orchestrator)
         return session.run()
 
-    # 1. Check Assistant Orchestrator (intents, actions, conversational read-only tools)
-    from avi.assistant.intents import AssistantIntentType, detect_assistant_intent
-
-    intent = detect_assistant_intent(raw_prompt)
-    if intent.intent_type != AssistantIntentType.UNKNOWN:
+    # 1. Check Assistant Orchestrator (intents, capabilities, actions, conversational read-only tools)
+    if orchestrator.is_assistant_request(raw_prompt):
         res = orchestrator.handle(raw_prompt, auto_execute_actions=True)
         if res.is_blocked:
             sys.stdout.write(f"{res.text}\n")

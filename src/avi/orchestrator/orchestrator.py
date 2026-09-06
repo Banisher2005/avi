@@ -72,6 +72,41 @@ class AssistantOrchestrator:
             safety_engine=self.safety,
         )
 
+    def is_assistant_request(self, prompt: str) -> bool:
+        """Determine if a prompt should be routed to native assistant capabilities rather than shell fallback."""
+        normalized_prompt = prompt.strip()
+        if not normalized_prompt:
+            return False
+
+        # 1. Native assistant intent recognition (greetings, courtesies, tools, actions, volume, screenshot)
+        intent = detect_assistant_intent(normalized_prompt, last_turn=self.history.last_turn)
+        if intent.intent_type != AssistantIntentType.UNKNOWN:
+            return True
+
+        # 2. Screen observation intent
+        import re
+
+        if re.search(
+            r"\b(?:what(?:'s|\s+is)\s+on\s+my\s+screen|read\s+(?:what(?:'s|\s+is)\s+on\s+my\s+screen|my\s+screen)|what\s+am\s+i\s+looking\s+at)\b",
+            normalized_prompt.lower(),
+        ):
+            return True
+
+        # 3. Pending confirmation for multi-step plan
+        if (
+            normalized_prompt.lower() in ("yes", "y", "confirm", "proceed", "do it")
+            and self.history.last_turn
+            and self.history.last_turn.plan
+            and getattr(self.history.last_turn.plan, "requires_confirmation", False)
+        ):
+            return True
+
+        # 4. Capability agent planner (composite or single-step plans)
+        if self.planner.create_plan(normalized_prompt) is not None:
+            return True
+
+        return False
+
     def handle(
         self,
         prompt: str,
@@ -354,6 +389,87 @@ class AssistantOrchestrator:
             else:
                 result = OrchestratorResult(
                     text=f"Application '{resolution.canonical_name}' is not installed on this system.",
+                    metrics=ResponseMetrics(total_duration_ms=(time.perf_counter() - t0) * 1000.0),
+                    context=context,
+                )
+
+        # R. Native Capability: Screenshot
+        elif intent.intent_type == AssistantIntentType.SCREENSHOT:
+            if not auto_execute_actions:
+                result = OrchestratorResult(
+                    text="Ready to capture screenshot.",
+                    metrics=ResponseMetrics(total_duration_ms=(time.perf_counter() - t0) * 1000.0),
+                    context=context,
+                )
+            else:
+                cap_res = self.capabilities.execute("desktop.screenshot")
+                result = OrchestratorResult(
+                    text=cap_res.message
+                    or (
+                        f"Captured screenshot to {cap_res.data.get('path')}"
+                        if cap_res.success
+                        else f"Failed to capture screenshot: {cap_res.error}"
+                    ),
+                    capability_result=cap_res,
+                    metrics=ResponseMetrics(total_duration_ms=(time.perf_counter() - t0) * 1000.0),
+                    context=context,
+                )
+
+        # S. Native Capability: Volume Set
+        elif intent.intent_type == AssistantIntentType.VOLUME_SET:
+            if not auto_execute_actions:
+                result = OrchestratorResult(
+                    text="Ready to adjust volume.",
+                    metrics=ResponseMetrics(total_duration_ms=(time.perf_counter() - t0) * 1000.0),
+                    context=context,
+                )
+            else:
+                cap_res = self.capabilities.execute("desktop.volume.set", **intent.extra)
+                result = OrchestratorResult(
+                    text=cap_res.message
+                    or (
+                        "Volume updated."
+                        if cap_res.success
+                        else f"Failed to set volume: {cap_res.error}"
+                    ),
+                    capability_result=cap_res,
+                    metrics=ResponseMetrics(total_duration_ms=(time.perf_counter() - t0) * 1000.0),
+                    context=context,
+                )
+
+        # T. Native Capability: Volume Get
+        elif intent.intent_type == AssistantIntentType.VOLUME_GET:
+            cap_res = self.capabilities.execute("desktop.volume.get")
+            result = OrchestratorResult(
+                text=cap_res.message
+                or (
+                    f"System volume is at {cap_res.data.get('level')}%."
+                    if cap_res.success
+                    else f"Failed to get volume: {cap_res.error}"
+                ),
+                capability_result=cap_res,
+                metrics=ResponseMetrics(total_duration_ms=(time.perf_counter() - t0) * 1000.0),
+                context=context,
+            )
+
+        # U. Native Capability: Media Control
+        elif intent.intent_type == AssistantIntentType.MEDIA_CONTROL:
+            if not auto_execute_actions:
+                result = OrchestratorResult(
+                    text="Ready to control media playback.",
+                    metrics=ResponseMetrics(total_duration_ms=(time.perf_counter() - t0) * 1000.0),
+                    context=context,
+                )
+            else:
+                cap_res = self.capabilities.execute("desktop.media.control", **intent.extra)
+                result = OrchestratorResult(
+                    text=cap_res.message
+                    or (
+                        "Media playback command sent."
+                        if cap_res.success
+                        else f"Media control failed: {cap_res.error}"
+                    ),
+                    capability_result=cap_res,
                     metrics=ResponseMetrics(total_duration_ms=(time.perf_counter() - t0) * 1000.0),
                     context=context,
                 )

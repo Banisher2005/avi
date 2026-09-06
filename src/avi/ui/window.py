@@ -342,10 +342,17 @@ class AviWindow:
                 if res.is_blocked:
                     GLib.idle_add(self._show_error, res.text)
                     return
-                if res.requires_confirmation and res.command_request is not None:
-                    GLib.idle_add(self._show_confirm_prompt, res.command_request, res.text)
+                if res.requires_confirmation:
+                    if res.command_request is not None:
+                        GLib.idle_add(self._show_confirm_prompt, res.command_request, res.text)
+                        return
+                    GLib.idle_add(self._finish_stream, res.text)
                     return
-                if res.action is not None or res.tool_result is not None:
+                if (
+                    res.action is not None
+                    or res.tool_result is not None
+                    or res.capability_result is not None
+                ):
                     GLib.idle_add(self._finish_stream, res.text)
                     return
                 if res.execution_result is not None or (res.text and not res.command_request):

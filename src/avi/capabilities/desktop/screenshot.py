@@ -4,6 +4,7 @@ import os
 import shutil
 import struct
 import subprocess
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -105,6 +106,142 @@ class ScreenshotCapability(BaseCapability):
             name = f"screenshot_{ts}.png"
 
         return dest_path / name
+
+    def _capture_via_portal(self, target_file: Path) -> bool:
+        """Capture screen via FreeDesktop org.freedesktop.portal.Screenshot."""
+        if not (shutil.which("python3") or shutil.which("python")):
+            return False
+
+        try:
+            import gi
+
+            gi.require_version("Gio", "2.0")
+            from gi.repository import Gio, GLib
+
+            bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+            proxy = Gio.DBusProxy.new_sync(
+                bus,
+                Gio.DBusProxyFlags.NONE,
+                None,
+                "org.freedesktop.portal.Desktop",
+                "/org/freedesktop/portal/desktop",
+                "org.freedesktop.portal.Screenshot",
+                None,
+            )
+            res = proxy.call_sync(
+                "Screenshot",
+                GLib.Variant("(sa{sv})", ("", {"interactive": GLib.Variant("b", False)})),
+                Gio.DBusCallFlags.NONE,
+                5000,
+                None,
+            )
+            req_path = res[0]
+            loop = GLib.MainLoop()
+            saved: list[str] = []
+
+            def on_response(conn, sender, path, iface, signal, params):
+                code, results = params.unpack()
+                if code == 0 and "uri" in results:
+                    saved.append(results["uri"])
+                loop.quit()
+
+            sub_id = bus.signal_subscribe(
+                "org.freedesktop.portal.Desktop",
+                "org.freedesktop.portal.Request",
+                "Response",
+                req_path,
+                None,
+                Gio.DBusSignalFlags.NONE,
+                on_response,
+            )
+            GLib.timeout_add_seconds(5, loop.quit)
+            loop.run()
+            bus.signal_unsubscribe(sub_id)
+
+            if saved:
+                src = Path(saved[0].replace("file://", ""))
+                if src.exists() and src.stat().st_size > 0:
+                    target_file.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.move(src, target_file)
+                    return True
+        except Exception:
+            pass
+
+        # Fallback: invoke system python if gi is not in current virtualenv
+        system_python = "/usr/bin/python3"
+        if sys.executable != system_python and os.path.exists(system_python):
+            script = """import sys, shutil
+from pathlib import Path
+
+def main():
+    try:
+        import gi
+        gi.require_version('Gio', '2.0')
+        from gi.repository import Gio, GLib
+
+        dest_path = Path(sys.argv[1])
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        proxy = Gio.DBusProxy.new_sync(
+            bus,
+            Gio.DBusProxyFlags.NONE,
+            None,
+            'org.freedesktop.portal.Desktop',
+            '/org/freedesktop/portal/desktop',
+            'org.freedesktop.portal.Screenshot',
+            None
+        )
+        res = proxy.call_sync('Screenshot', GLib.Variant('(sa{sv})', ('', {'interactive': GLib.Variant('b', False)})), Gio.DBusCallFlags.NONE, 5000, None)
+        req_path = res[0]
+        loop = GLib.MainLoop()
+        saved = []
+
+        def on_response(conn, sender, path, iface, signal, params):
+            code, results = params.unpack()
+            if code == 0 and 'uri' in results:
+                saved.append(results['uri'])
+            loop.quit()
+
+        sub_id = bus.signal_subscribe(
+            'org.freedesktop.portal.Desktop',
+            'org.freedesktop.portal.Request',
+            'Response',
+            req_path,
+            None,
+            Gio.DBusSignalFlags.NONE,
+            on_response
+        )
+        GLib.timeout_add_seconds(5, loop.quit)
+        loop.run()
+        bus.signal_unsubscribe(sub_id)
+
+        if saved:
+            src = Path(saved[0].replace('file://', ''))
+            if src.exists() and src.stat().st_size > 0:
+                dest_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(src, dest_path)
+                sys.exit(0)
+    except Exception:
+        sys.exit(1)
+    sys.exit(1)
+
+if __name__ == '__main__':
+    main()
+"""
+            try:
+                proc = subprocess.run(
+                    [system_python, "-c", script, str(target_file)],
+                    shell=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                    timeout=7.0,
+                )
+                if proc.returncode == 0 and target_file.exists() and target_file.stat().st_size > 0:
+                    return True
+            except Exception:
+                pass
+
+        return False
 
     def execute(
         self,
@@ -214,6 +351,8 @@ class ScreenshotCapability(BaseCapability):
                 )
                 if proc.returncode == 0 and target_file.exists() and target_file.stat().st_size > 0:
                     dims = extract_png_dimensions(target_file)
+                    dims_str = f"{dims[0]}x{dims[1]}" if dims else ""
+                    detail = f" ({dims_str})" if dims_str else ""
                     return CapabilityResult(
                         success=True,
                         status=ExecutionStatus.SUCCESS,
@@ -221,18 +360,45 @@ class ScreenshotCapability(BaseCapability):
                             "path": str(target_file),
                             "filename": target_file.name,
                             "timestamp": time.time(),
-                            "dimensions": list(dims) if dims else None,
+                            "dimensions": dims_str,
+                            "dimensions_tuple": list(dims) if dims else None,
                             "display": os.environ.get("WAYLAND_DISPLAY")
                             or os.environ.get("DISPLAY")
                             or "display",
                             "file_size_bytes": target_file.stat().st_size,
                             "format": "png",
                         },
-                        message=f"Screenshot saved to {target_file}.",
+                        message=f"Captured screenshot{detail} and saved it to {target_file}.",
                         classification=self.data_classification,
                     )
             except Exception:
                 continue
+
+        # FreeDesktop Portal screenshot fallback for Wayland/X11 desktops
+        if (
+            os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY")
+        ) and self._capture_via_portal(target_file):
+            dims = extract_png_dimensions(target_file)
+            dims_str = f"{dims[0]}x{dims[1]}" if dims else ""
+            detail = f" ({dims_str})" if dims_str else ""
+            return CapabilityResult(
+                success=True,
+                status=ExecutionStatus.SUCCESS,
+                data={
+                    "path": str(target_file),
+                    "filename": target_file.name,
+                    "timestamp": time.time(),
+                    "dimensions": dims_str,
+                    "dimensions_tuple": list(dims) if dims else None,
+                    "display": os.environ.get("WAYLAND_DISPLAY")
+                    or os.environ.get("DISPLAY")
+                    or "display",
+                    "file_size_bytes": target_file.stat().st_size,
+                    "format": "png",
+                },
+                message=f"Captured screenshot{detail} and saved it to {target_file}.",
+                classification=self.data_classification,
+            )
 
         return CapabilityResult(
             success=False,

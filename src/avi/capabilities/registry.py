@@ -44,9 +44,11 @@ class CapabilityRegistry:
     def register(self, capability: BaseCapability, aliases: Sequence[str] | None = None) -> None:
         """Register a capability under its primary name and optional aliases."""
         self._capabilities[capability.name] = capability
-        if aliases:
-            for alias in aliases:
-                self._aliases[alias] = capability.name
+        combined_aliases = list(aliases or [])
+        if hasattr(capability, "aliases"):
+            combined_aliases.extend(capability.aliases)
+        for alias in combined_aliases:
+            self._aliases[alias] = capability.name
 
     def get(self, name: str) -> BaseCapability | None:
         """Look up a capability by primary name or alias."""
@@ -167,9 +169,18 @@ def create_default_capability_registry(
     app_resolver = resolver or ApplicationResolver()
     registry.register(ScreenshotCapability(), aliases=["screenshot", "take_screenshot"])
     registry.register(NotificationCapability(), aliases=["notification", "notify"])
-    registry.register(VolumeGetCapability(), aliases=["volume.get", "get_volume"])
-    registry.register(VolumeSetCapability(), aliases=["volume.set", "set_volume"])
-    registry.register(MediaControlCapability(), aliases=["media", "media_control"])
+    registry.register(
+        VolumeGetCapability(),
+        aliases=["volume.get", "desktop.volume.get", "get_volume"],
+    )
+    registry.register(
+        VolumeSetCapability(),
+        aliases=["volume.set", "desktop.volume.set", "set_volume"],
+    )
+    registry.register(
+        MediaControlCapability(),
+        aliases=["desktop.media.control", "desktop.media", "media", "media_control"],
+    )
     registry.register(LaunchAppCapability(app_resolver), aliases=["app.launch", "open_app"])
     registry.register(OpenUrlCapability(), aliases=["open_url"])
     registry.register(OpenFileCapability(), aliases=["open_file"])
