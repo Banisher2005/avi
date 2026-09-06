@@ -133,14 +133,14 @@ Strict, isolated command execution boundary:
 
 ### 2.10 Fast-Path Routing Subsystem (`avi.core.fastpath`)
 Deterministic intent resolution layer for common terminal requests:
-* **Zero-Latency In-Memory Matching**: Compiles pre-defined regular expression patterns to match unambiguous terminal intents in **~0.0035 ms (~3.5 µs)** without invoking an LLM backend.
-* **19 Default Intent Templates**:
-  * Exact system inspections: `pwd`, `ls -la`, `df -h`, `ps aux`, `ss -tulpn`, `uname -a`, `date`, `whoami`, `which python3`, `python3 --version`, `node --version`.
-  * Git state queries: `git status`, `git branch --show-current`, `git diff`.
-  * Parameterized templates: `git log --oneline -N` (with bounds checking 1 <= N <= 1000), `find by size`, `find by language`, `find modified`, and `grep in files`.
+* **Zero-Latency In-Memory Matching**: Compiles pre-defined regular expression patterns to match unambiguous terminal intents in **~0.0053 ms (~5.3 µs)** without invoking an LLM backend.
+* **27 Default Intent Templates & Extensible Registry**:
+  * Exact system inspections: `pwd`, `ls -la`, `df -h`, `ps aux`, `ss -tulpn`, `uname -a`, `date`, `whoami`, `which python3`, `python3 --version`, `node --version`, `free -h`, `uptime`, `du -sh .`, `go version`, `rustc --version`.
+  * Git state queries: `git status`, `git branch --show-current`, `git diff`, `git remote -v`, `git diff --cached`.
+  * Parameterized templates: `git log --oneline -N` (with bounds checking 1 <= N <= 1000), `find by size` (e.g. `find files larger than 500MB`), `find by language` (20+ language extensions including Python, JS/TS, Rust, Go, C/C++, Java, Bash, SQL, YAML), `find modified` (e.g. `today`, `last N days`), `find empty` (files or directories), and `grep in files` (e.g. `grep for "TODO" in files`, `search files for "pattern"`).
 * **Strict Parameter Sanitization (`is_safe_parameter`)**:
-  * Validates all extracted arguments against shell metacharacters (`;`, `&`, `|`, `>`, `<`, `$`, backticks, newlines, null bytes).
-  * Rejects unclosed quotes, backslash escapes, and command substitutions before command construction.
+  * Validates all extracted arguments against shell metacharacters (`;`, `&`, `|`, `>`, `<`, `$`, backticks, newlines, null bytes) and ASCII control characters.
+  * Rejects unclosed quotes, backslash escapes, variable expansions (`${...}`), and command substitutions (`$(...)`) before command construction.
 * **Safety Boundary Guarantee**:
   * Fast-path resolution **never executes commands directly**.
   * Returns structured `CommandRequest` instances that strictly route through the Phase 5 `SafetyEngine` before dispatching to `CommandExecutor`.
@@ -153,7 +153,7 @@ Deterministic intent resolution layer for common terminal requests:
 
 | Mode | Tokens | Measured Latency | Explanation |
 | :--- | :---: | :---: | :--- |
-| **Deterministic Fast-Path Matching** | 0 | **~0.0035 ms (3.5 µs)** | In-memory regex intent resolution and structured request building |
+| **Deterministic Fast-Path Matching** | 0 | **~0.0053 ms (5.3 µs)** | In-memory regex intent resolution and structured request building (27 templates) |
 | **Deterministic Fast-Path (Context)** | 0 | **< 1 ms – 6 ms** | CWD, branch, shell, OS bypass LLM entirely |
 | **Read-Only Tool Execution** | 0 | **< 1 ms – 18 ms** | Direct execution of disk usage, file listing, process info |
 | **Safety Assessment Overhead** | 0 | **< 0.05 ms** | In-memory tokenization and deterministic rule evaluation |

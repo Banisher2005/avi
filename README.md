@@ -258,10 +258,10 @@ pytest
   * Process group timeout termination (`os.killpg`) preventing zombie processes
   * 64 KiB memory and context output capping
 * [x] **Phase 6: Fast-Path Routing**
-  * Sub-millisecond deterministic intent resolution (`< 0.01 ms`, ~3.5 µs measured)
-  * Pre-compiled templates for common terminal intents (directory, files, git, ports, versions)
-  * Parameterized templates (`find by size`, `find by language`, `git log -N`, `grep in files`)
-  * Strict parameter sanitization (`is_safe_parameter`) rejecting shell metacharacters and injections
+  * Sub-millisecond deterministic intent resolution (`< 0.01 ms`, ~5.3 µs measured across 27 templates)
+  * Pre-compiled templates for common terminal intents (directory, files, git, ports, memory, uptime, versions)
+  * Parameterized templates (`find by size`, `find by language`, `find modified`, `find empty`, `git log -N`, `grep in files`)
+  * Strict parameter sanitization (`is_safe_parameter`) rejecting shell metacharacters, control characters, expansions, and injections
   * Full routing through Phase 5 SafetyEngine before execution
   * Fail-closed fallback to LLM provider for ambiguous prompts
 * [ ] **Phase 7: Antigravity Integration**

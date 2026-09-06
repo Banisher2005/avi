@@ -20,14 +20,14 @@ def is_safe_parameter(value: str) -> bool:
     if not value or not value.strip():
         return False
     val = value.strip()
-    # Reject shell metacharacters
-    if SHELL_UNSAFE_PATTERN.search(val):
+    # Reject shell metacharacters and control characters
+    if SHELL_UNSAFE_PATTERN.search(val) or any(ord(c) < 32 and c != "\t" for c in val):
         return False
     # Reject unclosed quotes
     if val.count('"') % 2 != 0 or val.count("'") % 2 != 0:
         return False
-    # Reject dangerous substitutions or backslash escapes
-    if "$(" in val or "`" in val or "\\" in val:
+    # Reject dangerous substitutions, variable expansions, or backslash escapes
+    if "$(" in val or "`" in val or "\\" in val or "${" in val:
         return False
     return True
 
@@ -102,6 +102,19 @@ class FastPathRegistry:
     def list_templates(self) -> list[IntentTemplate]:
         """Return all registered templates."""
         return list(self._templates)
+
+    def get_template(self, name: str) -> IntentTemplate | None:
+        """Get registered template by name, or None if not found."""
+        for tmpl in self._templates:
+            if tmpl.name == name:
+                return tmpl
+        return None
+
+    def __len__(self) -> int:
+        return len(self._templates)
+
+    def __iter__(self):
+        return iter(self._templates)
 
     def _register_default_templates(self) -> None:
         """Register all default deterministic intent templates."""
@@ -398,6 +411,21 @@ class FastPathRegistry:
             "json": "*.json",
             "markdown": "*.md",
             "md": "*.md",
+            "java": "*.java",
+            "c": "*.c",
+            "csharp": "*.cs",
+            "cs": "*.cs",
+            "ruby": "*.rb",
+            "php": "*.php",
+            "bash": "*.sh",
+            "sh": "*.sh",
+            "shell": "*.sh",
+            "yaml": "*.yaml",
+            "yml": "*.yml",
+            "toml": "*.toml",
+            "sql": "*.sql",
+            "css": "*.css",
+            "scss": "*.scss",
         }
 
         def build_find_lang(match: re.Match) -> CommandRequest | None:
@@ -412,7 +440,7 @@ class FastPathRegistry:
                 name="find_by_language",
                 patterns=[
                     re.compile(
-                        r"^find\s+(python|javascript|js|typescript|ts|rust|go|c\+\+|cpp|html|json|markdown|md)\s+files$",
+                        r"^find\s+(python|javascript|js|typescript|ts|rust|go|c\+\+|cpp|html|json|markdown|md|java|c|csharp|cs|ruby|php|bash|sh|shell|yaml|yml|toml|sql|css|scss)\s+files$",
                         re.IGNORECASE,
                     ),
                 ],
@@ -448,7 +476,11 @@ class FastPathRegistry:
 
         # 19. Grep for pattern in files (grep -r -- <pattern> .)
         def build_grep_in_files(match: re.Match) -> CommandRequest | None:
-            pattern_str = match.group(1) or match.group(2) or match.group(3)
+            pattern_str = None
+            for g in match.groups():
+                if g:
+                    pattern_str = g
+                    break
             if not pattern_str or not is_safe_parameter(pattern_str):
                 return None
             return CommandRequest(program="grep", args=["-r", "--", pattern_str, "."])
@@ -461,9 +493,137 @@ class FastPathRegistry:
                         r"^(?:grep|search)\s+for\s+(?:\"([^\"]+)\"|\'([^\']+)\'|(\S+))(?:\s+in\s+files|\s+here)?$",
                         re.IGNORECASE,
                     ),
+                    re.compile(
+                        r"^search\s+files\s+for\s+(?:\"([^\"]+)\"|\'([^\']+)\'|(\S+))$",
+                        re.IGNORECASE,
+                    ),
                 ],
                 builder=build_grep_in_files,
                 description="Recursively search for pattern across files",
+            )
+        )
+
+        # 20. Free Memory / RAM usage (free -h)
+        self.register(
+            IntentTemplate(
+                name="free_memory",
+                patterns=[
+                    re.compile(
+                        r"^(?:(?:show\s+)?free\s+memory|check\s+free\s+memory|(?:show\s+)?memory\s+usage|(?:show\s+)?ram\s+usage|how\s+much\s+(?:ram|memory)\s+is\s+free|free\s+-h)$",
+                        re.IGNORECASE,
+                    ),
+                ],
+                builder=lambda m: CommandRequest(program="free", args=["-h"]),
+                description="Show free and used system memory",
+            )
+        )
+
+        # 21. System Uptime (uptime)
+        self.register(
+            IntentTemplate(
+                name="uptime",
+                patterns=[
+                    re.compile(
+                        r"^(?:uptime|system\s+uptime|how\s+long\s+has\s+(?:the\s+)?system\s+been\s+(?:up|running)|check\s+uptime|show\s+uptime)$",
+                        re.IGNORECASE,
+                    ),
+                ],
+                builder=lambda m: CommandRequest(program="uptime", args=[]),
+                description="Show system uptime",
+            )
+        )
+
+        # 22. Git Remotes (git remote -v)
+        self.register(
+            IntentTemplate(
+                name="git_remotes",
+                patterns=[
+                    re.compile(
+                        r"^(?:git\s+remotes?|show\s+git\s+remotes?|git\s+remote\s+-v|what\s+are\s+(?:the\s+)?git\s+remotes|list\s+git\s+remotes?)$",
+                        re.IGNORECASE,
+                    ),
+                ],
+                builder=lambda m: CommandRequest(program="git", args=["remote", "-v"]),
+                description="Show Git remote repositories",
+            )
+        )
+
+        # 23. Git Staged Diff (git diff --cached)
+        self.register(
+            IntentTemplate(
+                name="git_staged_diff",
+                patterns=[
+                    re.compile(
+                        r"^(?:show\s+(?:git\s+)?staged\s+changes|git\s+diff\s+--(?:staged|cached)|git\s+staged\s+diff|show\s+staged\s+diff)$",
+                        re.IGNORECASE,
+                    ),
+                ],
+                builder=lambda m: CommandRequest(program="git", args=["diff", "--cached"]),
+                description="Show staged Git changes",
+            )
+        )
+
+        # 24. Directory Size (du -sh .)
+        self.register(
+            IntentTemplate(
+                name="directory_size",
+                patterns=[
+                    re.compile(
+                        r"^(?:(?:show\s+)?directory\s+size|size\s+of\s+(?:this|current)\s+directory|how\s+big\s+is\s+this\s+directory|du\s+-sh(?:\s+\.)?)$",
+                        re.IGNORECASE,
+                    ),
+                ],
+                builder=lambda m: CommandRequest(program="du", args=["-sh", "."]),
+                description="Show total size of current directory",
+            )
+        )
+
+        # 25. Go Version (go version)
+        self.register(
+            IntentTemplate(
+                name="go_version",
+                patterns=[
+                    re.compile(
+                        r"^(?:check\s+go\s+version|go\s+version|show\s+go\s+version|what\s+is\s+(?:the\s+)?go\s+version)$",
+                        re.IGNORECASE,
+                    ),
+                ],
+                builder=lambda m: CommandRequest(program="go", args=["version"]),
+                description="Check Go version",
+            )
+        )
+
+        # 26. Rust Version (rustc --version)
+        self.register(
+            IntentTemplate(
+                name="rust_version",
+                patterns=[
+                    re.compile(
+                        r"^(?:check\s+rust\s+version|rust\s+version|show\s+rust\s+version|rustc\s+--version|what\s+is\s+(?:the\s+)?rust\s+version)$",
+                        re.IGNORECASE,
+                    ),
+                ],
+                builder=lambda m: CommandRequest(program="rustc", args=["--version"]),
+                description="Check Rust compiler version",
+            )
+        )
+
+        # 27. Find Empty Files / Dirs (find . -type f/d -empty)
+        def build_find_empty(match: re.Match) -> CommandRequest | None:
+            target_type = "d" if "dir" in match.group(0).lower() else "f"
+            return CommandRequest(program="find", args=[".", "-type", target_type, "-empty"])
+
+        self.register(
+            IntentTemplate(
+                name="find_empty",
+                patterns=[
+                    re.compile(
+                        r"^(?:find\s+empty\s+files|show\s+empty\s+files|find\s+empty\s+(?:directories|dirs)|show\s+empty\s+(?:directories|dirs))$",
+                        re.IGNORECASE,
+                    ),
+                ],
+                builder=build_find_empty,
+                description="Find empty files or directories",
             )
         )
 
@@ -483,6 +643,15 @@ _COMMAND_TEMPLATES: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"^(what\s+command\s+(finds?|checks?)|how\s+do\s+i\s+(find|check))\s+(the\s+)?python\s+path$", re.I), "which python3"),
     (re.compile(r"^(what\s+command\s+(checks?|shows?)|how\s+do\s+i\s+check)\s+(listening\s+)?(tcp\s+)?ports$", re.I), "ss -tulpn"),
     (re.compile(r"^(what\s+command\s+(shows?|checks?)|how\s+do\s+i\s+(show|check))\s+(git\s+)?changes$", re.I), "git diff"),
+    (re.compile(r"^(what\s+command\s+shows?|how\s+do\s+i\s+show)\s+(the\s+)?(system\s+)?uptime$", re.I), "uptime"),
+    (re.compile(r"^(what\s+command\s+(shows?|checks?)|how\s+do\s+i\s+(show|check))\s+(free\s+)?(memory|ram)(\s+usage)?$", re.I), "free -h"),
+    (re.compile(r"^(what\s+command\s+shows?|how\s+do\s+i\s+show)\s+(git\s+)?remotes?$", re.I), "git remote -v"),
+    (re.compile(r"^(what\s+command\s+shows?|how\s+do\s+i\s+show)\s+(git\s+)?staged\s+changes$", re.I), "git diff --cached"),
+    (re.compile(r"^(what\s+command\s+checks?|how\s+do\s+i\s+check)\s+(the\s+)?python\s+version$", re.I), "python3 --version"),
+    (re.compile(r"^(what\s+command\s+checks?|how\s+do\s+i\s+check)\s+(the\s+)?node\s+version$", re.I), "node --version"),
+    (re.compile(r"^(what\s+command\s+checks?|how\s+do\s+i\s+check)\s+(the\s+)?go\s+version$", re.I), "go version"),
+    (re.compile(r"^(what\s+command\s+checks?|how\s+do\s+i\s+check)\s+(the\s+)?rust\s+version$", re.I), "rustc --version"),
+    (re.compile(r"^(what\s+command\s+shows?|how\s+do\s+i\s+show)\s+(the\s+)?directory\s+size$", re.I), "du -sh ."),
 )
 
 
