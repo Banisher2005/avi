@@ -1,6 +1,27 @@
-"""Context gathering subsystem for AVI (Phase 3).
+"""Terminal and repository context awareness subsystem for AVI."""
 
-Collects minimal, relevant, and explicit system and repository context
-(e.g., current directory, operating system, shell type, git status)
-without leaking unnecessary information or increasing prompt latency.
-"""
+from avi.context.collectors import (
+    collect_git_context,
+    collect_previous_command_context,
+    collect_snapshot,
+    collect_terminal_context,
+    detect_needed_context,
+)
+from avi.context.models import (
+    ContextSnapshot,
+    GitContext,
+    PreviousCommandContext,
+    TerminalContext,
+)
+
+__all__ = [
+    "ContextSnapshot",
+    "GitContext",
+    "PreviousCommandContext",
+    "TerminalContext",
+    "collect_git_context",
+    "collect_previous_command_context",
+    "collect_snapshot",
+    "collect_terminal_context",
+    "detect_needed_context",
+]
