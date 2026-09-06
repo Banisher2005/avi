@@ -1,7 +1,3 @@
-"""Natural-language response synthesis for tool results and assistant queries."""
-
-from typing import Any
-
 from avi.tools.base import ToolResult
 
 
@@ -90,6 +86,36 @@ def format_processes_conversational(result: ToolResult, sort_by: str = "memory")
             )
 
     return f"{top_name} is currently using the most {metric_label} at about {top_val:.1f}%."
+
+
+def format_processes_summary(result: ToolResult) -> str:
+    """Format running processes into a conversational summary rather than a raw table.
+
+    Example: 'Active processes include llama-server, chrome, bash. llama-server is currently highest with 7.6% memory and 1.2% CPU.'
+    """
+    if not result.success or not isinstance(result.data, list) or not result.data:
+        return result.format_display()
+
+    rows = result.data
+    top = rows[0]
+    top_name = top.get("name", "Unknown")
+    top_mem = top.get("memory_percent", 0.0)
+    top_cpu = top.get("cpu_percent", 0.0)
+
+    # Gather top distinct process names
+    distinct_names: list[str] = []
+    for r in rows:
+        n = r.get("name")
+        if n and n not in distinct_names:
+            distinct_names.append(n)
+        if len(distinct_names) >= 4:
+            break
+
+    names_str = ", ".join(distinct_names[:3])
+    return (
+        f"Active processes include {names_str}. "
+        f"{top_name} is currently highest with {top_mem:.1f}% memory and {top_cpu:.1f}% CPU."
+    )
 
 
 def format_system_info_conversational(result: ToolResult) -> str:

@@ -1,6 +1,5 @@
 """Interactive REPL session for AVI."""
 
-import os
 import sys
 from pathlib import Path
 from typing import Any, TextIO
@@ -43,6 +42,7 @@ class InteractiveSession:
         self.orchestrator = orchestrator
         if self.orchestrator is None:
             from avi.orchestrator import AssistantOrchestrator
+
             self.orchestrator = AssistantOrchestrator(config=self.config, router=self.router)
         self._setup_readline()
 
@@ -173,7 +173,9 @@ class InteractiveSession:
         if assessment is not None and hasattr(assessment, "format_confirmation_prompt"):
             prompt = assessment.format_confirmation_prompt()
         else:
-            prompt = f"\nCommand:\n{cmd_str}\n\nThis command can modify system state.\n\nExecute? [y/N] "
+            prompt = (
+                f"\nCommand:\n{cmd_str}\n\nThis command can modify system state.\n\nExecute? [y/N] "
+            )
         self.out_stream.write(prompt)
         self.out_stream.flush()
 
@@ -216,22 +218,31 @@ class InteractiveSession:
     def _process_turn(self, query: str) -> None:
         """Dispatch a single conversation turn to the router with signal handling."""
         try:
-            # 0. Check Assistant Orchestrator for action intents (timer, apps, URLs, tools)
-            # In multi-turn chat, greetings and small talk are passed to the model to maintain context
+            # 0. Check Assistant Orchestrator for native assistant intents (greetings, courtesies, tools, actions, clarification)
             if self.orchestrator is not None:
-                from avi.assistant.intents import detect_assistant_intent, AssistantIntentType
-                intent = detect_assistant_intent(query)
+                from avi.assistant.intents import AssistantIntentType, detect_assistant_intent
+
+                last_turn = (
+                    self.orchestrator.history.last_turn
+                    if hasattr(self.orchestrator, "history")
+                    else None
+                )
+                intent = detect_assistant_intent(query, last_turn=last_turn)
                 if intent.intent_type not in (
                     AssistantIntentType.UNKNOWN,
                     AssistantIntentType.GREETING,
                     AssistantIntentType.SMALL_TALK,
                 ):
-                    res = self.orchestrator.handle(query, context=self.context, auto_execute_actions=True)
+                    res = self.orchestrator.handle(
+                        query, context=self.context, auto_execute_actions=True
+                    )
                     if res.requires_confirmation and res.command_request is not None:
                         self._handle_proposal(res.command_request)
                     elif res.text:
                         self.out_stream.write(res.text.rstrip("\n") + "\n")
                         self.out_stream.flush()
+                    if res.context is not None:
+                        self.context = res.context
                     self._show_timing()
                     return
 
@@ -252,7 +263,10 @@ class InteractiveSession:
                 for chunk in stream_iter:
                     buffered += chunk
                     clean_buf = buffered.strip().upper()
-                    if any(clean_buf.startswith(p) for p in ("COMMAND:", "PROPOSAL:", "```JSON", '{"', "{")):
+                    if any(
+                        clean_buf.startswith(p)
+                        for p in ("COMMAND:", "PROPOSAL:", "```JSON", '{"', "{")
+                    ):
                         is_proposal = True
                         break
                     if len(buffered.strip()) >= 12:
