@@ -17,7 +17,7 @@ _TIMER_RE = re.compile(
 
 # Open / launch intent prefix
 _OPEN_PREFIX_RE = re.compile(
-    r"^(?:please\s+)?(?:open(?:\s+up)?|launch|start|run)\s+(.+)$",
+    r"^(?:please\s+|can\s+you\s+|could\s+you\s+)?(?:open(?:\s+up)?|launch|start|run)\s+(.+)$",
     re.IGNORECASE,
 )
 
@@ -84,6 +84,37 @@ _MEDIA_RE = re.compile(
     re.IGNORECASE,
 )
 
+# YouTube search intent patterns
+_YOUTUBE_PREFIX_SEARCH_RE = re.compile(
+    r"^(?:please\s+|can\s+you\s+|could\s+you\s+)?"
+    r"(?:"
+    r"(?:search|serch|look\s*up)\s+(?:on\s+)?(?:youtube|youtub|yotube)\s*(?:for)?|"
+    r"(?:youtube|youtub|yotube)\s+(?:search|serch)\s*(?:for)?|"
+    r"(?:open|launch)\s+(?:youtube|youtub|yotube)\s+(?:and\s+)?(?:search|find|look\s*up)\s*(?:for)?"
+    r")"
+    r"(?:\s+(.+))?$",
+    re.IGNORECASE,
+)
+
+_YOUTUBE_SUFFIX_SEARCH_RE = re.compile(
+    r"^(?:please\s+|can\s+you\s+|could\s+you\s+)?"
+    r"(?:find(?:\s+me)?|search(?:\s+for)?|look\s*up|show(?:\s+me)?|watch)\s+"
+    r"(?:(?:videos?|clips?|tutorials?)\s+(?:about|on|for|of)\s+|video\s+(?:about|on|for|of)\s+)?"
+    r"(.+?)"
+    r"\s+(?:on|in)\s+(?:youtube|youtub|yotube)$",
+    re.IGNORECASE,
+)
+
+_YOUTUBE_INFIX_SEARCH_RE = re.compile(
+    r"^(?:please\s+|can\s+you\s+|could\s+you\s+)?"
+    r"(?:find(?:\s+me)?|search(?:\s+for)?|look\s*up|show(?:\s+me)?|watch)\s+"
+    r"(?:(?:videos?|clips?|tutorials?)\s+)?"
+    r"(?:on|in)\s+(?:youtube|youtub|yotube)\s+"
+    r"(?:(?:about|on|for|of)\s+)?"
+    r"(.+)$",
+    re.IGNORECASE,
+)
+
 # Common top-level domains and web identifiers
 _URL_DOMAIN_RE = re.compile(
     r"^(?:https?://)?(?:[a-zA-Z0-9-]+\.)+(?:com|org|net|io|edu|gov|co|ai|dev|app|me|info|tv)(?:/[^\s]*)?$",
@@ -127,6 +158,7 @@ class AssistantIntentType(str, Enum):
     VOLUME_SET = "VOLUME_SET"
     VOLUME_GET = "VOLUME_GET"
     MEDIA_CONTROL = "MEDIA_CONTROL"
+    YOUTUBE_SEARCH = "YOUTUBE_SEARCH"
     UNKNOWN = "UNKNOWN"
 
 
@@ -261,7 +293,80 @@ _CANONICAL_DESKTOP_TARGETS = [
     "take a screenshot",
     "pause music",
     "play music",
+    "search youtube",
 ]
+
+
+def _extract_youtube_search_intent(prompt: str) -> DetectedIntent | None:
+    """Extract YouTube search intent and query, handling empty query clarifications."""
+    s = prompt.strip().rstrip("?.!").strip()
+    lower = s.lower()
+    lower_core = re.sub(r"^(?:please\s+|can\s+you\s+|could\s+you\s+)?", "", lower).strip()
+
+    # If it is strictly "open youtube", preserve for OPEN_URL
+    if lower_core in (
+        "open youtube",
+        "launch youtube",
+        "start youtube",
+        "run youtube",
+        "open up youtube",
+    ):
+        return None
+
+    query = None
+
+    # Check Suffix first: e.g. "find Linux tutorials on YouTube"
+    m_suffix = _YOUTUBE_SUFFIX_SEARCH_RE.match(s)
+    if m_suffix:
+        query = m_suffix.group(1).strip()
+
+    # Check Infix: e.g. "find videos on YouTube about building local AI agents"
+    if query is None:
+        m_infix = _YOUTUBE_INFIX_SEARCH_RE.match(s)
+        if m_infix:
+            query = m_infix.group(1).strip()
+
+    # Check Prefix: e.g. "search YouTube for Linux tutorials"
+    if query is None:
+        m_prefix = _YOUTUBE_PREFIX_SEARCH_RE.match(s)
+        if m_prefix:
+            raw_q = m_prefix.group(1).strip() if m_prefix.group(1) else ""
+            for pfx in ("for ", "about ", "on "):
+                if raw_q.lower().startswith(pfx):
+                    raw_q = raw_q[len(pfx) :].strip()
+            query = raw_q
+
+    if query is not None:
+        clean_q = query.strip().strip("\"'")
+        # Check if query is empty or generic placeholder
+        if not clean_q or clean_q.lower() in (
+            "something",
+            "anything",
+            "stuff",
+            "videos",
+            "a video",
+            "video",
+            "tutorials",
+            "clips",
+        ):
+            return DetectedIntent(
+                intent_type=AssistantIntentType.CLARIFICATION,
+                raw_prompt=prompt,
+                target="youtube",
+                extra={
+                    "clarification_type": "youtube_search",
+                    "message": "What would you like me to search for on YouTube?",
+                },
+            )
+
+        return DetectedIntent(
+            intent_type=AssistantIntentType.YOUTUBE_SEARCH,
+            raw_prompt=prompt,
+            target=clean_q,
+            extra={"query": clean_q},
+        )
+
+    return None
 
 
 def _normalize_phrase_for_fuzzy(p: str) -> str:
@@ -373,6 +478,25 @@ def detect_assistant_intent(prompt: str, last_turn: Any | None = None) -> Detect
                 return DetectedIntent(
                     intent_type=AssistantIntentType.CPU_USAGE,
                     raw_prompt=prompt,
+                )
+
+        if last_intent_val in ("CLARIFICATION", AssistantIntentType.CLARIFICATION.value) and (
+            getattr(last_turn, "target", "") == "youtube"
+            or "search for on YouTube" in getattr(last_turn, "response_text", "")
+        ):
+            clean_followup = s.strip("\"'")
+            if clean_followup and clean_followup.lower() not in (
+                "nothing",
+                "nevermind",
+                "cancel",
+                "no",
+                "stop",
+            ):
+                return DetectedIntent(
+                    intent_type=AssistantIntentType.YOUTUBE_SEARCH,
+                    raw_prompt=prompt,
+                    target=clean_followup,
+                    extra={"query": clean_followup},
                 )
 
     # 3. Greetings
@@ -572,6 +696,11 @@ def detect_assistant_intent(prompt: str, last_turn: Any | None = None) -> Detect
                 "message": "Please specify a valid duration for the timer, such as 'set a timer for 5 minutes' or 'timer 30 seconds'.",
             },
         )
+
+    # 13.5. YouTube Search requests (takes precedence over generic open)
+    yt_intent = _extract_youtube_search_intent(s)
+    if yt_intent is not None:
+        return yt_intent
 
     # 14. Open / Launch requests
     open_match = _OPEN_PREFIX_RE.match(s)

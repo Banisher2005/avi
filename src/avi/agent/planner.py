@@ -402,4 +402,54 @@ class AgentPlanner:
                 ],
             )
 
+        # YouTube search
+        yt_match = (
+            re.match(
+                r"^(?:please\s+|can\s+you\s+|could\s+you\s+)?(?:search|serch|look\s*up)\s+(?:on\s+)?(?:youtube|youtub|yotube)\s*(?:for)?\s+(.+)$",
+                clean,
+                re.IGNORECASE,
+            )
+            or re.match(
+                r"^(?:please\s+|can\s+you\s+|could\s+you\s+)?(?:find(?:\s+me)?|search(?:\s+for)?|look\s*up|show(?:\s+me)?|watch)\s+(?:(?:videos?|clips?|tutorials?)\s+(?:about|on|for|of)\s+|video\s+(?:about|on|for|of)\s+)?(.+?)\s+(?:on|in)\s+(?:youtube|youtub|yotube)$",
+                clean,
+                re.IGNORECASE,
+            )
+            or re.match(
+                r"^(?:please\s+|can\s+you\s+|could\s+you\s+)?(?:find(?:\s+me)?|search(?:\s+for)?|look\s*up|show(?:\s+me)?|watch)\s+(?:(?:videos?|clips?|tutorials?)\s+)?(?:on|in)\s+(?:youtube|youtub|yotube)\s+(?:(?:about|on|for|of)\s+)?(.+)$",
+                clean,
+                re.IGNORECASE,
+            )
+            or re.match(
+                r"^(?:please\s+|can\s+you\s+|could\s+you\s+)?(?:open|launch)\s+(?:youtube|youtub|yotube)\s+(?:and\s+)?(?:search|find|look\s*up)\s*(?:for)?\s+(.+)$",
+                clean,
+                re.IGNORECASE,
+            )
+        )
+        if yt_match:
+            raw_q = yt_match.group(1).strip().strip("\"'")
+            for pfx in ("for ", "about ", "on "):
+                if raw_q.lower().startswith(pfx):
+                    raw_q = raw_q[len(pfx) :].strip()
+            if raw_q and raw_q.lower() not in (
+                "something",
+                "anything",
+                "stuff",
+                "videos",
+                "a video",
+                "video",
+                "tutorials",
+                "clips",
+            ):
+                return Plan(
+                    user_goal=clean,
+                    steps=[
+                        PlanStep(
+                            step_id=1,
+                            capability_name="web.youtube.search",
+                            arguments={"query": raw_q},
+                            description=f"Search YouTube for {raw_q}",
+                        )
+                    ],
+                )
+
         return None

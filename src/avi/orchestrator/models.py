@@ -23,6 +23,7 @@ class ConversationTurn:
     execution_result: ExecutionResult | None = None
     plan: Any | None = None
     capability_result: Any | None = None
+    target: str | None = None
     timestamp: float = field(default_factory=time.time)
 
 
@@ -44,12 +45,14 @@ class ConversationHistory:
         execution_result: ExecutionResult | None = None,
         plan: Any | None = None,
         capability_result: Any | None = None,
+        target: str | None = None,
     ) -> ConversationTurn:
         turn = ConversationTurn(
             turn_id=len(self.turns) + 1,
             user_query=user_query,
             intent_type=intent_type,
             response_text=response_text,
+            target=target,
             tool_result=tool_result,
             action=action,
             command_request=command_request,

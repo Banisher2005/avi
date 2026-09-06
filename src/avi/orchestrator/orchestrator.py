@@ -117,6 +117,9 @@ class AssistantOrchestrator:
             "screeshot",
             "mute",
             "unmute",
+            "youtube",
+            "youtub",
+            "yotube",
         }
         lower_tokens = set(re.findall(r"\b\w+\b", normalized_prompt.lower()))
         if lower_tokens.intersection(desktop_keywords):
@@ -491,6 +494,29 @@ class AssistantOrchestrator:
                     context=context,
                 )
 
+        # V. Native Capability: YouTube Search
+        elif intent.intent_type == AssistantIntentType.YOUTUBE_SEARCH:
+            query = intent.extra.get("query", intent.target or "")
+            if not auto_execute_actions:
+                result = OrchestratorResult(
+                    text=f"Ready to search YouTube for: {query}",
+                    metrics=ResponseMetrics(total_duration_ms=(time.perf_counter() - t0) * 1000.0),
+                    context=context,
+                )
+            else:
+                cap_res = self.capabilities.execute("web.youtube.search", query=query)
+                result = OrchestratorResult(
+                    text=cap_res.message
+                    or (
+                        f"Searching YouTube for {query}."
+                        if cap_res.success
+                        else f"Could not search YouTube: {cap_res.error}"
+                    ),
+                    capability_result=cap_res,
+                    metrics=ResponseMetrics(total_duration_ms=(time.perf_counter() - t0) * 1000.0),
+                    context=context,
+                )
+
         # ── Step 2: Screen observation & Agent Planner capabilities ──────
         if result is None:
             # First: Screen observation check ("what's on my screen", etc.)
@@ -631,15 +657,22 @@ class AssistantOrchestrator:
                 "screeshot",
                 "mute",
                 "unmute",
+                "youtube",
+                "youtub",
+                "yotube",
             }
             lower_tokens = set(re.findall(r"\b\w+\b", normalized_prompt.lower()))
             if lower_tokens.intersection(desktop_keywords):
-                result = OrchestratorResult(
-                    text=(
+                if lower_tokens.intersection({"youtube", "youtub", "yotube"}):
+                    msg = "What would you like me to search for on YouTube?"
+                else:
+                    msg = (
                         "Could you clarify your desktop request? For volume, you can say "
                         "'increase volume', 'decrease volume', 'mute', or 'set volume to 50%'. "
                         "For screenshots, say 'take a screenshot'."
-                    ),
+                    )
+                result = OrchestratorResult(
+                    text=msg,
                     metrics=ResponseMetrics(total_duration_ms=(time.perf_counter() - t0) * 1000.0),
                     context=context,
                 )
@@ -699,5 +732,6 @@ class AssistantOrchestrator:
             execution_result=result.execution_result,
             plan=result.plan,
             capability_result=result.capability_result,
+            target=intent.target,
         )
         return result

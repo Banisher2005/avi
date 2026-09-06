@@ -30,6 +30,7 @@ from avi.capabilities.models import (
     ExecutionStatus,
     ToolCapabilityAdapter,
 )
+from avi.capabilities.web.search import YouTubeSearchCapability
 from avi.safety.models import ActionCategory
 from avi.tools.registry import ToolRegistry, create_default_registry
 
@@ -182,11 +183,21 @@ def create_default_capability_registry(
         aliases=["desktop.media.control", "desktop.media", "media", "media_control"],
     )
     registry.register(LaunchAppCapability(app_resolver), aliases=["app.launch", "open_app"])
-    registry.register(OpenUrlCapability(), aliases=["open_url"])
+    registry.register(
+        OpenUrlCapability(),
+        aliases=["open_url", "desktop.open_url", "desktop.url.open"],
+    )
     registry.register(OpenFileCapability(), aliases=["open_file"])
     registry.register(OpenDirectoryCapability(), aliases=["open_directory", "open_folder"])
 
-    # 3. Filesystem Capabilities
+    # 3. Web Capabilities
+    url_opener = registry.get("desktop.open_url")
+    registry.register(
+        YouTubeSearchCapability(url_capability=url_opener),
+        aliases=["youtube.search", "youtube_search"],
+    )
+
+    # 4. Filesystem Capabilities
     registry.register(FilesystemSearchCapability(), aliases=["file_search", "find_file"])
     registry.register(CreateDirectoryCapability(), aliases=["mkdir", "create_dir"])
     registry.register(CopyFileCapability(), aliases=["copy_file", "cp"])
