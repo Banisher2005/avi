@@ -29,7 +29,9 @@ from avi.assistant.synthesizer import (
 from avi.config import Config
 from avi.core.router import Router
 from avi.orchestrator.models import ConversationHistory, OrchestratorResult
-from avi.providers.models import ResponseMetrics
+from avi.providers.models import ProviderCapabilities, ResponseMetrics
+from avi.providers.registry import select_provider
+from avi.retrieval.youtube import validate_youtube_url
 from avi.safety.engine import SafetyEngine
 from avi.tools.registry import ToolRegistry, create_default_registry
 
@@ -517,6 +519,14 @@ class AssistantOrchestrator:
                     context=context,
                 )
 
+        # W. Native Capability: YouTube Smart Recommend
+        elif intent.intent_type == AssistantIntentType.YOUTUBE_RECOMMEND:
+            result = self._handle_youtube_recommend(intent, context, t0, auto_execute_actions)
+
+        # X. Native Capability: Open Previous Search Result
+        elif intent.intent_type == AssistantIntentType.OPEN_SEARCH_RESULT:
+            result = self._handle_open_search_result(intent, context, t0, auto_execute_actions)
+
         # ── Step 2: Screen observation & Agent Planner capabilities ──────
         if result is None:
             # First: Screen observation check ("what's on my screen", etc.)
@@ -733,5 +743,257 @@ class AssistantOrchestrator:
             plan=result.plan,
             capability_result=result.capability_result,
             target=intent.target,
+            search_results=result.search_results,
+            selected_result=result.selected_result,
         )
         return result
+
+    # ------------------------------------------------------------------
+    # Private helpers: smart YouTube recommend + open search result
+    # ------------------------------------------------------------------
+
+    _MAX_RETRIEVAL_RESULTS = 10
+    _MAX_REASONING_RESULTS = 5
+
+    def _handle_youtube_recommend(
+        self,
+        intent: Any,
+        context: Any,
+        t0: float,
+        auto_execute_actions: bool,
+    ) -> OrchestratorResult:
+        """Retrieve YouTube results and optionally rank with a provider."""
+        import json
+        import logging
+
+        log = logging.getLogger("avi.orchestrator.recommend")
+
+        query: str = intent.extra.get("query", intent.target or "")
+        from_history: bool = bool(intent.extra.get("from_history", False))
+        constraints: dict = intent.extra.get("constraints", {})
+
+        # If re-ranking from previous search, reuse stored results
+        raw_results: list | None = None
+        if from_history:
+            last_turn = self.history.last_turn
+            if last_turn and last_turn.search_results:
+                raw_results = last_turn.search_results
+            else:
+                return OrchestratorResult(
+                    text="I don't have any previous search results to rank. What would you like me to search for?",
+                    metrics=ResponseMetrics(total_duration_ms=(time.perf_counter() - t0) * 1000.0),
+                    context=context,
+                )
+
+        if raw_results is None:
+            if not query:
+                return OrchestratorResult(
+                    text="What topic would you like me to search YouTube for?",
+                    metrics=ResponseMetrics(total_duration_ms=(time.perf_counter() - t0) * 1000.0),
+                    context=context,
+                )
+            cap_res = self.capabilities.execute(
+                "web.youtube.search_results",
+                query=query,
+                limit=self._MAX_RETRIEVAL_RESULTS,
+            )
+            if not cap_res.success:
+                return OrchestratorResult(
+                    text=cap_res.message or f"Could not retrieve YouTube results: {cap_res.error}",
+                    capability_result=cap_res,
+                    metrics=ResponseMetrics(total_duration_ms=(time.perf_counter() - t0) * 1000.0),
+                    context=context,
+                )
+            raw_results = cap_res.data.get("search_results", [])
+
+        if not raw_results:
+            return OrchestratorResult(
+                text=f'I couldn\'t find any YouTube videos for "{query}". Try a different query.',
+                metrics=ResponseMetrics(total_duration_ms=(time.perf_counter() - t0) * 1000.0),
+                context=context,
+            )
+
+        # Apply duration constraint if present
+        min_secs = constraints.get("min_duration_seconds")
+        max_secs = constraints.get("max_duration_seconds")
+        filtered = raw_results
+        if min_secs is not None or max_secs is not None:
+            filtered = [
+                r
+                for r in raw_results
+                if (
+                    r.metadata.get("duration_seconds") is not None
+                    and (min_secs is None or r.metadata["duration_seconds"] >= min_secs)
+                    and (max_secs is None or r.metadata["duration_seconds"] <= max_secs)
+                )
+            ] or raw_results  # fall back to unfiltered if nothing passes
+
+        # Truncate to reasoning window
+        reasoning_candidates = filtered[: self._MAX_REASONING_RESULTS]
+
+        # Build result ID → result mapping for validation
+        result_map = {r.id: r for r in reasoning_candidates}
+
+        # Try provider-based ranking
+        reasoning_provider = select_provider(
+            required=ProviderCapabilities(text_reasoning=True, structured_output=True),
+            active_provider=self.router.provider,
+        )
+
+        selected_result = None
+        reason_text = ""
+
+        if reasoning_provider is not None and auto_execute_actions:
+            candidates_json = json.dumps(
+                [
+                    {
+                        "id": r.id,
+                        "title": r.title,
+                        "channel": r.channel or "Unknown",
+                        "duration": r.duration or "?",
+                        "description": (r.description or "")[:200],
+                    }
+                    for r in reasoning_candidates
+                ],
+                ensure_ascii=False,
+            )
+            user_query_hint = (
+                f'User request: "{query}"' if query else "User wants a recommendation."
+            )
+            prompt = (
+                f"{user_query_hint}\n\n"
+                f"Here are the top YouTube search results:\n{candidates_json}\n\n"
+                "Select the single best result for the user. "
+                'Respond with ONLY valid JSON: {"selected_result_id": "<id>", "reason": "<one sentence>"}\n'
+                "Do not add any other text or explanation."
+            )
+            try:
+                resp = reasoning_provider.generate_full(prompt=prompt)
+                raw_text = (resp.text or "").strip()
+                # Extract JSON object robustly
+                import re
+
+                json_match = re.search(r"\{[^{}]+\}", raw_text, re.DOTALL)
+                if json_match:
+                    parsed = json.loads(json_match.group())
+                    sel_id = parsed.get("selected_result_id", "")
+                    if sel_id in result_map:
+                        selected_result = result_map[sel_id]
+                        reason_text = parsed.get("reason", "")
+            except Exception as exc:
+                log.warning("Provider ranking failed: %s", exc)
+
+        # Format response
+        if selected_result is not None:
+            lines = [
+                f'I found a few results for "{query}".'
+                if query
+                else "Based on the search results:",
+                "",
+                f"🎯 Best match: **{selected_result.title}**",
+            ]
+            if selected_result.channel:
+                lines.append(f"   Channel: {selected_result.channel}")
+            if selected_result.duration:
+                lines.append(f"   Duration: {selected_result.duration}")
+            if reason_text:
+                lines.append(f"   Why: {reason_text}")
+            lines.append("")
+            lines.append('Say "open it" to watch, or ask me to open a specific result.')
+            # Append brief list of all candidates
+            if len(reasoning_candidates) > 1:
+                lines.append("")
+                lines.append("Other results:")
+                for i, r in enumerate(reasoning_candidates, 1):
+                    marker = "→" if r is selected_result else f"{i}."
+                    lines.append(f"  {marker} {r.title}" + (f" ({r.channel})" if r.channel else ""))
+            response_text = "\n".join(lines)
+        else:
+            # Provider unavailable — just list results
+            lines = [
+                f'Here are YouTube results for "{query}":' if query else "Here are the results:",
+                "",
+            ]
+            for i, r in enumerate(reasoning_candidates, 1):
+                lines.append(f"{i}. {r.title}")
+                if r.channel:
+                    lines.append(f"   Channel: {r.channel}")
+                if r.duration:
+                    lines.append(f"   Duration: {r.duration}")
+            lines.append("")
+            lines.append('Say "open the first one" or "open it" to watch.')
+            response_text = "\n".join(lines)
+
+        return OrchestratorResult(
+            text=response_text,
+            search_results=raw_results,
+            selected_result=selected_result,
+            metrics=ResponseMetrics(total_duration_ms=(time.perf_counter() - t0) * 1000.0),
+            context=context,
+        )
+
+    def _handle_open_search_result(
+        self,
+        intent: Any,
+        context: Any,
+        t0: float,
+        auto_execute_actions: bool,
+    ) -> OrchestratorResult:
+        """Open a specific result from the previous YouTube search."""
+        last_turn = self.history.last_turn
+        search_results: list = getattr(last_turn, "search_results", None) or []
+        selected_result = getattr(last_turn, "selected_result", None)
+        index: int = intent.extra.get("index", 0)
+
+        target_result = None
+
+        if index == 0 and selected_result is not None:
+            # "Open it" → open the previously recommended result
+            target_result = selected_result
+        elif search_results and 0 <= index < len(search_results):
+            target_result = search_results[index]
+        elif search_results:
+            return OrchestratorResult(
+                text=f"I only have {len(search_results)} result(s). "
+                'Try "open the first one" or "open it".',
+                metrics=ResponseMetrics(total_duration_ms=(time.perf_counter() - t0) * 1000.0),
+                context=context,
+            )
+        else:
+            return OrchestratorResult(
+                text="I don't have any recent search results to open. "
+                "Try asking me to find videos first.",
+                metrics=ResponseMetrics(total_duration_ms=(time.perf_counter() - t0) * 1000.0),
+                context=context,
+            )
+
+        # Validate URL before opening
+        if not validate_youtube_url(target_result.url):
+            return OrchestratorResult(
+                text="That result has an invalid URL and cannot be opened safely.",
+                metrics=ResponseMetrics(total_duration_ms=(time.perf_counter() - t0) * 1000.0),
+                context=context,
+            )
+
+        if not auto_execute_actions:
+            return OrchestratorResult(
+                text=f"Ready to open: {target_result.title}",
+                metrics=ResponseMetrics(total_duration_ms=(time.perf_counter() - t0) * 1000.0),
+                context=context,
+            )
+
+        cap_res = self.capabilities.execute("desktop.url.open", url=target_result.url)
+        if cap_res.success:
+            text = f'Opening "{target_result.title}".'
+        else:
+            text = f"Could not open the video: {cap_res.error or cap_res.message}"
+
+        return OrchestratorResult(
+            text=text,
+            capability_result=cap_res,
+            search_results=search_results,
+            selected_result=selected_result,
+            action_url=target_result.url,
+            metrics=ResponseMetrics(total_duration_ms=(time.perf_counter() - t0) * 1000.0),
+            context=context,
+        )

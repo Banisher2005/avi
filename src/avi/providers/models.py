@@ -64,6 +64,8 @@ class ProviderCapabilities:
     structured_output: bool = False
     vision: bool = False
     reasoning: bool = False
+    text_reasoning: bool = True
+    tool_reasoning: bool = False
     context_size: int = 8192
     local: bool = True
     remote: bool = False
@@ -76,10 +78,30 @@ class ProviderCapabilities:
             "structured_output": self.structured_output,
             "vision": self.vision,
             "reasoning": self.reasoning,
+            "text_reasoning": self.text_reasoning,
+            "tool_reasoning": self.tool_reasoning,
             "context_size": self.context_size,
             "local": self.local,
             "remote": self.remote,
         }
+
+    def supports(self, required: "ProviderCapabilities") -> bool:
+        """Check if these capabilities satisfy all required capability flags."""
+        if required.streaming and not self.streaming:
+            return False
+        if required.tool_calling and not self.tool_calling:
+            return False
+        if required.structured_output and not self.structured_output:
+            return False
+        if required.vision and not self.vision:
+            return False
+        if required.reasoning and not self.reasoning:
+            return False
+        if required.text_reasoning and not self.text_reasoning:
+            return False
+        if required.tool_reasoning and not self.tool_reasoning:
+            return False
+        return True
 
 
 @dataclass

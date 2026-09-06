@@ -119,3 +119,76 @@ class YouTubeSearchCapability(BaseWebSearchCapability):
 
     def build_search_url(self, query: str) -> str:
         return build_youtube_search_url(query)
+
+
+class YouTubeSearchResultsCapability(BaseCapability):
+    """Retrieve structured YouTube search results without opening the browser."""
+
+    name = "web.youtube.search_results"
+    aliases = ["youtube.search_results", "youtube_search_results", "youtube.retrieve"]
+    description = "Retrieve structured video search results from YouTube for ranking or reasoning."
+    risk_category = ActionCategory.EXTERNAL_ACTION
+    data_classification = DataClassification.LOCAL_ONLY
+    requires_confirmation = False
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "The search term or topic to search on YouTube",
+            },
+            "limit": {
+                "type": "integer",
+                "description": "Maximum number of results to retrieve (default: 10)",
+            },
+        },
+        "required": ["query"],
+    }
+
+    def __init__(self, retrieval_provider: Any | None = None) -> None:
+        from avi.retrieval.youtube import YouTubeSearchRetrievalProvider
+
+        self.retrieval_provider = retrieval_provider or YouTubeSearchRetrievalProvider()
+
+    def execute(self, **kwargs: Any) -> CapabilityResult:
+        query = kwargs.get("query")
+        if not query or not str(query).strip():
+            return CapabilityResult(
+                success=False,
+                status=ExecutionStatus.FAILED,
+                error="Search query cannot be empty.",
+                message="What would you like me to search for on YouTube?",
+            )
+
+        clean_query = str(query).strip().strip("\"'")
+        limit = kwargs.get("limit", 10)
+        try:
+            limit_int = int(limit)
+        except (ValueError, TypeError):
+            limit_int = 10
+
+        from avi.retrieval.models import SearchOptions
+
+        options = SearchOptions(max_results=limit_int)
+        search_res = self.retrieval_provider.search(clean_query, options=options)
+
+        if search_res.error and search_res.is_empty:
+            return CapabilityResult(
+                success=False,
+                status=ExecutionStatus.FAILED,
+                error=search_res.error,
+                message=f"Could not retrieve YouTube results: {search_res.error}",
+                data={"query": clean_query, "results": []},
+            )
+
+        return CapabilityResult(
+            success=True,
+            status=ExecutionStatus.SUCCESS,
+            message=f"Retrieved {len(search_res.results)} YouTube results for '{clean_query}'.",
+            data={
+                "query": clean_query,
+                "count": len(search_res.results),
+                "results": [r.to_dict() for r in search_res.results],
+                "search_results": search_res.results,
+            },
+        )

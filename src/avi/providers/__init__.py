@@ -39,6 +39,7 @@ from avi.providers.registry import (
     list_providers,
     register_provider,
     remove_provider,
+    select_provider,
 )
 
 __all__ = [
@@ -74,4 +75,5 @@ __all__ = [
     "list_providers",
     "register_provider",
     "remove_provider",
+    "select_provider",
 ]

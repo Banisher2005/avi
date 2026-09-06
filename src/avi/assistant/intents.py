@@ -115,6 +115,30 @@ _YOUTUBE_INFIX_SEARCH_RE = re.compile(
     re.IGNORECASE,
 )
 
+_YOUTUBE_QUESTION_RE = re.compile(
+    r"^(?:please\s+|can\s+you\s+|could\s+you\s+)?"
+    r"(?:"
+    # alt 1: "which/what YouTube videos about X look best?"
+    r"(?:which|what)\s+(?:(?:youtube\s+)?(?:videos?|tutorials?)|(?:videos?|tutorials?)\s+(?:on|in)\s+youtube)\b"
+    r"(?:\s+(?:about|on|for|of)\s+)?(.+?)(?:\s+(?:look\s+best|are\s+best|look\s+good|to\s+watch))?$"
+    r"|"
+    # alt 2: "what's/what is the best YouTube video on X"
+    r"what'?s?\s+(?:the\s+)?(?:best|top|good|great)\s+(?:youtube\s+)?(?:videos?|tutorials?)\s+(?:on|about|for|of)\s+(.+)$"
+    r")",
+    re.IGNORECASE,
+)
+
+_YOUTUBE_GENERIC_VIDEO_RE = re.compile(
+    r"^(?:please\s+|can\s+you\s+|could\s+you\s+)?"
+    r"(?:find(?:\s+me)?|search(?:\s+for)?|look\s*up|show(?:\s+me)?|recommend(?:\s+me)?|suggest(?:\s+me)?|watch)\s+"
+    r"(?:(?:a|an|the)\s+)?"
+    r"(?:(?:good|great|best|top|short|recommended|beginner(?:-friendly)?)\s+)?"
+    r"(?:(?:youtube\s+)?videos?|tutorials?|clips?)\s+"
+    r"(?:(?:about|on|for|of)\s+)"
+    r"(.+)$",
+    re.IGNORECASE,
+)
+
 # Common top-level domains and web identifiers
 _URL_DOMAIN_RE = re.compile(
     r"^(?:https?://)?(?:[a-zA-Z0-9-]+\.)+(?:com|org|net|io|edu|gov|co|ai|dev|app|me|info|tv)(?:/[^\s]*)?$",
@@ -159,6 +183,8 @@ class AssistantIntentType(str, Enum):
     VOLUME_GET = "VOLUME_GET"
     MEDIA_CONTROL = "MEDIA_CONTROL"
     YOUTUBE_SEARCH = "YOUTUBE_SEARCH"
+    YOUTUBE_RECOMMEND = "YOUTUBE_RECOMMEND"
+    OPEN_SEARCH_RESULT = "OPEN_SEARCH_RESULT"
     UNKNOWN = "UNKNOWN"
 
 
@@ -297,8 +323,52 @@ _CANONICAL_DESKTOP_TARGETS = [
 ]
 
 
+def _is_recommendation_request(prompt: str) -> bool:
+    """Check if prompt asks for qualitative video recommendation rather than simple search."""
+    lower = prompt.lower()
+    return bool(
+        re.search(
+            r"\b(?:good|great|best|top|recommended|recommend|suggest|short|beginner(?:-friendly)?|under\s+\d+\s+minutes?|under\s+an\s+hour)\b",
+            lower,
+        )
+        or re.search(r"^(?:which|what)\s+(?:youtube\s+videos?|videos?\s+on\s+youtube)\b", lower)
+    )
+
+
+def _extract_constraints(prompt: str) -> dict[str, Any]:
+    """Extract verified constraints from prompt."""
+    constraints: dict[str, Any] = {}
+    m_dur = re.search(r"under\s+(\d+)\s+minutes?", prompt, re.IGNORECASE)
+    if m_dur:
+        constraints["max_minutes"] = int(m_dur.group(1))
+        constraints["max_seconds"] = int(m_dur.group(1)) * 60
+    elif re.search(r"under\s+an\s+hour", prompt, re.IGNORECASE):
+        constraints["max_minutes"] = 60
+        constraints["max_seconds"] = 3600
+
+    if re.search(r"\bbeginner(?:-friendly)?\b", prompt, re.IGNORECASE):
+        constraints["beginner"] = True
+    return constraints
+
+
+def _clean_recommend_query(query: str) -> str:
+    """Clean out recommendation qualifiers from search query string."""
+    s = query.strip().strip("\"'")
+    s = re.sub(r"\s+under\s+(?:\d+\s+minutes?|an\s+hour)$", "", s, flags=re.IGNORECASE)
+    s = re.sub(r"\s+look\s+(?:good|best|great)$", "", s, flags=re.IGNORECASE)
+    s = re.sub(r"\s+(?:are|is)\s+best$", "", s, flags=re.IGNORECASE)
+    s = re.sub(
+        r"^(?:(?:a|an|the)\s+)?(?:good|great|best|top|recommended|beginner(?:-friendly)?)\s+",
+        "",
+        s,
+        flags=re.IGNORECASE,
+    )
+    s = re.sub(r"\s+(?:on|in)\s+youtube$", "", s, flags=re.IGNORECASE)
+    return s.strip().strip("\"'")
+
+
 def _extract_youtube_search_intent(prompt: str) -> DetectedIntent | None:
-    """Extract YouTube search intent and query, handling empty query clarifications."""
+    """Extract YouTube search or recommendation intent and query."""
     s = prompt.strip().rstrip("?.!").strip()
     lower = s.lower()
     lower_core = re.sub(r"^(?:please\s+|can\s+you\s+|could\s+you\s+)?", "", lower).strip()
@@ -312,6 +382,45 @@ def _extract_youtube_search_intent(prompt: str) -> DetectedIntent | None:
         "open up youtube",
     ):
         return None
+
+    # Check question form: e.g. "Which YouTube videos about PipeWire look best?"
+    # or "What's the best YouTube video on machine learning?"
+    m_q = _YOUTUBE_QUESTION_RE.match(s)
+    if m_q:
+        # group(1) from first alt (which/what videos...) or group(2) from second alt (what's the best...)
+        raw_q = (m_q.group(1) or m_q.group(2) or "").strip()
+        clean_q = _clean_recommend_query(raw_q)
+        return DetectedIntent(
+            intent_type=AssistantIntentType.YOUTUBE_RECOMMEND,
+            raw_prompt=prompt,
+            target=clean_q,
+            extra={"query": clean_q, "constraints": _extract_constraints(s)},
+        )
+
+    # Check generic video form: e.g. "Find a video about Linux AI agents under 20 minutes"
+    m_gen = _YOUTUBE_GENERIC_VIDEO_RE.match(s)
+    if m_gen:
+        raw_q = m_gen.group(1).strip()
+        # Strip leading "on YouTube" / "YouTube about" artifacts from greedy capture
+        raw_q = re.sub(
+            r"^(?:on\s+)?youtube\s+(?:about|for|on|in)\s+", "", raw_q, flags=re.IGNORECASE
+        )
+        raw_q = re.sub(r"^(?:on\s+)?youtube\s+", "", raw_q, flags=re.IGNORECASE)
+        clean_q = _clean_recommend_query(raw_q)
+        if _is_recommendation_request(s):
+            return DetectedIntent(
+                intent_type=AssistantIntentType.YOUTUBE_RECOMMEND,
+                raw_prompt=prompt,
+                target=clean_q,
+                extra={"query": clean_q, "constraints": _extract_constraints(s)},
+            )
+        else:
+            return DetectedIntent(
+                intent_type=AssistantIntentType.YOUTUBE_SEARCH,
+                raw_prompt=prompt,
+                target=clean_q,
+                extra={"query": clean_q},
+            )
 
     query = None
 
@@ -357,6 +466,15 @@ def _extract_youtube_search_intent(prompt: str) -> DetectedIntent | None:
                     "clarification_type": "youtube_search",
                     "message": "What would you like me to search for on YouTube?",
                 },
+            )
+
+        if _is_recommendation_request(s):
+            cleaned = _clean_recommend_query(clean_q)
+            return DetectedIntent(
+                intent_type=AssistantIntentType.YOUTUBE_RECOMMEND,
+                raw_prompt=prompt,
+                target=cleaned,
+                extra={"query": cleaned, "constraints": _extract_constraints(s)},
             )
 
         return DetectedIntent(
@@ -419,20 +537,60 @@ def detect_assistant_intent(prompt: str, last_turn: Any | None = None) -> Detect
         return DetectedIntent(intent_type=AssistantIntentType.UNKNOWN, raw_prompt=prompt)
     lower = s.lower()
 
-    # 1. Ambiguous deictic requests (clarification required)
-    if lower in _AMBIGUOUS_DEICTIC_PATTERNS:
-        kind, msg = _AMBIGUOUS_DEICTIC_PATTERNS[lower]
-        return DetectedIntent(
-            intent_type=AssistantIntentType.CLARIFICATION,
-            raw_prompt=prompt,
-            target=lower,
-            extra={"clarification_type": kind, "message": msg},
-        )
-
-    # 2. Conversational Follow-up based on last turn
+    # 1. Conversational Follow-up based on last turn
     if last_turn is not None:
         last_intent = getattr(last_turn, "intent_type", None)
         last_intent_val = getattr(last_intent, "value", str(last_intent))
+
+        # Search results deictic open / re-ranking follow-up
+        has_results = bool(
+            getattr(last_turn, "search_results", None)
+            or getattr(last_turn, "selected_result", None)
+        )
+        if has_results:
+            m_deictic = re.match(
+                r"^(?:please\s+|can\s+you\s+|could\s+you\s+)?(?:open|play|watch)\s+(?:it|that|that\s+one|that\s+video|the\s+video|the\s+best\s+one|the\s+first\s+one|the\s+1st\s+one|the\s+second\s+one|the\s+2nd\s+one|the\s+third\s+one|the\s+3rd\s+one|result\s+[1-5]|[1-5])$",
+                lower,
+            )
+            if m_deictic or lower in (
+                "open it",
+                "open that",
+                "open that one",
+                "open that video",
+                "open the best one",
+                "open the first one",
+                "play it",
+                "watch it",
+            ):
+                idx = 0
+                if any(w in lower for w in ("second", "2nd", " 2")):
+                    idx = 1
+                elif any(w in lower for w in ("third", "3rd", " 3")):
+                    idx = 2
+                elif any(w in lower for w in ("fourth", "4th", " 4")):
+                    idx = 3
+                elif any(w in lower for w in ("fifth", "5th", " 5")):
+                    idx = 4
+                return DetectedIntent(
+                    intent_type=AssistantIntentType.OPEN_SEARCH_RESULT,
+                    raw_prompt=prompt,
+                    target=str(idx),
+                    extra={"index": idx},
+                )
+
+            if re.search(
+                r"\b(?:which\s+(?:one|video)\s+is\s+(?:best|better|recommended)|which\s+one\s+for\s+a\s+beginner|which\s+one\s+looks\s+best)\b",
+                lower,
+            ):
+                return DetectedIntent(
+                    intent_type=AssistantIntentType.YOUTUBE_RECOMMEND,
+                    raw_prompt=prompt,
+                    target="previous_results",
+                    extra={
+                        "from_history": True,
+                        "constraints": _extract_constraints(prompt),
+                    },
+                )
 
         if last_intent_val in ("DISK_SPACE", AssistantIntentType.DISK_SPACE.value):
             if lower in (
@@ -498,6 +656,16 @@ def detect_assistant_intent(prompt: str, last_turn: Any | None = None) -> Detect
                     target=clean_followup,
                     extra={"query": clean_followup},
                 )
+
+    # 2. Ambiguous deictic requests without context (clarification required)
+    if lower in _AMBIGUOUS_DEICTIC_PATTERNS:
+        kind, msg = _AMBIGUOUS_DEICTIC_PATTERNS[lower]
+        return DetectedIntent(
+            intent_type=AssistantIntentType.CLARIFICATION,
+            raw_prompt=prompt,
+            target=lower,
+            extra={"clarification_type": kind, "message": msg},
+        )
 
     # 3. Greetings
     if lower in (
