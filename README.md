@@ -6,20 +6,20 @@
 
 > **Press a hotkey or run `avi`, type naturally, and get a useful response almost instantly.**
 
-AVI is a fast, local-first AI assistant for Linux terminals. It delivers instant shell command generation, system assistance, and local intelligence directly inside your workflow without relying on slow cloud APIs, heavy runtimes, or privacy-compromising telemetry.
+AVI is a fast, local-first AI assistant for Linux terminals. It delivers instant shell command generation, read-only system inspection, and local intelligence directly inside your workflow without relying on slow cloud APIs, heavy runtimes, or privacy-compromising telemetry.
 
 ---
 
 ## Why AVI?
 
 * **Near-Instant Response (< 100 ms)**: Designed from the ground up for speed. Zero bloated dependencies, minimal prompt overhead, and direct HTTP communication with local LLM runtimes.
-* **Deterministic Fast-Path (0 ms)**: Direct environment queries (directory, git branch, shell, OS) resolve immediately without invoking the neural network.
+* **Deterministic Fast-Path (< 20 ms)**: Read-only system inspection and environment queries resolve immediately via built-in tools without invoking the neural network.
+* **Controlled Read-Only Tools**: Inspect filesystem contents, running processes, disk usage, system info, and Git repository status with strict security guarantees.
 * **Lazy Context Awareness**: Understands your current directory, shell, Git repository state, and previous command errors—only when relevant to your question.
 * **100% Local & Private**: All data stays on your machine. Powered by Ollama and lightweight local models like `qwen2.5:1.5b`.
 * **Clean Command Output**: Shell commands are delivered directly without extraneous conversational fluff or annoying markdown fences when you just need the syntax.
 * **Interactive Terminal REPL**: Full conversational session with readline support, command history, multi-turn memory, and signal handling.
-* **Modular Architecture**: Built with decoupled interfaces for local inference engines, fast-path routing, context ingestion, and future agent delegation.
-* **Safe by Design**: Clear separation between generation and execution. AVI will never blindly execute dangerous commands without explicit safety pipelines and confirmation.
+* **Safe by Design**: Strict read-only tools. AVI will never execute arbitrary shell commands or modify your filesystem without explicit safety pipelines and confirmation.
 
 ---
 
@@ -82,27 +82,61 @@ avi --version
 
 ## Usage
 
-### 1. Deterministic Fast-Path Queries (Instant 0 ms)
+### 1. Read-Only Tools & Fast-Path Queries (< 20 ms)
 
-Common environment queries bypass the LLM and return instantly:
+Inspect system, git, and filesystem information without invoking the LLM:
 
 ```bash
-avi "what directory am I in?"
-# Output: /home/abhinav/avi  [Response: 0 ms]
+# Filesystem inspection
+avi "what files are here?"
+# Output:
+# Contents of /home/abhinav/avi:
+#   docs/                            [dir]
+#   src/                             [dir]
+#   tests/                           [dir]
+#   README.md                        8.2 KB
+#   pyproject.toml                   1.2 KB
 
+# Process memory inspection
+avi "what's using the most RAM?"
+# Output:
+# Top processes by memory:
+#        PID  NAME                   %MEM    %CPU
+#     209516  llama-server           7.6%   36.9%
+#     201135  chrome                 3.0%    7.4%
+
+# Filesystem disk usage
+avi "how much disk space do I have?"
+# Output:
+# Disk Usage (/):
+#   Total:     239.2 GB
+#   Used:      73.3 GB (30.6%)
+#   Available: 153.7 GB
+
+# Git inspection
 avi "what branch am I on?"
-# Output: feature/context-awareness  [Response: 6 ms]
-
-avi "what shell am I using?"
-# Output: zsh  [Response: 0 ms]
-
-avi "what OS is this?"
-# Output: Linux  [Response: 0 ms]
+avi "recent commits"
+avi "git status"
 ```
 
 ---
 
-### 2. Context-Aware Queries
+### 2. Available Read-Only Tools
+
+| Tool Name | Domain | Description |
+| :--- | :--- | :--- |
+| `filesystem.list_directory` | Filesystem | Lists directory entries with types and sizes (non-recursive) |
+| `filesystem.file_metadata` | Filesystem | Inspects file permissions, timestamps, and size |
+| `system.processes` | System | Lists top running processes sorted by memory or CPU |
+| `system.disk_usage` | System | Checks total, used, and available disk space |
+| `system.system_info` | System | Reports OS, kernel version, architecture, and CPU count |
+| `git.status` | Git | Checks repository root, branch, and clean/dirty status |
+| `git.branch` | Git | Returns active branch name |
+| `git.log` | Git | Displays recent commit history (non-diff) |
+
+---
+
+### 3. Context-Aware Inquiries
 
 AVI lazily detects when context is required:
 
@@ -117,20 +151,9 @@ avi "why did my last command fail?"
 # Explains port collision and suggests lsof / kill commands
 ```
 
-#### Shell Integration for Previous Command (Optional)
-
-To automatically record the last terminal command and exit code, add this hook to your `~/.zshrc` or `~/.bashrc`:
-
-```bash
-# In ~/.zshrc
-precmd() {
-  echo "{\"command\":\"$_ \",\"exit_code\":$?}" > ~/.local/share/avi/last_command.json 2>/dev/null
-}
-```
-
 ---
 
-### 3. Interactive Session Mode
+### 4. Interactive Session Mode
 
 Run `avi` without arguments to launch the stateful interactive REPL:
 
@@ -148,31 +171,20 @@ AVI > what directory am I in?
 /home/abhinav/avi
 
 AVI > what branch am I on?
-feature/context-awareness
+feature/read-only-tools
 
-AVI > what command shows my current directory?
-pwd
-
-AVI > history
-     1  what directory am I in?
-     2  what branch am I on?
-     3  what command shows my current directory?
-     4  history
+AVI > what files are here?
+Contents of /home/abhinav/avi:
+  src/                             [dir]
+  tests/                           [dir]
+  README.md                        8.2 KB
 
 AVI > exit
 ```
 
-#### Interactive Commands
-
-| Command | Action |
-| :--- | :--- |
-| `exit` / `quit` | Cleanly exits the interactive session |
-| `clear` | Clears the terminal screen |
-| `history` | Displays command history for the session |
-
 ---
 
-### 4. Single-Shot Mode
+### 5. Single-Shot Mode
 
 Pass a prompt directly on the command line for instant answers:
 
@@ -191,19 +203,6 @@ avi -t "how to check open ports listening on tcp"
 # ss -tulpn
 # [Response: 77 ms]
 ```
-
-### Environment Configuration
-
-| Variable | Description | Default |
-| :--- | :--- | :--- |
-| `AVI_MODEL` | Default Ollama model | `qwen2.5:1.5b` |
-| `AVI_OLLAMA_HOST` | Ollama HTTP endpoint | `http://127.0.0.1:11434` |
-| `AVI_TIMEOUT` | Request timeout in seconds | `30.0` |
-| `AVI_TEMPERATURE` | Generation temperature | `0.1` |
-| `AVI_TIMING` | Always show response timing (`1` or `0`) | `0` |
-| `AVI_PREV_CMD` | Previous command text for context | `None` |
-| `AVI_PREV_EXIT_CODE`| Previous command exit code | `None` |
-| `AVI_PREV_OUTPUT` | Previous command output snippet | `None` |
 
 ---
 
@@ -246,8 +245,11 @@ pytest
   * Sub-millisecond deterministic fast-path for direct environment queries
   * Previous command inspection support
   * Strict privacy controls preventing broad filesystem or secret dumping
-* [ ] **Phase 4: Tool Execution Subsystem**
-  * Safe execution wrappers for shell, file inspection, and git status
+* [x] **Phase 4: Tool Execution Subsystem**
+  * Modular, strictly read-only tool abstraction (`BaseTool`, `ToolResult`, `ToolRegistry`)
+  * 8 core inspection tools (Filesystem, System, Git)
+  * Sub-millisecond deterministic tool dispatch
+  * Strict security: no `shell=True`, no file modification, no privilege escalation
 * [ ] **Phase 5: Safety Subsystem & Risk Assessment**
   * Command classification (Safe, Confirmation Required, Blocked)
   * Safe execution verification pipeline
