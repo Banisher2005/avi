@@ -4,32 +4,38 @@
 
 AVI is built around three core architectural tenets:
 1. **Speed First**: Sub-200ms latency for simple terminal requests. Zero unnecessary imports, minimal context overhead, persistent model warmup, and direct HTTP streaming.
-2. **Modular Decoupling**: Strict boundary separation between User Interface (CLI/UI), Routing, Model Providers, Context Ingestion, Tool Execution, and Safety Verification.
+2. **Modular Decoupling**: Strict boundary separation between User Interface (One-Shot CLI & Interactive REPL), Routing, Model Providers, Context Ingestion, Tool Execution, and Safety Verification.
 3. **Safety by Design**: AI models should suggest; execution must always be verified and gated by an explicit risk assessment system.
 
 ```text
-                                AVI CLI / UI
-                                     │
-                                     ▼
-                              Core Router
-                                     │
-             ┌───────────────────────┼───────────────────────┐
-             ▼                       ▼                       ▼
-      Fast-Path Engine         Model Providers        Agent Delegation
-     (Deterministic regex)           │               (Antigravity CLI)
-                                     ├─ OllamaProvider
-                                     └─ Future Providers
-                                     │
-                                     ▼
-                             Output Normalizer
-                                     │
-                                     ▼
-                                Tool Layer
-                     (Shell / Filesystem / Git)
-                                     │
-                                     ▼
-                              Safety Pipeline
-                      (Risk Filter / User Confirm)
+                       User Invocation
+                              │
+               ┌──────────────┴──────────────┐
+               ▼                             ▼
+          One-Shot CLI                Interactive REPL
+          (Single turn)            (Multi-turn Session)
+               │                             │
+               └──────────────┬──────────────┘
+                              ▼
+                         Core Router
+                              │
+             ┌────────────────┼────────────────┐
+             ▼                ▼                ▼
+      Fast-Path Engine  Model Providers  Agent Delegation
+     (Deterministic)          │         (Antigravity CLI)
+                              ├─ OllamaProvider
+                              └─ Future Providers
+                              │
+                              ▼
+                      Output Normalizer
+                              │
+                              ▼
+                         Tool Layer
+                  (Shell / Filesystem / Git)
+                              │
+                              ▼
+                       Safety Pipeline
+                 (Risk Filter / User Confirm)
 ```
 
 ---
@@ -37,38 +43,52 @@ AVI is built around three core architectural tenets:
 ## 2. Core Components
 
 ### 2.1 CLI Layer (`avi.cli`)
-The CLI provides the primary user entry point. It handles command-line arguments (`argparse`), environment resolution, streaming output formatting, and terminal signal handling (`SIGINT`/`SIGTERM`).
-* Positional query arguments: accepts unquoted or quoted queries (`avi what command shows current directory`).
-* Flags: `--timing`, `--model`, `--host`, `--no-stream`, `--version`.
-* Zero heavy dependencies to ensure immediate CLI execution without interpreter startup lag.
+The CLI provides the primary entry point:
+* **One-Shot Mode**: When arguments are provided (e.g. `avi "find files larger than 500MB"`), it parses flags, queries the router, streams the response, and exits cleanly.
+* **Interactive Mode**: When invoked without positional arguments (`avi`), it instantiates `InteractiveSession` and runs the REPL loop.
+* **Top-Level Error Boundary**: Catches domain exceptions (`OllamaError`), system interruptions (`KeyboardInterrupt`), and unexpected runtime errors, formatting clean diagnostics without unhandled tracebacks.
 
-### 2.2 Configuration Subsystem (`avi.config`)
+### 2.2 Interactive Session (`avi.core.session`)
+A dedicated component managing the stateful REPL:
+* **Readline Integration**: Uses Python's standard library `readline` module for arrow-key navigation, editing, and persistent command history in `~/.local/share/avi/history`.
+* **Zero-Dependency Architecture**: No heavyweight terminal frameworks (`prompt_toolkit`, `rich`, `textual`) are imported, keeping startup latency under 80 ms.
+* **Local Interactive Commands**: Intercepts `exit`, `quit`, `clear`, and `history` locally before routing to the LLM backend.
+* **Granular Signal Handling**:
+  * `Ctrl+C` while the model is streaming cancels only the active generation and returns to the `AVI > ` prompt without crashing the session.
+  * `Ctrl+C` or `Ctrl+D` at the prompt exits cleanly.
+* **Error Resilience**: Ollama connectivity failures report a diagnostic message to `sys.stderr` and allow the user to continue the interactive session without restart.
+
+### 2.3 Configuration Subsystem (`avi.config`)
 Centralized configuration loaded with strict precedence:
 1. Command-line flags (highest)
 2. Environment variables (`AVI_MODEL`, `AVI_OLLAMA_HOST`, etc.)
 3. User configuration file (`~/.config/avi/config.json`)
 4. System defaults (lowest)
 
-Key settings include endpoint URLs, default model (`qwen2.5:1.5b`), inference temperature (default `0.1` for deterministic syntax), request timeout, and Ollama `keep_alive` parameter (`5m`).
+Key settings include endpoint URLs, default model (`qwen2.5:1.5b`), inference temperature (default `0.1`), request timeout, and Ollama `keep_alive` parameter (`5m`).
 
-### 2.3 Provider Abstraction (`avi.providers`)
-The provider layer abstracts the underlying inference backend.
-* **`BaseProvider`**: Abstract interface defining `generate()`, `generate_full()`, `is_available()`, and latency metrics capture.
+### 2.4 Provider Abstraction (`avi.providers`)
+The provider layer abstracts the underlying inference backend:
+* **`BaseProvider`**: Abstract interface defining:
+  * `generate(prompt, system_prompt, context, stream)`
+  * `generate_full(prompt, system_prompt, context)`
+  * `is_available()`
+  * `warmup()`
+  * Properties `last_metrics` and `last_context`
 * **`OllamaProvider`**: Direct implementation of the Ollama HTTP API:
   * Uses HTTP connection to `http://127.0.0.1:11434`.
   * Communicates directly with `/api/generate` and `/api/version`.
-  * Emits streaming NDJSON chunks for real-time terminal output.
-  * Preserves models in GPU memory via `keep_alive`.
-  * Converts nanosecond engine metrics into millisecond benchmarks.
-  * Formats clean error messages for offline services, missing models, or timeouts.
+  * Passes `"keep_alive": "5m"` to keep model weights warm in GPU VRAM.
+  * **Native Multi-Turn Context**: Captures Ollama's opaque `context` token array on completion and passes it into subsequent turns. This enables KV cache reuse in Ollama with zero re-encoding latency.
+  * **Zero-Token Model Warmup**: Leverages Ollama's `done_reason: "load"` warmup mechanism on session startup (~12 ms warm check).
 
-### 2.4 Core Router (`avi.core.router`)
+### 2.5 Core Router (`avi.core.router`)
 The central coordinator that determines how a user prompt is fulfilled:
-* **Fast-Path (Phase 6)**: Intercepts standard deterministic queries (e.g. `avi "show my current directory"`) and returns immediate shell syntax (`pwd`) in 0 ms without invoking neural inference.
-* **Local Inference (Phase 1)**: Dispatches requests to the configured local model provider (`OllamaProvider`).
-* **Agent Delegation (Phase 7)**: Detects requests that require multi-file code editing, test running, or complex reasoning, delegating them to Antigravity.
+* **Fast-Path (Phase 6)**: Intercepts standard deterministic queries in 0 ms.
+* **Local Inference (Phases 1 & 2)**: Dispatches requests and conversation context to `OllamaProvider`.
+* **Agent Delegation (Phase 7)**: Detects requests that require multi-file code editing or test running, delegating them to Antigravity CLI.
 
-### 2.5 Output Normalizer (`avi.core.normalizer`)
+### 2.6 Output Normalizer (`avi.core.normalizer`)
 Ensures output returned to the terminal is clean and directly executable:
 * Strips extraneous markdown code block fences (```` ```bash ... ``` ````).
 * Strips redundant inline backticks (`` `pwd` ``).
@@ -85,36 +105,26 @@ Gathers system and repository context with strict minimization:
 * Shell environment (`$SHELL`)
 * Git branch and status (clean vs dirty, untracked files)
 * Selective file inspection only when explicitly requested
-* **Principle**: Never dump entire directory trees or repository source trees into the prompt. Keep prompt tokens below 100 for command tasks to preserve sub-200ms generation speeds.
+* **Principle**: Keep prompt tokens minimal to preserve sub-200ms generation speeds.
 
 ### 3.2 Tool Execution Layer (`avi.tools` — Phase 4)
-Provides sandboxed, verifiable execution primitives:
-* `ShellTool`: Executes verified shell commands.
-* `FileTool`: Reads specific file lines or previews diffs.
-* `GitTool`: Inspects commits, branches, and diffs.
+Provides sandboxed, verifiable execution primitives for shell, files, and git.
 
 ### 3.3 Safety Subsystem (`avi.safety` — Phase 5)
-Every command destined for execution must traverse the safety pipeline:
-1. **Parser**: Extracts binary, subcommands, and flags.
-2. **Risk Classifier**:
-   * **Safe (Green)**: Read-only operations (`ls`, `pwd`, `cat`, `git status`, `uptime`).
-   * **Confirmation Required (Yellow)**: Potentially modifying operations (`git checkout`, `systemctl restart`, `chmod`).
-   * **Blocked / High-Risk (Red)**: Destructive commands (`rm -rf /`, `mkfs`, raw block device writes, piping unverified scripts to sudo).
-3. **Execution Gate**: Displays the command, risk level, and requires explicit user confirmation before executing.
+Risk classification pipeline (Safe, Confirmation Required, Blocked) before executing commands.
 
 ### 3.4 Antigravity Integration (`avi.providers.antigravity` — Phase 7)
-AVI is designed to complement Google Antigravity rather than duplicate it:
-* AVI handles fast, instant terminal assistance, shell syntax, and lightweight queries locally (< 200 ms).
-* When a task requires deep reasoning, multi-file code refactoring, running test suites, or autonomous multi-step operations, AVI can hand off the prompt to the Antigravity CLI (`agy -p` or `agy -i`).
-* Communication will leverage the actual installed CLI flags (`--add-dir`, `--model`, `--effort`, etc.).
+Handoff of complex refactor and development tasks to Antigravity CLI (`agy -p` or `agy -i`).
 
 ---
 
-## 4. Latency Optimization Strategy
+## 4. Latency & Performance Strategy
 
-In terminal workflows, delay breaks focus. AVI achieves near-instant responsiveness through:
-1. **No Cold-Start Overhead**: Native Python standard library implementation with zero external runtime package imports.
-2. **Direct Socket / HTTP API**: Communicates directly over local TCP sockets to Ollama instead of spawning external CLI subprocesses (`ollama run ...`).
-3. **Ollama Keep-Alive**: Passes `"keep_alive": "5m"` on every request to prevent the local model weights from unloading from GPU VRAM / system RAM.
-4. **Prompt Token Minimization**: Concise, instruction-tuned system prompts that maximize Ollama's prompt eval cache hit rate.
-5. **Streaming First**: Chunks are rendered to stdout the instant they are generated by the model.
+1. **Standard Library Only**: Zero third-party runtime dependencies eliminates interpreter startup lag.
+2. **Direct HTTP Sockets**: No external subprocess spawning (`ollama run ...`).
+3. **Ollama Keep-Alive & Native Context**: Retaining the model in GPU memory and passing native context token arrays avoids expensive prompt re-encoding.
+4. **Benchmark Summary**:
+   * Interactive session startup overhead: **~80 ms**
+   * Single-shot warm command response: **~86 ms**
+   * First interactive turn: **~400 ms**
+   * Multi-turn conversational follow-up: **~860 ms**

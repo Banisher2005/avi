@@ -15,6 +15,7 @@ AVI is a fast, local-first AI assistant for Linux terminals. It delivers instant
 * **Near-Instant Response (< 200 ms)**: Designed from the ground up for speed. Zero bloated dependencies, minimal prompt overhead, and direct HTTP communication with local LLM runtimes.
 * **100% Local & Private**: All data stays on your machine. Powered by Ollama and lightweight local models like `qwen2.5:1.5b`.
 * **Clean Command Output**: Shell commands are delivered directly without extraneous conversational fluff or annoying markdown fences when you just need the syntax.
+* **Interactive Terminal REPL**: Full conversational session with readline support, command history, multi-turn memory, and signal handling.
 * **Modular Provider Architecture**: Built with clear interfaces for local inference engines today, fast-path routing tomorrow, and complex agent delegation in the future.
 * **Safe by Design**: Clear separation between generation and execution. AVI will never blindly execute dangerous commands without explicit safety pipelines and confirmation.
 
@@ -79,9 +80,58 @@ avi --version
 
 ## Usage
 
-### Direct Command Assistance
+### 1. Interactive Session Mode
 
-Ask AVI for Linux shell commands or explanations directly from your terminal:
+Run `avi` without arguments to launch the stateful interactive REPL:
+
+```bash
+avi
+```
+
+Example session:
+
+```text
+AVI Interactive Session (v0.1.0)
+Type 'exit', 'quit', 'clear', or 'history'. Press Ctrl+C or Ctrl+D to exit.
+
+AVI > what command shows my current directory?
+pwd
+
+AVI > my project is called AVI
+It seems you're working on a project called "AVI". How can I assist you with this project?
+
+AVI > what is my project called?
+Your project is called "AVI".
+
+AVI > history
+     1  what command shows my current directory?
+     2  my project is called AVI
+     3  what is my project called?
+     4  history
+
+AVI > exit
+```
+
+#### Interactive Commands
+
+| Command | Action |
+| :--- | :--- |
+| `exit` / `quit` | Cleanly exits the interactive session |
+| `clear` | Clears the terminal screen |
+| `history` | Displays command history for the session |
+
+#### Interactive Signals
+
+* **`Ctrl+C` while streaming**: Immediately cancels active model generation and returns to `AVI > ` without exiting.
+* **`Ctrl+C` at prompt**: Exits cleanly without a traceback.
+* **`Ctrl+D` at prompt**: Exits cleanly (standard EOF).
+* **Command History**: Preserved across sessions in `~/.local/share/avi/history` via standard Python `readline`.
+
+---
+
+### 2. Single-Shot Mode
+
+Pass a prompt directly on the command line for instant answers:
 
 ```bash
 # Query a shell command
@@ -105,7 +155,7 @@ Track response duration in real-time with `-t` / `--timing`:
 avi -t "what command shows the current directory?"
 # Output:
 # pwd
-# [Response: 142 ms]
+# [Response: 86 ms]
 ```
 
 ### Custom Model or Host
@@ -142,20 +192,24 @@ AVI is designed around clean, decoupled components:
                      │
               ┌──────┴──────┐
               │             │
-           CLI/UI        Router
-                            │
-                 ┌──────────┼──────────┐
-                 │          │          │
-              Fast Path   Local LLM   Agent
-                 │          │          │
-                 │       Ollama    Antigravity
-                 │
-                 ▼
-             Tool Layer
-                 │
-       ┌─────────┼──────────┐
-       │         │          │
-     Shell     Files       Git
+        One-Shot CLI    Interactive REPL
+              │             │
+              └──────┬──────┘
+                     ▼
+                  Router
+                     │
+          ┌──────────┼──────────┐
+          │          │          │
+       Fast Path   Local LLM   Agent
+          │          │          │
+          │       Ollama    Antigravity
+          │
+          ▼
+      Tool Layer
+          │
+  ┌───────┼───────┐
+  │       │       │
+Shell   Files   Git
 ```
 
 For in-depth architectural design, provider abstractions, and future integration plans, see [docs/architecture.md](docs/architecture.md).
@@ -164,7 +218,7 @@ For in-depth architectural design, provider abstractions, and future integration
 
 ## Running Tests
 
-Run the unit test suite with `pytest`:
+Run the test suite with `pytest`:
 
 ```bash
 # Run unit tests (mocked, no live Ollama required)
@@ -187,10 +241,14 @@ pytest
   * Real-time streaming response engine
   * Output normalizer (code fence stripping, prompt sanitization)
   * Millisecond-accurate latency reporting
-* [ ] **Phase 2: Interactive CLI Session**
-  * Persistent interactive session (`avi`)
-  * Model warmup and session context preservation
-  * Clean handling of `Ctrl+C` and `Ctrl+D`
+* [x] **Phase 2: Interactive CLI Session**
+  * Persistent interactive REPL session (`avi`)
+  * Native multi-turn conversation context retention via Ollama token arrays
+  * Standard library `readline` command history and terminal navigation
+  * Persistent history in `~/.local/share/avi/history`
+  * Clean `Ctrl+C` stream cancellation and `Ctrl+D` handling
+  * Local interactive commands (`exit`, `quit`, `clear`, `history`)
+  * Top-level error boundary with clean diagnostics
 * [ ] **Phase 3: Context Subsystem**
   * Minimal, explicit environment context (cwd, OS, shell, git branch)
   * Privacy controls preventing broad filesystem dumping
