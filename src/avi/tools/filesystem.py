@@ -25,6 +25,16 @@ class ListDirectoryTool(BaseTool):
 
     name = "filesystem.list_directory"
     description = "List files and subdirectories within a directory path without recursion."
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Directory path to list (default: current directory).",
+                "default": ".",
+            }
+        },
+    }
 
     def execute(self, path: str = ".", **kwargs: Any) -> ToolResult:
         try:
@@ -90,6 +100,16 @@ class FileMetadataTool(BaseTool):
 
     name = "filesystem.file_metadata"
     description = "Retrieve metadata (size, permissions, timestamps) for a file."
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Path to the file or directory to inspect.",
+            }
+        },
+        "required": ["path"],
+    }
 
     def execute(self, path: str, **kwargs: Any) -> ToolResult:
         try:

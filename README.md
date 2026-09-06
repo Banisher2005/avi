@@ -279,12 +279,72 @@ avi "explain python context managers"
 
 #### Strict Safety Invariant
 
-No AI provider can execute shell commands directly or bypass AVI's `SafetyEngine`. All command proposals and tool requests from any provider must strictly pass through:
+No AI provider or external protocol client can execute shell commands directly or bypass AVI's `SafetyEngine`. All command proposals and tool requests from any source must strictly pass through:
 
 ```text
-AI Provider ──> ToolCall ──> Tool Registry ──> Safe Read-Only Execution ──> ToolResult
-AI Provider ──> Command Proposal ──> SafetyEngine ──> SAFE / CONFIRM / BLOCK ──> CommandExecutor
+AI Client / Provider ──> ToolCall ──> Tool Registry ──> Safe Read-Only Execution ──> ToolResult
+AI Client / Provider ──> Command Proposal ──> SafetyEngine ──> SAFE / CONFIRM / BLOCK ──> CommandExecutor
 ```
+
+---
+
+## Universal Protocol Gateway & MCP (`avi gateway`)
+
+AVI functions as an independent, protocol-agnostic AI tool and execution server for external AI clients such as **Claude Desktop**, **Cursor**, **VS Code**, and autonomous agents.
+
+### Running the Gateway
+
+```bash
+# Launch standard I/O transport (for Claude Desktop / Cursor MCP)
+avi gateway --transport stdio
+
+# Or launch local TCP server on 127.0.0.1:8765
+avi gateway --transport tcp --port 8765
+
+# Secure with bearer authentication token
+avi gateway --transport tcp --auth-token my-secret-token
+```
+
+### Claude Desktop & Cursor Integration
+
+To use AVI tools directly inside Claude Desktop, add to `~/.config/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "avi": {
+      "command": "avi",
+      "args": ["gateway", "--transport", "stdio"]
+    }
+  }
+}
+```
+
+### Supported Protocols & Operations
+
+* **Model Context Protocol (MCP)**: Conforms to specification 2024-11-05 (`initialize`, `ping`, `tools/list`, `tools/call`).
+* **JSON-RPC 2.0**: Full standard support including batch requests and error codes.
+* **Command Safety Evaluation**: Clients can probe command risk (`command/evaluate`) before execution.
+* **Cryptographic Confirmation Tokens**: State-modifying commands require explicit confirmation tokens (`cf-...`) with a 5-minute TTL to prevent accidental remote modifications.
+
+---
+
+## Linux Global Hotkey & Desktop Integration (`avi hotkey`)
+
+Inspect your Linux desktop environment and set up instant terminal activation:
+
+```bash
+# Detect display server (Wayland / X11) and view configuration steps
+avi hotkey
+
+# Output systemd user service unit definition
+avi hotkey --systemd
+```
+
+### Wayland & GNOME Setup
+Under Wayland, arbitrary background key-grabbing is blocked by compositor security policies. Bind a custom shortcut:
+1. Open **Settings** -> **Keyboard** -> **View and Customize Shortcuts** -> **Custom Shortcuts**.
+2. Add: Name=`AVI Assistant`, Command=`gnome-terminal -- avi`, Shortcut=`<Ctrl>Space` or `<Super>Space`.
 
 ---
 
@@ -293,10 +353,13 @@ AI Provider ──> Command Proposal ──> SafetyEngine ──> SAFE / CONFIRM
 Run the test suite with `pytest`:
 
 ```bash
-# Run all unit and integration tests (mocked, no live Ollama or Antigravity required)
+# Run all 472 unit and integration tests
 pytest
 
-# Run specifically provider tests
+# Run gateway and MCP tests
+pytest tests/unit/test_gateway.py
+
+# Run provider tests
 pytest tests/unit/test_providers.py
 ```
 
@@ -356,9 +419,14 @@ pytest tests/unit/test_providers.py
   * Universal SafetyEngine enforcement across all providers (zero command safety bypass)
   * Normalized tool calling architecture (`AI -> ToolCall -> Tool Registry -> Safety -> Execution`)
   * CLI `--provider` flag and `AVI_PROVIDER` configuration
-* [ ] **Phase 8: Global Hotkey & Protocol Gateway**
-  * Linux system-wide hotkey trigger (`Ctrl+Space`)
-  * Standard agent/tool protocol gateway (MCP / JSON-RPC interface)
+* [x] **Phase 8: Universal Protocol Gateway & Desktop Integration**
+  * Standard agent/tool protocol gateway (JSON-RPC 2.0 & Model Context Protocol / MCP)
+  * Multi-transport support: line-delimited `stdio` and local `tcp://127.0.0.1` socket server
+  * Full tool discovery (`tools/list`), execution (`tools/call`), and parameter schemas
+  * Cryptographic confirmation tokens (`cf-...`) with 5-minute TTL for state-modifying operations
+  * External agent routing (`agent/send`) and environment context queries (`context/get`)
+  * Linux desktop environment detector (Wayland / X11 / Headless) with native compositor hotkey guides
+  * Systemd user service generator (`avi hotkey --systemd`)
 * [ ] **Phase 9: Lightweight Desktop UI**
   * Minimal, keyboard-first desktop popup window
 * [ ] **Phase 10: Packaging & Distribution**

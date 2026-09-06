@@ -151,3 +151,43 @@ def test_cli_provider_error(capsys):
         assert code == 1
         captured = capsys.readouterr()
         assert "Error: Backend model failed" in captured.err
+
+
+def test_cli_gateway_stdio():
+    with patch("avi.cli.StdioTransport") as mock_transport_cls:
+        mock_instance = MagicMock()
+        mock_instance.run.return_value = 0
+        mock_transport_cls.return_value = mock_instance
+
+        code = main(["gateway", "--transport", "stdio"])
+        assert code == 0
+        mock_transport_cls.assert_called_once()
+        mock_instance.run.assert_called_once()
+
+
+def test_cli_gateway_tcp():
+    with patch("avi.cli.TcpTransport") as mock_transport_cls:
+        mock_instance = MagicMock()
+        mock_instance.start.return_value = 0
+        mock_transport_cls.return_value = mock_instance
+
+        code = main(["serve", "--transport", "tcp", "--port", "9999"])
+        assert code == 0
+        mock_transport_cls.assert_called_once()
+        mock_instance.start.assert_called_once_with(block=True)
+
+
+def test_cli_hotkey(capsys):
+    code = main(["hotkey"])
+    assert code == 0
+    captured = capsys.readouterr()
+    assert "Display Server:" in captured.out
+
+
+def test_cli_hotkey_systemd(capsys):
+    code = main(["hotkey", "--systemd"])
+    assert code == 0
+    captured = capsys.readouterr()
+    assert "[Unit]" in captured.out
+    assert "ExecStart=" in captured.out
+

@@ -9,6 +9,8 @@ from avi.config import Config
 from avi.core.router import Router
 from avi.core.session import InteractiveSession
 from avi.execution import CommandRequest
+from avi.gateway import GatewayCore, JsonRpcDispatcher, StdioTransport, TcpTransport
+from avi.hotkey import generate_systemd_user_service, get_hotkey_instructions
 from avi.providers import OllamaError, ProviderError
 
 
@@ -97,10 +99,102 @@ def _handle_cli_proposal(router: Router, request: CommandRequest) -> int:
     return result.exit_code
 
 
+def run_gateway(args: Sequence[str] | None = None) -> int:
+    """Launch the Universal Protocol Gateway server for external AI clients (Claude, Cursor, MCP)."""
+    parser = argparse.ArgumentParser(
+        prog="avi gateway",
+        description="Launch the AVI Universal Protocol Gateway for external AI clients.",
+    )
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "tcp"],
+        default="stdio",
+        help="Communication transport (default: stdio)",
+    )
+    parser.add_argument(
+        "--host",
+        type=str,
+        default="127.0.0.1",
+        help="TCP host to bind to (default: 127.0.0.1, local-only)",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8765,
+        help="TCP port to listen on (default: 8765)",
+    )
+    parser.add_argument(
+        "--auth-token",
+        type=str,
+        default=None,
+        help="Optional bearer authentication token for clients",
+    )
+    parser.add_argument(
+        "-p",
+        "--provider",
+        type=str,
+        default=None,
+        help="AI provider for gateway to use (default: local)",
+    )
+    opts = parser.parse_args(args)
+
+    overrides = {}
+    if opts.provider:
+        overrides["provider"] = opts.provider
+
+    config = Config.load(**overrides)
+    router = Router(config)
+    gateway = GatewayCore(router=router, config=config)
+    dispatcher = JsonRpcDispatcher(gateway=gateway, auth_token=opts.auth_token)
+
+    if opts.transport == "stdio":
+        transport = StdioTransport(dispatcher)
+        return transport.run()
+    else:
+        sys.stderr.write(f"AVI Gateway listening on tcp://{opts.host}:{opts.port}\n")
+        sys.stderr.flush()
+        transport = TcpTransport(dispatcher, host=opts.host, port=opts.port)
+        return transport.start(block=True)
+
+
+def run_hotkey(args: Sequence[str] | None = None) -> int:
+    """Display Linux desktop environment status and hotkey setup instructions."""
+    parser = argparse.ArgumentParser(
+        prog="avi hotkey",
+        description="Inspect desktop environment and setup Linux global hotkey for AVI.",
+    )
+    parser.add_argument(
+        "--systemd",
+        action="store_true",
+        help="Print systemd user service unit definition for AVI Gateway",
+    )
+    opts = parser.parse_args(args)
+
+    if opts.systemd:
+        sys.stdout.write(generate_systemd_user_service())
+        sys.stdout.flush()
+        return 0
+
+    info = get_hotkey_instructions()
+    sys.stdout.write(f"Display Server: {info['display_server']}\n")
+    sys.stdout.write(f"Desktop:        {info['desktop']}\n\n")
+    sys.stdout.write(f"{info['instructions']}\n")
+    sys.stdout.flush()
+    return 0
+
+
 def run_cli(argv: Sequence[str] | None = None) -> int:
     """Internal CLI execution logic."""
+    args_list = list(sys.argv[1:] if argv is None else argv)
+    if args_list:
+        first = args_list[0].lower()
+        if first in ("gateway", "serve"):
+            return run_gateway(args_list[1:])
+        elif first == "hotkey":
+            return run_hotkey(args_list[1:])
+
     parser = build_parser()
-    args = parser.parse_args(argv)
+    args = parser.parse_args(args_list)
 
     # Build config from environment/defaults + CLI overrides
     overrides = {}

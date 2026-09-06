@@ -4,61 +4,54 @@
 
 AVI is built around three core architectural tenets:
 1. **Speed First**: Sub-100ms latency for simple terminal requests and 0ms (~5.3 µs) for deterministic queries. Zero unnecessary imports, minimal context overhead, persistent model warmup, and direct HTTP streaming.
-2. **Modular Decoupling**: Strict boundary separation between User Interface (One-Shot CLI & Interactive REPL), Routing, Context Ingestion, Model Providers, Tool Execution, and Safety Verification.
+2. **Modular Decoupling**: Strict boundary separation between User Interface (One-Shot CLI & Interactive REPL), Routing, Context Ingestion, Model Providers, Tool Execution, Safety Verification, and External Protocol Gateways.
 3. **Safety & Privacy by Design**: AI models should suggest; execution must always be verified. Context gathering is strictly bounded, private, and never dumps environment variables or arbitrary files.
 
-### 1.1 Core Architectural Invariant
+### 1.1 The Seven Architectural Invariants
 
-> **AVI Core is provider-independent. Providers are adapters around AVI, not dependencies inside AVI Core.**
-
-The AI client provides intelligence. AVI provides execution, tools, safety, routing, context, and environment access.
-The AI provider is replaceable without changing AVI Core.
+1. **Provider Independence**: AVI Core is provider-independent. AI providers are adapters around AVI, not dependencies inside AVI Core.
+2. **Universal Safety Enforcement**: No provider, user CLI invocation, or external protocol client may bypass `SafetyEngine` or execute commands without risk assessment.
+3. **Strict Subprocess Execution**: Zero occurrences of `shell=True`, `os.system()`, `eval()`, or `exec()`. Every command runs as an array of arguments via `subprocess.Popen(..., shell=False)`.
+4. **Cryptographic One-Time Confirmation Tokens**: State-modifying operations require time-bounded (TTL), cryptographically random confirmation tokens (`cf-...`) that expire and are invalidated immediately after a single use.
+5. **Local-Only Networking**: Network transports default strictly to `127.0.0.1` (localhost) and stdio to avoid unauthorized remote exposure.
+6. **Sandboxed Read-Only Inspection**: Built-in tools are strictly read-only and enforce JSON Schema argument validation before execution.
+7. **Sub-Millisecond Protocol Overhead**: Protocol dispatch and deterministic intent resolution must maintain sub-millisecond execution times (< 0.05 ms).
 
 ```text
-             ┌───────────────────────┐
-             │      AI CLIENTS       │
-             │                       │
-             │ Claude / GPT / Gemini │
-             │ Antigravity / Cursor  │
-             │ Local / Custom Agent  │
-             └───────────┬───────────┘
-                         │
-                         ▼
-             ┌───────────────────────┐
-             │   PROVIDER ADAPTERS   │
-             │ (Ollama / Antigravity │
-             │  OpenAI / Anthropic)  │
-             └───────────┬───────────┘
-                         │
-                         ▼
-             ┌───────────────────────┐
-             │      AVI GATEWAY      │
-             └───────────┬───────────┘
-                         │
-                         ▼
-             ┌───────────────────────┐
-             │       AVI CORE        │
-             │                       │
-             │ Router                │
-             │ FastPath              │
-             │ Tool Registry         │
-             │ Context Subsystem     │
-             └───────────┬───────────┘
-                         │
-                         ▼
-             ┌───────────────────────┐
-             │     SAFETY ENGINE     │
-             │                       │
-             │ SAFE / CONFIRM/BLOCK  │
-             └───────────┬───────────┘
-                         │
-                         ▼
-             ┌───────────────────────┐
-             │ TOOLS / COMMANDS      │
-             │                       │
-             │ Read-Only Tools       │
-             │ CommandExecutor       │
-             └───────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                       EXTERNAL CLIENTS                      │
+│   Claude Desktop  │  Cursor  │  VS Code  │  Terminal REPL   │
+└──────────────┬───────────────────────────────┬──────────────┘
+               │ (stdio / MCP / JSON-RPC 2.0)   │ (direct CLI)
+               ▼                               │
+┌──────────────────────────────────────────────┴──────────────┐
+│                   UNIVERSAL PROTOCOL GATEWAY                │
+│    JSON-RPC 2.0 Dispatcher  │  MCP Protocol Conformance     │
+│    StdioTransport           │  TcpTransport (127.0.0.1)     │
+│    Confirmation Token TTL   │  GatewayCore Operations       │
+└──────────────────────────────┬──────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│                          AVI CORE                           │
+│    FastPath Engine          │  Context Subsystem            │
+│    Core Router              │  Tool Registry (8 tools)      │
+│    ProviderRegistry         │  Model Adapters (Ollama, AGY) │
+└──────────────────────────────┬──────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│                        SAFETY ENGINE                        │
+│    Deterministic Classifier │  SAFE / CONFIRM / BLOCK       │
+│    Syntax & Injection Guard │  Fail-Closed Enforcement      │
+└──────────────────────────────┬──────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│                      EXECUTION LAYER                        │
+│    Read-Only Tool Dispatch  │  CommandExecutor              │
+│    subprocess(shell=False)  │  Output Buffering & Timeout   │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -68,6 +61,8 @@ The AI provider is replaceable without changing AVI Core.
 ### 2.1 CLI Layer (`avi.cli`)
 The CLI provides the primary entry point:
 * **One-Shot Mode**: Parses flags, routes the prompt, streams chunks to stdout, and exits.
+* **Gateway Subcommand**: `avi gateway` / `avi serve` starts the Universal Protocol Gateway server over stdio or local TCP.
+* **Hotkey Subcommand**: `avi hotkey` detects desktop environment (Wayland / X11 / Headless) and provides keybinding instructions or systemd unit files (`--systemd`).
 * **Provider Flag**: Supports explicit provider selection via `-p / --provider` (e.g. `avi --provider local`, `avi --provider antigravity`).
 * **Interactive Mode**: Instantiates `InteractiveSession` when invoked without prompt arguments.
 * **Top-Level Error Boundary**: Catches domain exceptions (`ProviderError`, `OllamaError`), system interruptions (`KeyboardInterrupt`), and unexpected runtime errors with clean diagnostics.
@@ -118,7 +113,7 @@ Abstracts model backends behind a uniform interface:
 
 ### 2.6 Tool Subsystem (`avi.tools`)
 A modular, controlled subsystem for executing read-only machine inspections:
-* **`BaseTool` & `ToolResult`**: Strict abstract base class requiring `safety_level = "read_only"`. Tools return strongly typed `ToolResult(success, output, error, data)` objects.
+* **`BaseTool` & `ToolResult`**: Strict abstract base class requiring `safety_level = "read_only"`. Tools provide complete JSON Schema parameter definitions via `input_schema` and return strongly typed `ToolResult` objects.
 * **`ToolRegistry`**: Centralized registry for tool registration, lookup, listing, and execution.
 * **8 Default Read-Only Tools**:
   * `filesystem.list_directory`: Lists directory contents with sizes and modification times.
@@ -136,13 +131,13 @@ A modular, controlled subsystem for executing read-only machine inspections:
 
 ### 2.7 Safety Engine Subsystem (`avi.safety`)
 A deterministic, model-independent validation and risk assessment pipeline:
-* **Safety Invariant**: All providers, without exception, must route command proposals through SafetyEngine:
+* **Safety Invariant**: All providers and gateway clients, without exception, must route command proposals through SafetyEngine:
   ```text
-  AI Provider ──> Normalized Proposal ──> SafetyEngine ──> SAFE / CONFIRM / BLOCK ──> CommandExecutor
+  Client / Provider ──> Normalized Proposal ──> SafetyEngine ──> SAFE / CONFIRM / BLOCK ──> CommandExecutor
   ```
 * **Risk Levels**:
   * `SAFE`: Read-only, benign inspection commands (`pwd`, `ls`, `git status`, `df`, `du`, `ps`, `cat`, `grep`, etc.). Executed automatically without user interruption.
-  * `CONFIRM`: Commands capable of modifying filesystem or system state (`rm`, `mv`, `cp`, `mkdir`, `chmod`, `git checkout`, etc.). Requires explicit interactive confirmation (`[y/N]`). Default is NO.
+  * `CONFIRM`: Commands capable of modifying filesystem or system state (`rm`, `mv`, `cp`, `mkdir`, `chmod`, `git checkout`, etc.). Requires explicit interactive confirmation (`[y/N]`) or a cryptographic confirmation token.
   * `BLOCK`: High-confidence catastrophic or malicious patterns (`rm -rf /`, `mkfs`, `dd` to raw disk, fork bombs, root permission changes, privilege escalation). Refused immediately.
 * **Shell Syntax Guard**: Blocks chained commands (`&&`, `;`, `|`), substitutions (`$(...)`), and redirections (`>`, `>>`) from silent execution.
 * **Fail-Closed Policy**: Any unrecognized or ambiguous command defaults to `CONFIRM` rather than `SAFE`.
@@ -159,6 +154,34 @@ Deterministic intent resolution layer for common terminal requests:
 * **27 Default Intent Templates**: System inspections, disk space, git state, process monitors, and parameterized filesystem search.
 * **Strict Parameter Sanitization**: Validates arguments against shell metacharacters and control characters.
 * **Safety Pipeline Compliance**: Fast-path templates return structured `CommandRequest` instances that strictly route through `SafetyEngine`.
+
+### 2.10 Universal Protocol Gateway (`avi.gateway`)
+Enables external AI clients (Claude Desktop, Cursor, VS Code, Autonomous Agents) to interact safely with AVI over standard protocols:
+* **`GatewayCore`**: Protocol-agnostic API layer:
+  * `list_tools()`: Enumerates all 8 read-only tools with full JSON Schemas.
+  * `call_tool(name, arguments)`: Executes a tool with argument validation.
+  * `evaluate_command(command)`: Inspects command safety without executing.
+  * `execute_command(command, confirmed, confirmation_token)`: Executes safe commands immediately or requests confirmation tokens for state-modifying operations.
+  * `send_agent_request(prompt)`: Routes queries through AVI's AI provider layer.
+  * `get_context(domains)`: Inspects system environment snapshot.
+  * `get_health()` & `get_capabilities()`: Service status and protocol metadata.
+* **`JsonRpcDispatcher`**:
+  * Full JSON-RPC 2.0 compliance (single requests, batch requests, error codes -32700 through -32603, notifications).
+  * Model Context Protocol (MCP) conformance (`initialize`, `ping`, `tools/list`, `tools/call`).
+  * Optional bearer authentication token validation (`auth_token`).
+* **Transports**:
+  * `StdioTransport`: Line-delimited standard I/O for MCP clients (Claude Desktop, Cursor, VS Code).
+  * `TcpTransport`: Local TCP server socket bound strictly to `127.0.0.1`.
+* **Cryptographic Confirmation Tokens**:
+  * When a modifying command is proposed, the gateway issues a `cf-<hex>` token with a 5-minute TTL.
+  * The command can only execute when resubmitted with `confirmed=true` and the valid token.
+  * The token is invalidated immediately upon use (single-use invariant).
+
+### 2.11 Linux Desktop & Hotkey Subsystem (`avi.hotkey`)
+Headless and Wayland-friendly desktop integration:
+* **`detect_desktop_environment()`**: Inspects `WAYLAND_DISPLAY`, `DISPLAY`, and `XDG_SESSION_TYPE` to detect display server and desktop manager.
+* **Wayland Security Compliance**: Wayland compositors (GNOME, Sway, Hyprland, KDE) intentionally block arbitrary background keyloggers. AVI guides native compositor custom shortcut setup (e.g. `gnome-terminal -- avi` bound to `Ctrl+Space`).
+* **`generate_systemd_user_service()`**: Generates `systemd --user` unit definitions for running AVI Gateway continuously in the background.
 
 ---
 
@@ -194,11 +217,9 @@ class CloudProvider(AIProvider):
         return True
 
     def send(self, request: AgentRequest) -> AgentResponse:
-        # Call provider API securely...
         return AgentResponse(text="response text")
 
     def stream(self, request: AgentRequest):
-        # Stream response chunks...
         yield "response text"
 
 # Register dynamically:
@@ -209,9 +230,12 @@ register_provider("cloud", lambda cfg, **kw: CloudProvider(api_key="...", model=
 
 ## 4. Performance & Benchmark Verification
 
-| Mode | Tokens | Measured Latency | Explanation |
+| Operation | Tokens | Measured Latency | Explanation |
 | :--- | :---: | :---: | :--- |
-| **Deterministic Fast-Path Matching** | 0 | **~0.0053 ms (5.3 µs)** | In-memory regex intent resolution and structured request building |
+| **Gateway JSON-RPC Ping** | 0 | **~2.76 µs (0.0028 ms)** | Immediate in-memory JSON-RPC response dispatch |
+| **Deterministic Fast-Path Matching** | 0 | **~5.32 µs (0.0053 ms)** | In-memory regex intent resolution and structured request building |
+| **Gateway MCP tools/list** | 0 | **~15.20 µs (0.0152 ms)** | Complete MCP tool enumeration and schema serialization |
+| **Gateway command/evaluate** | 0 | **~22.26 µs (0.0223 ms)** | Full SafetyEngine AST parsing and risk classification |
 | **Deterministic Fast-Path (Context)** | 0 | **< 1 ms – 6 ms** | CWD, branch, shell, OS bypass AI provider entirely |
 | **Read-Only Tool Execution** | 0 | **< 1 ms – 18 ms** | Direct execution of disk usage, file listing, process info |
 | **Safety Assessment Overhead** | 0 | **< 0.05 ms** | In-memory tokenization and deterministic rule evaluation |

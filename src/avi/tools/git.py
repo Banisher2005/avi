@@ -14,6 +14,16 @@ class GitStatusTool(BaseTool):
 
     name = "git.status"
     description = "Inspect git branch and clean/dirty working directory status."
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Path inside the Git repository (default: '.').",
+                "default": ".",
+            }
+        },
+    }
 
     def execute(self, path: str = ".", **kwargs: Any) -> ToolResult:
         ctx = collect_git_context(path)
@@ -56,6 +66,16 @@ class GitBranchTool(BaseTool):
 
     name = "git.branch"
     description = "Get the active Git branch for the repository."
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Path inside the Git repository (default: '.').",
+                "default": ".",
+            }
+        },
+    }
 
     def execute(self, path: str = ".", **kwargs: Any) -> ToolResult:
         ctx = collect_git_context(path)
@@ -79,6 +99,21 @@ class GitLogTool(BaseTool):
 
     name = "git.log"
     description = "View recent Git commit history without full diffs."
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "limit": {
+                "type": "integer",
+                "description": "Number of recent commits to inspect (default: 5, max: 50).",
+                "default": 5,
+            },
+            "path": {
+                "type": "string",
+                "description": "Path inside the Git repository (default: '.').",
+                "default": ".",
+            },
+        },
+    }
 
     def execute(self, limit: int = 5, path: str = ".", **kwargs: Any) -> ToolResult:
         ctx = collect_git_context(path)

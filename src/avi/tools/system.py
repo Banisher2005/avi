@@ -15,6 +15,22 @@ class ProcessesTool(BaseTool):
 
     name = "system.processes"
     description = "Inspect top running processes sorted by memory or CPU."
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "limit": {
+                "type": "integer",
+                "description": "Maximum number of processes to return (default: 10, max: 50).",
+                "default": 10,
+            },
+            "sort_by": {
+                "type": "string",
+                "description": "Sort metric: 'memory' or 'cpu'.",
+                "enum": ["memory", "cpu"],
+                "default": "memory",
+            },
+        },
+    }
 
     def execute(self, limit: int = 10, sort_by: str = "memory", **kwargs: Any) -> ToolResult:
         limit = min(max(1, int(limit)), 50)
@@ -75,10 +91,20 @@ class ProcessesTool(BaseTool):
 
 
 class DiskUsageTool(BaseTool):
-    """Retrieve filesystem disk space metrics."""
+    """Retrieve filesystem disk space metrics via standard library shutil."""
 
     name = "system.disk_usage"
     description = "Check available, used, and total disk space on a filesystem path."
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Filesystem path or mount point to inspect (default: '/').",
+                "default": "/",
+            }
+        },
+    }
 
     def execute(self, path: str = "/", **kwargs: Any) -> ToolResult:
         try:
@@ -119,6 +145,10 @@ class SystemInfoTool(BaseTool):
 
     name = "system.system_info"
     description = "Retrieve basic operating system, kernel, CPU, and machine architecture."
+    input_schema = {
+        "type": "object",
+        "properties": {},
+    }
 
     def execute(self, **kwargs: Any) -> ToolResult:
         try:
