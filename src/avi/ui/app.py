@@ -1,14 +1,17 @@
 """AVI Desktop UI Application — GTK4 application wrapper."""
 
+import os
+import subprocess
 import sys
 from typing import Any
 
+from avi.ui.detector import diagnose_gtk_environment
 from avi.ui.window import CSS_STYLE, AviWindow, _GTK_AVAILABLE, check_display
 
 
 class AviApp:
     """
-    Wraps a Gtk.Application with AVI router and config.
+    Wraps a Gtk.Application with AVI router, orchestrator, and config.
 
     Usage::
 
@@ -16,17 +19,25 @@ class AviApp:
         AviApp(router, config).run()
     """
 
-    def __init__(self, router: Any, config: Any) -> None:
+    def __init__(self, router: Any, config: Any, orchestrator: Any | None = None) -> None:
         self.router = router
         self.config = config
+        self.orchestrator = orchestrator
 
-    def run(self) -> int:
+    def run(self, allow_system_fallback: bool = False) -> int:
         """Start the GTK4 event loop. Returns exit code."""
         if not _GTK_AVAILABLE:
-            sys.stderr.write(
-                "Error: GTK4 (PyGObject) is not installed on this system.\n"
-                "Install it with:  sudo apt install python3-gi gir1.2-gtk-4.0\n"
-            )
+            report = diagnose_gtk_environment()
+            if allow_system_fallback and report.system_python_has_gtk4 and report.system_python_path:
+                # Delegate to the system python which has GTK4 bindings
+                cmd = [report.system_python_path, "-m", "avi.cli", "ui"]
+                env = dict(os.environ)
+                # Ensure src is on pythonpath if not globally installed
+                src_dir = str(report.python_executable)
+                proc = subprocess.run(cmd, env=env)
+                return proc.returncode
+
+            sys.stderr.write(f"{report.diagnostic_message}\n")
             return 1
 
         if not check_display():
@@ -52,7 +63,7 @@ class AviApp:
                 css_provider,
                 Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
             )
-            AviWindow(gtk_app, self.router, self.config)
+            AviWindow(gtk_app, self.router, self.config, orchestrator=self.orchestrator)
 
         app.connect("activate", _on_activate)
         return app.run(None)

@@ -4,6 +4,7 @@ from avi.providers.antigravity import AntigravityProvider
 from avi.providers.base import (
     AIProvider,
     BaseProvider,
+    LLMProvider,
     AgentRequest,
     AgentResponse,
     ProviderCapabilities,
@@ -43,6 +44,7 @@ from avi.providers.registry import (
 __all__ = [
     "AIProvider",
     "BaseProvider",
+    "LLMProvider",
     "AgentRequest",
     "AgentResponse",
     "ProviderResponse",

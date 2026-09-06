@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Sequence
 
 from avi.execution.models import CommandRequest
-from avi.safety.models import RiskLevel, SafetyAssessment
+from avi.safety.models import ActionCategory, RiskLevel, SafetyAssessment
 from avi.safety.parser import ParsedCommand, parse_command_safety
 
 # Critical system directories that must never be targeted by destructive operations
@@ -202,6 +202,7 @@ class SafetyEngine:
         if program in ("sudo", "su"):
             return SafetyAssessment(
                 level=RiskLevel.BLOCK,
+                category=ActionCategory.PRIVILEGED,
                 reason="Direct sudo/su privilege escalation is not permitted.",
                 command=cmd_str,
             )
@@ -210,6 +211,7 @@ class SafetyEngine:
         if program in BLOCKED_FORMAT_PROGRAMS or program.startswith("mkfs."):
             return SafetyAssessment(
                 level=RiskLevel.BLOCK,
+                category=ActionCategory.DESTRUCTIVE,
                 reason=f"Destructive disk formatting command {program} is blocked.",
                 command=cmd_str,
             )
@@ -218,12 +220,14 @@ class SafetyEngine:
         if program in BLOCKED_POWER_PROGRAMS:
             return SafetyAssessment(
                 level=RiskLevel.BLOCK,
+                category=ActionCategory.DESTRUCTIVE,
                 reason=f"System power command {program} is blocked.",
                 command=cmd_str,
             )
         if program == "init" and any(arg in ("0", "6") for arg in args):
             return SafetyAssessment(
                 level=RiskLevel.BLOCK,
+                category=ActionCategory.DESTRUCTIVE,
                 reason="System init shutdown/reboot runlevel is blocked.",
                 command=cmd_str,
             )
@@ -258,6 +262,7 @@ class SafetyEngine:
                 if normalized_target in CRITICAL_SYSTEM_PATHS:
                     return SafetyAssessment(
                         level=RiskLevel.BLOCK,
+                        category=ActionCategory.DESTRUCTIVE,
                         reason=f"Catastrophic deletion of root or critical path {target} is blocked.",
                         command=cmd_str,
                     )
@@ -265,6 +270,7 @@ class SafetyEngine:
                 if target in ("/*", "/*.*", "/."):
                     return SafetyAssessment(
                         level=RiskLevel.BLOCK,
+                        category=ActionCategory.DESTRUCTIVE,
                         reason="Catastrophic deletion of root directory contents is blocked.",
                         command=cmd_str,
                     )
@@ -272,6 +278,7 @@ class SafetyEngine:
             # Non-root rm requires confirmation
             return SafetyAssessment(
                 level=RiskLevel.CONFIRM,
+                category=ActionCategory.DESTRUCTIVE,
                 reason="File removal can modify or delete filesystem data.",
                 command=cmd_str,
             )
@@ -348,6 +355,7 @@ class SafetyEngine:
         if program in SAFE_READ_ONLY_PROGRAMS:
             return SafetyAssessment(
                 level=RiskLevel.SAFE,
+                category=ActionCategory.READ_ONLY,
                 reason=f"Command {program} is on the read-only allowlist.",
                 command=cmd_str,
             )
@@ -357,21 +365,41 @@ class SafetyEngine:
             if len(args) == 1 and args[0] in ("--version", "-v", "-V", "version"):
                 return SafetyAssessment(
                     level=RiskLevel.SAFE,
+                    category=ActionCategory.READ_ONLY,
                     reason=f"{program} version query is read-only.",
                     command=cmd_str,
                 )
 
-        # 18. Known modifying programs
+        # 18. Benign utilities and external actions
+        if program in ("sleep", "wait", "xdg-open", "open", "notify-send"):
+            return SafetyAssessment(
+                level=RiskLevel.CONFIRM,
+                category=ActionCategory.LOW_RISK_ACTION,
+                reason=f"Command {program} is a desktop/system utility.",
+                command=cmd_str,
+            )
+
+        if program in ("curl", "wget", "ssh", "scp", "rsync", "nc", "ping"):
+            return SafetyAssessment(
+                level=RiskLevel.CONFIRM,
+                category=ActionCategory.EXTERNAL_ACTION,
+                reason=f"Command {program} performs network or external communication.",
+                command=cmd_str,
+            )
+
+        # 19. Known modifying programs
         if program in CONFIRM_MODIFYING_PROGRAMS:
             return SafetyAssessment(
                 level=RiskLevel.CONFIRM,
+                category=ActionCategory.FILESYSTEM_WRITE,
                 reason=f"Command {program} can modify system or filesystem state.",
                 command=cmd_str,
             )
 
-        # 18. Fail-closed default: unrecognized commands require confirmation
+        # 20. Fail-closed default: unrecognized commands require confirmation
         return SafetyAssessment(
             level=RiskLevel.CONFIRM,
+            category=ActionCategory.FILESYSTEM_WRITE,
             reason=f"Unrecognized command {program} requires confirmation (fail-closed policy).",
             command=cmd_str,
         )
