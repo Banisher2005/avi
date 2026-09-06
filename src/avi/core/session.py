@@ -31,6 +31,7 @@ class InteractiveSession:
         in_stream: TextIO | None = None,
         out_stream: TextIO | None = None,
         err_stream: TextIO | None = None,
+        orchestrator: Any | None = None,
     ) -> None:
         self.router = router
         self.config = config
@@ -39,6 +40,10 @@ class InteractiveSession:
         self.out_stream = out_stream or sys.stdout
         self.err_stream = err_stream or sys.stderr
         self.context: Any | None = None
+        self.orchestrator = orchestrator
+        if self.orchestrator is None:
+            from avi.orchestrator import AssistantOrchestrator
+            self.orchestrator = AssistantOrchestrator(config=self.config, router=self.router)
         self._setup_readline()
 
     def _setup_readline(self) -> None:
@@ -163,11 +168,13 @@ class InteractiveSession:
 
         return 0
 
-    def _read_confirmation(self, cmd_str: str) -> bool:
+    def _read_confirmation(self, cmd_str: str, assessment: Any | None = None) -> bool:
         """Prompt user for explicit y/n confirmation. Default answer is NO."""
-        self.out_stream.write(
-            f"\nCommand:\n{cmd_str}\n\nThis command can modify your filesystem.\n\nExecute? [y/N] "
-        )
+        if assessment is not None and hasattr(assessment, "format_confirmation_prompt"):
+            prompt = assessment.format_confirmation_prompt()
+        else:
+            prompt = f"\nCommand:\n{cmd_str}\n\nThis command can modify system state.\n\nExecute? [y/N] "
+        self.out_stream.write(prompt)
         self.out_stream.flush()
 
         if self.in_stream is sys.stdin:
@@ -195,7 +202,7 @@ class InteractiveSession:
             return
 
         if assessment.requires_confirmation:
-            if not self._read_confirmation(request.command_line):
+            if not self._read_confirmation(request.command_line, assessment=assessment):
                 self.out_stream.write("Execution cancelled.\n")
                 self.out_stream.flush()
                 return
@@ -209,6 +216,25 @@ class InteractiveSession:
     def _process_turn(self, query: str) -> None:
         """Dispatch a single conversation turn to the router with signal handling."""
         try:
+            # 0. Check Assistant Orchestrator for action intents (timer, apps, URLs, tools)
+            # In multi-turn chat, greetings and small talk are passed to the model to maintain context
+            if self.orchestrator is not None:
+                from avi.assistant.intents import detect_assistant_intent, AssistantIntentType
+                intent = detect_assistant_intent(query)
+                if intent.intent_type not in (
+                    AssistantIntentType.UNKNOWN,
+                    AssistantIntentType.GREETING,
+                    AssistantIntentType.SMALL_TALK,
+                ):
+                    res = self.orchestrator.handle(query, context=self.context, auto_execute_actions=True)
+                    if res.requires_confirmation and res.command_request is not None:
+                        self._handle_proposal(res.command_request)
+                    elif res.text:
+                        self.out_stream.write(res.text.rstrip("\n") + "\n")
+                        self.out_stream.flush()
+                    self._show_timing()
+                    return
+
             # 1. Deterministic fast-path check
             fast_result = self.router.check_fast_path(query)
             if isinstance(fast_result, str):

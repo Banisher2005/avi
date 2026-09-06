@@ -106,10 +106,11 @@ window {
 class AviWindow:
     """Main AVI popup window."""
 
-    def __init__(self, app: "Gtk.Application", router: Any, config: Any) -> None:
+    def __init__(self, app: "Gtk.Application", router: Any, config: Any, orchestrator: Any | None = None) -> None:
         self.app = app
         self.router = router
         self.config = config
+        self.orchestrator = orchestrator
 
         self._response_buffer = ""
         self._current_mode = "idle"  # idle | thinking | streaming | confirm | executed
@@ -320,15 +321,31 @@ class AviWindow:
     # -----------------------------------------------------------------------
 
     def _run_query(self, prompt: str) -> None:
-        """Background: route prompt through FastPath / Router / Provider."""
+        """Background: route prompt through AssistantOrchestrator / Router / Provider."""
         try:
-            # 1. Try fast-path first
+            # 1. Try Assistant Orchestrator first (intents, actions, read-only tool synthesis)
+            if self.orchestrator is not None:
+                res = self.orchestrator.handle(prompt, auto_execute_actions=True)
+                if res.is_blocked:
+                    GLib.idle_add(self._show_error, res.text)
+                    return
+                if res.requires_confirmation and res.command_request is not None:
+                    GLib.idle_add(self._show_confirm_prompt, res.command_request, res.text)
+                    return
+                if res.action is not None or res.tool_result is not None:
+                    GLib.idle_add(self._finish_stream, res.text)
+                    return
+                if res.execution_result is not None or (res.text and not res.command_request):
+                    GLib.idle_add(self._finish_stream, res.text)
+                    return
+
+            # 2. Try fast-path
             fast_result = self.router.check_fast_path(prompt)
             if isinstance(fast_result, str):
                 GLib.idle_add(self._finish_stream, fast_result.rstrip("\n"))
                 return
 
-            # 2. Stream from provider
+            # 3. Stream from provider
             chunks = []
             for chunk in self.router.route(prompt, stream=True):
                 chunks.append(chunk)
@@ -336,7 +353,7 @@ class AviWindow:
 
             full_text = "".join(chunks)
 
-            # 3. Check if response is a command proposal
+            # 4. Check if response is a command proposal
             proposal = self.router.parse_command_proposal(full_text)
             if proposal is not None:
                 GLib.idle_add(self._show_confirm_prompt, proposal, full_text)

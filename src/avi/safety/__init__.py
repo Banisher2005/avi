@@ -7,12 +7,13 @@ Provides deterministic command classification:
 """
 
 from avi.safety.engine import SafetyEngine
-from avi.safety.models import RiskLevel, SafetyAssessment
+from avi.safety.models import ActionCategory, RiskLevel, SafetyAssessment
 from avi.safety.parser import ParsedCommand, parse_command_safety
 
 __all__ = [
     "SafetyEngine",
     "RiskLevel",
+    "ActionCategory",
     "SafetyAssessment",
     "ParsedCommand",
     "parse_command_safety",

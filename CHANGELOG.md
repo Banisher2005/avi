@@ -7,6 +7,39 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.3.0] — 2026-09-06
+
+### Added
+
+#### Desktop Assistant Orchestrator Architecture
+- **`AssistantOrchestrator` (`src/avi/orchestrator/`)**: Central runtime orchestrating user intent recognition, native assistant actions, read-only system tools, safety classification, and LLM reasoning fallback.
+- **Deterministic Intent Classifier (`src/avi/assistant/intents.py`)**: Sub-millisecond intent extraction covering greetings, capabilities, disk space, memory/RAM, CPU metrics, running processes, timers, web URLs, file/directory opening, and application launching.
+- **Conversational Synthesizers (`src/avi/assistant/synthesizer.py`)**: Transforms raw structured tool output into concise, friendly natural-language responses (e.g., "You have about 154 GB free out of 240 GB on your main drive.") instead of raw command outputs.
+- **Application Resolver (`src/avi/apps/`)**: Linux FreeDesktop `.desktop` file parser across system and user directories (`/usr/share/applications`, `~/.local/share/applications`, `/var/lib/snapd/desktop/applications`, Flatpak); PATH resolution; desktop alias mapping (`brave`, `chrome`, `antigravity`/`agy`, `code`); clean background daemon spawning (`shell=False`, `start_new_session=True`).
+- **Native Assistant Actions (`src/avi/actions/`)**:
+  - `TimerAction`: Asynchronous daemon timers with terminal alerts and terminal bell notifications.
+  - `OpenAppAction`: Launches resolved GUI applications asynchronously.
+  - `OpenUrlAction`: Launches default browser via `xdg-open` safely.
+  - `OpenFileAction` / `OpenDirAction`: Opens files in editors and directories in file managers via `xdg-open`.
+- **Granular Risk & Capability Model (`src/avi/safety/models.py`)**:
+  - Replaced generic filesystem warning with `ActionCategory`: `READ_ONLY`, `LOW_RISK_ACTION`, `EXTERNAL_ACTION`, `FILESYSTEM_WRITE`, `DESTRUCTIVE`, `PRIVILEGED`.
+  - Contextual confirmation prompts explaining specific risks (network access, privileged execution, file modification, destructive operations).
+- **GTK4 Environment Diagnosis (`src/avi/ui/detector.py`)**:
+  - Pinpoints Python virtualenv vs system ABI mismatch for PyGObject / GTK4 (e.g., Python 3.12 venv with system Python 3.14 GTK4).
+  - Diagnostic output with actionable instructions and `--use-system-python` support.
+- **Provider Abstraction Enhancements (`src/avi/providers/base.py`)**:
+  - Clean `LLMProvider` interface defining model reasoning vs AVI runtime execution boundaries.
+- **Shell Wildcard Guidance**:
+  - CLI parser diagnostic detecting premature shell glob expansion (e.g., `avi find *.py`) advising quotes (`avi "find *.py"`).
+- **Comprehensive Unit Test Suite**:
+  - Added 88 new unit tests covering application resolution, native actions, conversational synthesizers, intent parsing, orchestrator routing, GTK diagnostics, risk categories, and provider abstraction (total 644 tests, 642 passing, 2 skipped).
+
+### Changed
+- CLI and interactive session REPL routed through `AssistantOrchestrator`.
+- Version bumped to `0.3.0`.
+
+---
+
 ## [0.2.0] — 2026-09-06
 
 ### Added

@@ -1,6 +1,7 @@
 """Command Line Interface entry point for AVI."""
 
 import argparse
+import re
 import sys
 from typing import Sequence
 
@@ -18,8 +19,20 @@ def build_parser() -> argparse.ArgumentParser:
     """Construct command-line argument parser."""
     parser = argparse.ArgumentParser(
         prog="avi",
-        description="AVI — Fast, local-first AI terminal assistant for Linux.",
+        description="AVI — Fast, local-first AI desktop and terminal assistant for Linux.",
         add_help=True,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Shell Quoting Tip:
+  When using natural language questions with shell metacharacters (?, *, &, ;, >),
+  enclose your prompt in quotes so your shell does not attempt glob expansion:
+    avi "how much space is left on my laptop?"
+    avi "open google chrome"
+    avi "set a timer for 5 seconds"
+
+  Alternatively, launch the interactive REPL without arguments:
+    avi
+""",
     )
     parser.add_argument(
         "prompt",
@@ -76,9 +89,7 @@ def _handle_cli_proposal(router: Router, request: CommandRequest) -> int:
         return 1
 
     if assessment.requires_confirmation:
-        sys.stdout.write(
-            f"\nCommand:\n{request.command_line}\n\nThis command can modify your filesystem.\n\nExecute? [y/N] "
-        )
+        sys.stdout.write(assessment.format_confirmation_prompt())
         sys.stdout.flush()
         try:
             line = sys.stdin.readline()
@@ -205,7 +216,15 @@ def run_ui(args: Sequence[str] | None = None) -> int:
         default=None,
         help="Model name to use",
     )
+    parser.add_argument(
+        "--use-system-python",
+        action="store_true",
+        help="Launch GTK4 UI via system Python interpreter if current environment lacks PyGObject",
+    )
     opts = parser.parse_args(args)
+
+    from avi.ui import AviApp
+    from avi.orchestrator import AssistantOrchestrator
 
     overrides = {}
     if opts.provider:
@@ -215,7 +234,8 @@ def run_ui(args: Sequence[str] | None = None) -> int:
 
     config = Config.load(**overrides)
     router = Router(config)
-    return AviApp(router, config).run()
+    orchestrator = AssistantOrchestrator(config=config, router=router)
+    return AviApp(router, config, orchestrator=orchestrator).run(allow_system_fallback=opts.use_system_python)
 
 
 def run_cli(argv: Sequence[str] | None = None) -> int:
@@ -248,13 +268,37 @@ def run_cli(argv: Sequence[str] | None = None) -> int:
 
     config = Config.load(**overrides)
     router = Router(config)
+    from avi.orchestrator import AssistantOrchestrator
+    orchestrator = AssistantOrchestrator(config=config, router=router)
 
     raw_prompt = " ".join(args.prompt).strip() if args.prompt else ""
+    # Normalize trailing standalone question mark from unquoted shell arguments
+    raw_prompt = re.sub(r"\s+\?$", "?", raw_prompt)
 
     # Interactive mode when no prompt is supplied
     if not raw_prompt:
-        session = InteractiveSession(router, config)
+        session = InteractiveSession(router, config, orchestrator=orchestrator)
         return session.run()
+
+    # 1. Check Assistant Orchestrator (intents, actions, conversational read-only tools)
+    from avi.assistant.intents import detect_assistant_intent, AssistantIntentType
+    intent = detect_assistant_intent(raw_prompt)
+    if intent.intent_type != AssistantIntentType.UNKNOWN:
+        res = orchestrator.handle(raw_prompt, auto_execute_actions=True)
+        if res.is_blocked:
+            sys.stdout.write(f"{res.text}\n")
+            sys.stdout.flush()
+            return 1
+        if res.requires_confirmation and res.command_request is not None:
+            _handle_cli_proposal(router, res.command_request)
+        elif res.text:
+            sys.stdout.write(res.text.rstrip("\n") + "\n")
+            sys.stdout.flush()
+        if config.show_timing:
+            if res.metrics is not None and res.metrics.total_duration_ms is not None:
+                sys.stderr.write(f"[Response: {res.metrics.total_duration_ms:.0f} ms]\n")
+                sys.stderr.flush()
+        return 0
 
     # Fast-path check
     fast_result = router.check_fast_path(raw_prompt)

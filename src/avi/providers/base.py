@@ -110,12 +110,54 @@ class BaseProvider(ABC):
         pass
 
 
-# Conceptual alias for future systems
+class LLMProvider(BaseProvider):
+    """Stable assistant-facing interface for language models.
+
+    Separation of concerns:
+    - Provider supplies reasoning, text generation, streaming, and tool selection proposals.
+    - AVI owns tools, execution, permissions, safety policy, and system actions.
+    """
+
+    def chat(
+        self,
+        messages: list[dict[str, str]],
+        system_prompt: str | None = None,
+        tools: list[dict[str, Any]] | None = None,
+    ) -> AgentResponse:
+        """Multi-turn chat completion with optional tool definitions."""
+        prompt_lines = [f"{m.get('role', 'user')}: {m.get('content', '')}" for m in messages]
+        return self.send(
+            AgentRequest(
+                prompt="\n".join(prompt_lines),
+                system_prompt=system_prompt,
+            )
+        )
+
+    def select_tool(
+        self,
+        prompt: str,
+        available_tools: list[dict[str, Any]],
+        system_prompt: str | None = None,
+    ) -> ToolCall | None:
+        """Use model intelligence to select a tool call from available schemas."""
+        resp = self.send(
+            AgentRequest(
+                prompt=prompt,
+                system_prompt=system_prompt,
+            )
+        )
+        if resp.tool_calls:
+            return resp.tool_calls[0]
+        return None
+
+
+# Conceptual aliases for providers
 AIProvider = BaseProvider
 
 __all__ = [
     "AIProvider",
     "BaseProvider",
+    "LLMProvider",
     "AgentRequest",
     "AgentResponse",
     "ProviderResponse",

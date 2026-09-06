@@ -383,4 +383,109 @@ AVI is packaged for Python 3.10+ Linux environments using the standard Python pa
    - GitHub Release creation with attached wheel and sdist assets
    - Trusted publishing to PyPI via GitHub Actions OpenID Connect (OIDC) without long-lived tokens
 
+---
+
+## 7. Assistant Runtime & Orchestration Model
+
+### 7.1 Architectural Shift: From Shell Generator to Desktop Assistant Runtime
+Earlier versions of AVI operated primarily as an LLM-assisted shell command translator, translating natural language into single CLI invocations. While powerful for command discovery, this model produced poor user experience for natural desktop interactions (e.g. producing raw `df -h` tables for "how much space is left on my laptop", generating `sleep 2` for "set a timer for 2 seconds", or failing to locate GUI applications like Brave or Antigravity).
+
+The Desktop Assistant Runtime re-architects AVI around a layered orchestration model:
+1. **Deterministic Intent Classifier**: Fast sub-millisecond keyword and regex intent detection without LLM round-trips.
+2. **Native Assistant Actions**: Zero-shell desktop operations (`TimerAction`, `OpenAppAction`, `OpenUrlAction`, `OpenFileAction`, `OpenDirAction`).
+3. **Conversational Tool Synthesizers**: Intercepting read-only tool outputs (disk space, RAM, CPU, processes, Git status) and rendering concise, human-friendly responses.
+4. **Application Discovery & Resolution**: FreeDesktop `.desktop` entry scanning, alias resolution, and background process spawning.
+5. **Granular Risk & Capability Model**: Explicit action categorization (`READ_ONLY`, `LOW_RISK_ACTION`, `EXTERNAL_ACTION`, `FILESYSTEM_WRITE`, `DESTRUCTIVE`, `PRIVILEGED`).
+6. **LLM Provider Reasoning Fallback**: Falling back to AI model providers when semantic inference or complex shell commands are genuinely needed.
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│                      USER PROMPT INPUT                      │
+│   CLI: avi "prompt"  │  REPL  │  avi ui  │  MCP Gateway     │
+└──────────────┬──────────────────────────────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    ASSISTANT ORCHESTRATOR                   │
+│                    (avi.orchestrator)                       │
+│                                                             │
+│   ┌─────────────────────────────────────────────────────┐   │
+│   │ 1. Intent Recognition (avi.assistant.intents)       │   │
+│   │    - Greeting / Help / Capabilities                 │   │
+│   │    - System Metrics (Disk, Memory, CPU, Processes)  │   │
+│   │    - Native Actions (Timer, App, URL, File, Dir)    │   │
+│   └──────────────┬───────────────────────────────┬──────┘   │
+│                  │ Matched Intent                │ No Match │
+│                  ▼                               ▼          │
+│   ┌───────────────────────────┐   ┌─────────────────────┐   │
+│   │ 2. Native Action Dispatch │   │ 4. Router & LLM     │   │
+│   │    TimerAction (daemon)   │   │    Provider Fallback│   │
+│   │    OpenApp / OpenUrl      │   │    - FastPath Engine│   │
+│   │    ApplicationResolver    │   │    - LLM Reasoning  │   │
+│   └───────────────────────────┘   │    - Shell Proposals│   │
+│                  │                └──────────┬──────────┘   │
+│                  │ Needs Data                │              │
+│                  ▼                           ▼              │
+│   ┌───────────────────────────┐   ┌─────────────────────┐   │
+│   │ 3. Tool Execution &       │   │ 5. Safety Engine    │   │
+│   │    Conversational Synth   │   │    ActionCategory   │   │
+│   │    - DiskSpaceSynthesizer │   │    Classification   │   │
+│   │    - MemorySynthesizer    │   │    Fail-Closed      │   │
+│   │    - ProcessSynthesizer   │   └─────────────────────┘   │
+│   └───────────────────────────┘                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 7.2 The Assistant Orchestrator (`avi.orchestrator`)
+The `AssistantOrchestrator` mediates all prompt processing. When a user prompt arrives:
+- It runs the `IntentClassifier`.
+- For `GREETING`, `CAPABILITIES`, `SMALL_TALK`: Returns friendly conversational responses immediately.
+- For `DISK_SPACE`, `MEMORY`, `CPU_USAGE`, `PROCESSES`, `GIT_STATUS`: Executes the corresponding read-only tool (`DiskUsageTool`, `SystemInfoTool`, `ProcessesTool`, `GitStatusTool`) and routes raw output through `avi.assistant.synthesizer` to return concise natural language answers (e.g. `"You have about 154 GB free out of 240 GB on your main drive."`).
+- For `TIMER`: Instantiates `TimerAction` running as a background Python daemon thread, completing immediately without blocking the CLI or shell.
+- For `OPEN_APP`: Resolves application names via `ApplicationResolver` and spawns the app asynchronously via `OpenAppAction`.
+- For `OPEN_URL`: Safely opens URLs in the default browser using `xdg-open`.
+- For `OPEN_FILE` / `OPEN_DIR`: Safely opens paths in preferred editors or desktop file managers.
+- For open-ended questions: Falls back to the standard `CoreRouter` and `LLMProvider` pipeline.
+
+### 7.3 Application Resolver (`avi.apps`)
+The `ApplicationResolver` provides Linux desktop application resolution:
+- **FreeDesktop `.desktop` File Search**: Scans standard directories (`/usr/share/applications`, `~/.local/share/applications`, `/var/lib/snapd/desktop/applications`, Flatpak export paths) parsing `Name`, `Exec`, `Icon`, and `Terminal` fields. Strips field codes (`%u`, `%F`).
+- **Binary PATH Resolution**: Checks `$PATH` for matching executable binaries.
+- **Desktop Alias Mapping**: Normalizes common aliases:
+  - `brave` -> `brave-origin-stable`, `brave-browser`
+  - `chrome` / `google chrome` -> `google-chrome-stable`, `google-chrome`
+  - `antigravity` -> `agy`
+  - `code` / `vscode` -> `code`
+  - `files` / `file manager` -> `nautilus`, `thunar`, `dolphin`, `pcmanfm`
+- **Safe Process Spawning**: Spawns GUI processes with `subprocess.Popen(cmd_args, shell=False, start_new_session=True, stdout=DEVNULL, stderr=DEVNULL)` so the spawned application is detached from AVI's process tree and does not block.
+
+### 7.4 Native Assistant Actions (`avi.actions`)
+- **`TimerAction`**: Uses `threading.Timer` with daemon threads. Supports durations in seconds, minutes, and hours (e.g. "2 mins", "30s"). When finished, prints an alert message and triggers terminal audio bell (`\a`).
+- **`OpenAppAction`**: Launches applications resolved by `ApplicationResolver`.
+- **`OpenUrlAction`**: Launches default web browser via `xdg-open <url>` without shell interpretation.
+- **`OpenFileAction` / `OpenDirAction`**: Opens target files in default handlers or directories in desktop file managers.
+
+### 7.5 Conversational Synthesizers (`avi.assistant.synthesizer`)
+Built-in deterministic synthesizers transform raw tool structures into natural language:
+- `DiskSpaceSynthesizer`: Reads disk total, used, available, and percentage, highlighting main drive storage and any drives nearing capacity.
+- `MemorySynthesizer`: Summarizes total, used, and available RAM with conversational percentage summaries.
+- `CpuSynthesizer`: Summarizes CPU core counts and load averages.
+- `ProcessSynthesizer`: Highlights top memory and CPU consuming processes.
+- `GitStatusSynthesizer`: Summarizes branch state, clean/dirty working directory, and uncommitted file counts.
+
+### 7.6 Granular Risk & Capability Model
+The safety engine (`avi.safety`) replaces single-category filesystem warnings with a 6-tier capability taxonomy:
+- `ActionCategory.READ_ONLY`: Zero state changes, safe for automatic execution.
+- `ActionCategory.LOW_RISK_ACTION`: Non-destructive desktop actions (timers, app launch, URL launch).
+- `ActionCategory.EXTERNAL_ACTION`: Outbound network access (curl, wget, ssh, git fetch/clone). Confirmation: `"This command accesses external network resources."`
+- `ActionCategory.FILESYSTEM_WRITE`: Modifies files, directories, or builds (touch, mkdir, sed, tar). Confirmation: `"This command can modify your filesystem."`
+- `ActionCategory.DESTRUCTIVE`: Permanent data deletion (rm, rmdir, shred, git reset --hard). Confirmation: `"WARNING: This command can permanently delete files or data."`
+- `ActionCategory.PRIVILEGED`: Superuser operations requiring elevated permissions (sudo, chown, systemctl, apt). Confirmation: `"ELEVATED PRIVILEGES: This command requests superuser access."`
+
+### 7.7 GTK4 Multi-Python Environment Diagnostics (`avi.ui.detector`)
+Linux desktop installations frequently encounter Python interpreter ABI mismatches when running GUI toolkits from virtual environments. For example, system packages like `python3-gi` and `gir1.2-gtk-4.0` may reside in `/usr/lib/python3/dist-packages` under Python 3.14, while a development virtualenv uses Python 3.12.
+- `diagnose_gtk_environment()` analyzes the active Python executable, virtualenv state, display servers (Wayland `$WAYLAND_DISPLAY`, X11 `$DISPLAY`), and PyGObject availability.
+- It returns structured diagnosis strings explaining the exact discrepancy and recommending `avi ui --use-system-python` or recreating the venv with `--system-site-packages`.
+
+
 
