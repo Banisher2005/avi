@@ -60,6 +60,7 @@ SAFE_READ_ONLY_PROGRAMS = frozenset({
     "rg",
     "file",
     "stat",
+    "ss",
 })
 
 # Known state-modifying programs requiring user confirmation
@@ -350,7 +351,16 @@ class SafetyEngine:
                 command=cmd_str,
             )
 
-        # 17. Known modifying programs
+        # 17. Version queries for standard developer runtimes
+        if program in ("python", "python3", "node", "ruby", "perl", "rustc", "go", "cargo"):
+            if len(args) == 1 and args[0] in ("--version", "-v", "-V"):
+                return SafetyAssessment(
+                    level=RiskLevel.SAFE,
+                    reason=f"{program} version query is read-only.",
+                    command=cmd_str,
+                )
+
+        # 18. Known modifying programs
         if program in CONFIRM_MODIFYING_PROGRAMS:
             return SafetyAssessment(
                 level=RiskLevel.CONFIRM,

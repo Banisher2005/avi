@@ -19,7 +19,7 @@ AVI is a fast, local-first AI assistant for Linux terminals. It delivers instant
 * **100% Local & Private**: All data stays on your machine. Powered by Ollama and lightweight local models like `qwen2.5:1.5b`.
 * **Clean Command Output**: Shell commands are delivered directly without extraneous conversational fluff or annoying markdown fences when you just need the syntax.
 * **Interactive Terminal REPL**: Full conversational session with readline support, command history, multi-turn memory, and signal handling.
-* **Safe by Design**: Model-generated commands pass through a deterministic safety engine and isolated executor before any process is launched. High-risk operations are blocked and modifying operations require explicit confirmation.
+* **Safe by Design**: Strict read-only tools. AVI will never execute arbitrary shell commands or modify your filesystem without explicit safety pipelines and confirmation.
 
 ---
 
@@ -250,18 +250,20 @@ pytest
   * 8 core inspection tools (Filesystem, System, Git)
   * Sub-millisecond deterministic tool dispatch
   * Strict security: no `shell=True`, no file modification, no privilege escalation
-* [x] **Phase 5: Safety Subsystem & Risk Assessment**
-  * Deterministic command classification: Safe, Confirmation Required, Blocked
-  * Shell syntax/metacharacter guard against chaining, substitution, and redirection bypasses
-  * Catastrophic/destructive pattern blocking and privilege-escalation blocking
-  * Fail-closed handling for unknown or ambiguous commands
-  * Explicit `[y/N]` confirmation gate for modifying commands
-  * Isolated command executor with `shell=False`, bounded output, configurable timeout, and process-group termination
-  * Structured command/result models and end-to-end command-flow integration
-* [ ] **Phase 6: Fast-Path Routing**
-  * Expanded zero-latency deterministic resolution for command templates
-  * Broader intent-to-tool and intent-to-command matching without LLM invocation
-  * Deterministic routing for common shell command templates
+* [x] **Phase 5: Safety Subsystem & Safe Command Execution**
+  * Deterministic SAFE / CONFIRM / BLOCK risk classification engine
+  * Fail-closed security policy preventing accidental command execution
+  * Explicit interactive `[y/N]` confirmation with secure defaults
+  * Isolated subprocess runner strictly using `subprocess.Popen(..., shell=False)` (0 `shell=True`)
+  * Process group timeout termination (`os.killpg`) preventing zombie processes
+  * 64 KiB memory and context output capping
+* [x] **Phase 6: Fast-Path Routing**
+  * Sub-millisecond deterministic intent resolution (`< 0.01 ms`, ~3.5 µs measured)
+  * Pre-compiled templates for common terminal intents (directory, files, git, ports, versions)
+  * Parameterized templates (`find by size`, `find by language`, `git log -N`, `grep in files`)
+  * Strict parameter sanitization (`is_safe_parameter`) rejecting shell metacharacters and injections
+  * Full routing through Phase 5 SafetyEngine before execution
+  * Fail-closed fallback to LLM provider for ambiguous prompts
 * [ ] **Phase 7: Antigravity Integration**
   * Intelligent handoff of complex refactor and development tasks to Antigravity CLI
 * [ ] **Phase 8: Global Hotkey**

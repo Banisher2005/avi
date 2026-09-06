@@ -42,10 +42,10 @@ def test_router_with_custom_provider():
     dummy = DummyProvider()
     router = Router(config, provider=dummy)
 
-    chunks = list(router.route("what command shows current directory?"))
+    chunks = list(router.route("how do I configure a custom reverse proxy?"))
     assert "".join(chunks).strip() == "pwd"
 
-    full = router.route_full("what command shows current directory?")
+    full = router.route_full("how do I configure a custom reverse proxy?")
     assert full.text == "pwd"
     assert full.metrics is not None
     assert full.metrics.total_duration_ms == 42.0

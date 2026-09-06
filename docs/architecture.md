@@ -131,13 +131,30 @@ Strict, isolated command execution boundary:
   * Configurable timeout enforcement (default 10s) with clean process group termination (`os.killpg`) to eliminate orphan processes.
   * Bounded output buffers (default 64 KB) to protect LLM context windows and memory.
 
+### 2.10 Fast-Path Routing Subsystem (`avi.core.fastpath`)
+Deterministic intent resolution layer for common terminal requests:
+* **Zero-Latency In-Memory Matching**: Compiles pre-defined regular expression patterns to match unambiguous terminal intents in **~0.0035 ms (~3.5 µs)** without invoking an LLM backend.
+* **19 Default Intent Templates**:
+  * Exact system inspections: `pwd`, `ls -la`, `df -h`, `ps aux`, `ss -tulpn`, `uname -a`, `date`, `whoami`, `which python3`, `python3 --version`, `node --version`.
+  * Git state queries: `git status`, `git branch --show-current`, `git diff`.
+  * Parameterized templates: `git log --oneline -N` (with bounds checking 1 <= N <= 1000), `find by size`, `find by language`, `find modified`, and `grep in files`.
+* **Strict Parameter Sanitization (`is_safe_parameter`)**:
+  * Validates all extracted arguments against shell metacharacters (`;`, `&`, `|`, `>`, `<`, `$`, backticks, newlines, null bytes).
+  * Rejects unclosed quotes, backslash escapes, and command substitutions before command construction.
+* **Safety Boundary Guarantee**:
+  * Fast-path resolution **never executes commands directly**.
+  * Returns structured `CommandRequest` instances that strictly route through the Phase 5 `SafetyEngine` before dispatching to `CommandExecutor`.
+* **Fail-Closed Fallback**:
+  * Any ambiguous, unsupported, or unsafe input fails resolution (`None`) and seamlessly falls back to the LLM provider.
+
 ---
 
 ## 3. Performance & Benchmark Verification
 
 | Mode | Tokens | Measured Latency | Explanation |
 | :--- | :---: | :---: | :--- |
-| **Deterministic Fast-Path** | 0 | **< 1 ms – 6 ms** | CWD, branch, shell, OS bypass LLM entirely |
+| **Deterministic Fast-Path Matching** | 0 | **~0.0035 ms (3.5 µs)** | In-memory regex intent resolution and structured request building |
+| **Deterministic Fast-Path (Context)** | 0 | **< 1 ms – 6 ms** | CWD, branch, shell, OS bypass LLM entirely |
 | **Read-Only Tool Execution** | 0 | **< 1 ms – 18 ms** | Direct execution of disk usage, file listing, process info |
 | **Safety Assessment Overhead** | 0 | **< 0.05 ms** | In-memory tokenization and deterministic rule evaluation |
 | **Safe Command Execution** | 0 | **~4 ms – 5 ms** | Subprocess execution of safe commands (e.g. `ls -la`) |
