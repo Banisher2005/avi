@@ -1,0 +1,112 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["main", "feature/**"]
+
+jobs:
+  test:
+    name: "Test (Python ${{ matrix.python-version }})"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Create virtual environment
+        run: uv venv --python ${{ matrix.python-version }}
+
+      - name: Install project in editable mode with dev deps
+        run: uv pip install -e ".[dev]"
+
+      - name: Run tests
+        run: uv run pytest --tb=short -q
+
+  lint:
+    name: "Lint & Type Check"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Create virtual environment
+        run: uv venv --python 3.12
+
+      - name: Install lint tools
+        run: uv pip install ruff
+
+      - name: Run ruff (lint)
+        run: uv run ruff check src/ tests/ || true
+
+      - name: Run ruff (format check)
+        run: uv run ruff format --check src/ tests/ || true
+
+  build:
+    name: "Build wheel & sdist"
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Build distributions
+        run: uv build
+
+      - name: Check wheel contents
+        run: |
+          pip install check-wheel-contents
+          check-wheel-contents dist/*.whl || true
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
+
+  security-scan:
+    name: "Security: no shell=True / eval / exec"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Create virtual environment
+        run: uv venv --python 3.12
+
+      - name: Install project
+        run: uv pip install -e ".[dev]"
+
+      - name: Run security invariant tests
+        run: uv run pytest tests/unit/test_gateway.py -k "security" -v

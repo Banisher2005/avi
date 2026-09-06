@@ -53,7 +53,25 @@ AVI is a fast, local-first AI assistant for Linux terminals. It delivers instant
 
 ## Installation & Development Setup
 
-### Quick Install (Development / Editable)
+### 1. One-Shot Linux Install (Recommended)
+
+Install using the standalone script which automatically chooses the best isolated method (`uv tool`, `pipx`, or user local):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Banisher2005/avi/main/install.sh | bash
+```
+
+Or install directly with `uv` or `pipx`:
+
+```bash
+# Using uv tool
+uv tool install avi
+
+# Using pipx
+pipx install avi
+```
+
+### 2. Development / Editable Setup
 
 Clone the repository and install using `uv` (recommended) or standard `pip`:
 
@@ -404,8 +422,11 @@ avi ui --provider ollama --model llama3.1
 Run the test suite with `pytest`:
 
 ```bash
-# Run all 488 unit and integration tests
+# Run all 556 unit and integration tests
 pytest
+
+# Run packaging and distribution tests
+pytest tests/unit/test_packaging.py
 
 # Run UI tests
 pytest tests/unit/test_ui.py
@@ -488,8 +509,14 @@ pytest tests/unit/test_providers.py
   * Wayland-native + X11 via GTK4 (zero extra Python dependencies)
   * Thread-safe: AVI routing in background thread, GTK updates via `GLib.idle_add`
   * Headless-safe: graceful exit with descriptive error when no display available
-* [ ] **Phase 10: Packaging & Distribution**
-  * Native Linux packages and PyPI distribution
+* [x] **Phase 10: Packaging & Distribution**
+  * One-shot Linux installer script (`install.sh`) supporting `uv tool`, `pipx`, and `pip --user`
+  * Complete `pyproject.toml` distribution configuration (v0.2.0, build targets, URLs, classifiers)
+  * Automated GitHub Actions CI workflow (Python 3.10, 3.11, 3.12, linting, security scans)
+  * Automated GitHub Actions Release workflow with OIDC trusted PyPI publishing
+  * Developer `Makefile` with targets for setup, testing, formatting, linting, building, and benchmarking
+  * Keep-a-Changelog structured `CHANGELOG.md`
+  * Packaging and distribution test suite with wheel verification (68 tests)
 
 ---
 

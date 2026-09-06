@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "avi"
-version = "0.1.0"
+version = "0.2.0"
 description = "Fast, local-first AI terminal assistant for Linux"
 readme = "README.md"
 license = { text = "MIT" }
@@ -12,12 +12,14 @@ authors = [
     { name = "Banisher2005", email = "abhinavsanjeev47@gmail.com" }
 ]
 requires-python = ">=3.10"
-keywords = ["ai", "terminal", "assistant", "linux", "ollama", "cli"]
+keywords = ["ai", "terminal", "assistant", "linux", "ollama", "mcp", "cli", "llm"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Environment :: Console",
     "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
     "License :: OSI Approved :: MIT License",
+    "Natural Language :: English",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
@@ -25,15 +27,29 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: System :: Shells",
+    "Topic :: System :: System Shells",
     "Topic :: Utilities",
+    "Typing :: Typed",
 ]
 dependencies = []
 
 [project.optional-dependencies]
+# Desktop UI: requires system GTK4 (python3-gi + gir1.2-gtk-4.0)
+ui = []
+# Development and testing
 dev = [
     "pytest>=8.0.0",
 ]
+# All optional groups combined
+all = []
+
+[project.urls]
+Homepage     = "https://github.com/Banisher2005/avi"
+Repository   = "https://github.com/Banisher2005/avi.git"
+"Bug Tracker" = "https://github.com/Banisher2005/avi/issues"
+Changelog    = "https://github.com/Banisher2005/avi/blob/main/CHANGELOG.md"
 
 [project.scripts]
 avi = "avi.cli:main"
@@ -41,6 +57,32 @@ avi = "avi.cli:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/avi"]
 
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/",
+    "tests/",
+    "docs/",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "pyproject.toml",
+    "install.sh",
+    "Makefile",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = false
+ignore_missing_imports = true

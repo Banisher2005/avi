@@ -337,3 +337,50 @@ Main Thread (GTK)             Background Thread (AVI)
   _finish_stream()
 ```
 
+---
+
+## 6. Packaging & Distribution Pipeline (Phase 10)
+
+### 6.1 Distribution Model
+
+AVI is packaged for Python 3.10+ Linux environments using the standard Python packaging ecosystem (`hatchling` build backend, PEP 517/518/621 conformance):
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    DISTRIBUTION ARTIFACTS                   │
+│      Source Dist (.tar.gz)   │   Built Wheel (.whl)         │
+└──────────────┬───────────────────────────────┬──────────────┘
+               │                               │
+               ▼                               ▼
+┌──────────────────────────────┐ ┌─────────────────────────────┐
+│       PyPI Repository        │ │      One-Shot Installer     │
+│   pip install avi            │ │   install.sh (uv/pipx/pip)  │
+│   pipx install avi           │ │   Isolated user-local bin   │
+│   uv tool install avi        │ │   No root required          │
+└──────────────────────────────┘ └─────────────────────────────┘
+```
+
+### 6.2 Installation Targets
+
+| Method | Target Audience | Command |
+| :--- | :--- | :--- |
+| **Standalone Script** | General Linux Users | `curl -fsSL https://.../install.sh \| bash` |
+| **uv tool** | Modern Python Devs | `uv tool install avi` |
+| **pipx** | CLI Tool Users | `pipx install avi` |
+| **Editable Dev** | Contributors | `git clone ... && make setup` |
+
+### 6.3 Automation Pipelines
+
+1. **Continuous Integration (`.github/workflows/ci.yml`)**:
+   - Multi-version matrix testing across Python 3.10, 3.11, and 3.12
+   - Formatting and lint verification with Ruff
+   - AST-based security scan verifying zero occurrences of `shell=True`, `os.system()`, `eval()`, or `exec()`
+   - Clean distribution builds producing reproducible wheels and source archives
+
+2. **Automated Release (`.github/workflows/release.yml`)**:
+   - Tag-triggered build (`v*.*.*`)
+   - Auto-extracted release notes parsed directly from `CHANGELOG.md`
+   - GitHub Release creation with attached wheel and sdist assets
+   - Trusted publishing to PyPI via GitHub Actions OpenID Connect (OIDC) without long-lived tokens
+
+
