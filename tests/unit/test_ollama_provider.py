@@ -155,3 +155,31 @@ def test_is_available():
     # When unavailable (connection error)
     with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("Refused")):
         assert provider.is_available() is False
+
+
+def test_ollama_provider_context_handling():
+    provider = OllamaProvider()
+    response_body = json.dumps({
+        "response": "AVI",
+        "done": True,
+        "total_duration": 100_000_000,
+        "context": [101, 102, 103],
+    }) + "\n"
+
+    with patch("urllib.request.urlopen", return_value=MockHTTPResponse([response_body])):
+        result = provider.generate_full("what is my project called?", context=[101, 102])
+        assert result.text == "AVI"
+        assert result.context == [101, 102, 103]
+        assert provider.last_context == [101, 102, 103]
+
+
+def test_ollama_provider_warmup_success():
+    provider = OllamaProvider()
+    with patch("urllib.request.urlopen", return_value=MockHTTPResponse(['{"done":true,"done_reason":"load"}'], status=200)):
+        assert provider.warmup() is True
+
+
+def test_ollama_provider_warmup_failure():
+    provider = OllamaProvider()
+    with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("Refused")):
+        assert provider.warmup() is False

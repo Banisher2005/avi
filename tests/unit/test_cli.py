@@ -1,6 +1,5 @@
 """Unit tests for AVI CLI entry point."""
 
-import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -25,11 +24,16 @@ def test_cli_short_version(capsys):
     assert exc_info.value.code == 0
 
 
-def test_cli_no_args_shows_help(capsys):
-    code = main([])
-    assert code == 0
-    captured = capsys.readouterr()
-    assert "usage: avi" in captured.out
+def test_cli_no_args_launches_interactive_session():
+    with patch("avi.cli.InteractiveSession") as mock_session_cls:
+        mock_instance = MagicMock()
+        mock_instance.run.return_value = 0
+        mock_session_cls.return_value = mock_instance
+
+        code = main([])
+        assert code == 0
+        mock_session_cls.assert_called_once()
+        mock_instance.run.assert_called_once()
 
 
 def test_cli_successful_prompt(capsys):
@@ -104,3 +108,14 @@ def test_cli_keyboard_interrupt(capsys):
         assert code == 130
         captured = capsys.readouterr()
         assert "Aborted." in captured.err
+
+
+def test_cli_unexpected_error_boundary(capsys):
+    mock_router = MagicMock()
+    mock_router.route.side_effect = RuntimeError("Something completely unexpected happened")
+
+    with patch("avi.cli.Router", return_value=mock_router):
+        code = main(["trigger unexpected error"])
+        assert code == 1
+        captured = capsys.readouterr()
+        assert "Unexpected error: Something completely unexpected happened" in captured.err
