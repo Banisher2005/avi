@@ -187,9 +187,11 @@ def test_fast_path_ram_uses_processes_tool():
 def test_fast_path_branch_uses_git_tool():
     config = Config.load()
     router = Router(config)
-    result = router.check_fast_path("show my current branch")
-    assert result is not None
-    assert "feature/safe-command-execution" in result
+    with patch("avi.tools.git.collect_git_context") as mock_git:
+        mock_git.return_value = MagicMock(is_repo=True, branch="feature/safe-command-execution")
+        result = router.check_fast_path("show my current branch")
+        assert result is not None
+        assert "feature/safe-command-execution" in result
 
 
 def test_malformed_proposal_not_executed(tmp_path):
