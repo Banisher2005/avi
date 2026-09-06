@@ -157,3 +157,33 @@ def format_git_status_conversational(result: ToolResult) -> str:
 
     details = ", ".join(parts) if parts else "uncommitted changes"
     return f"On git branch '{branch}' with {details}."
+
+
+def format_screenshot_conversational(result: ToolResult) -> str:
+    """Format screenshot result into a friendly conversational response."""
+    if not result.success:
+        return f"Failed to capture screenshot: {result.error or result.message}"
+    data = result.data or {}
+    path = data.get("path", "")
+    dims = data.get("dimensions", "")
+    detail = f" ({dims})" if dims else ""
+    return f"Captured screenshot{detail} and saved it to {path}."
+
+
+def format_file_search_conversational(result: ToolResult, query: str = "") -> str:
+    """Format filesystem search results into natural conversation."""
+    if not result.success:
+        return f"Search failed: {result.error or result.message}"
+    data = result.data or {}
+    matches = data.get("matches", [])
+    count = len(matches)
+    if count == 0:
+        target = f" '{query}'" if query else ""
+        return f"I couldn't find any files matching{target}."
+    if count == 1:
+        match = matches[0]
+        return f"Found {match.get('name', 'file')} at {match.get('path')} ({match.get('size_formatted', '')})."
+
+    top_names = [m.get("name", "") for m in matches[:3]]
+    names_str = ", ".join(top_names)
+    return f"Found {count} matching files, including {names_str}. Top match is at {matches[0].get('path')}."

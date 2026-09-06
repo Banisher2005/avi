@@ -21,6 +21,8 @@ class ConversationTurn:
     action: BaseAction | None = None
     command_request: CommandRequest | None = None
     execution_result: ExecutionResult | None = None
+    plan: Any | None = None
+    capability_result: Any | None = None
     timestamp: float = field(default_factory=time.time)
 
 
@@ -40,6 +42,8 @@ class ConversationHistory:
         action: BaseAction | None = None,
         command_request: CommandRequest | None = None,
         execution_result: ExecutionResult | None = None,
+        plan: Any | None = None,
+        capability_result: Any | None = None,
     ) -> ConversationTurn:
         turn = ConversationTurn(
             turn_id=len(self.turns) + 1,
@@ -50,6 +54,8 @@ class ConversationHistory:
             action=action,
             command_request=command_request,
             execution_result=execution_result,
+            plan=plan,
+            capability_result=capability_result,
             timestamp=time.time(),
         )
         self.turns.append(turn)
@@ -82,3 +88,5 @@ class OrchestratorResult:
     is_blocked: bool = False
     metrics: ResponseMetrics | None = None
     context: Any | None = None
+    plan: Any | None = None
+    capability_result: Any | None = None

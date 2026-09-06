@@ -45,6 +45,9 @@ class AssistantOrchestrator:
         tools: ToolRegistry | None = None,
         safety: SafetyEngine | None = None,
         history: ConversationHistory | None = None,
+        capabilities: Any | None = None,
+        planner: Any | None = None,
+        executor: Any | None = None,
     ) -> None:
         self.config = config
         self.tools = tools or create_default_registry()
@@ -55,6 +58,18 @@ class AssistantOrchestrator:
             config=config,
             tools=self.tools,
             safety=self.safety,
+        )
+        from avi.agent import AgentExecutor, AgentPlanner
+        from avi.capabilities import CapabilityRegistry, create_default_capability_registry
+
+        self.capabilities: CapabilityRegistry = capabilities or create_default_capability_registry(
+            tools=self.tools,
+            resolver=self.app_resolver,
+        )
+        self.planner: AgentPlanner = planner or AgentPlanner()
+        self.executor: AgentExecutor = executor or AgentExecutor(
+            registry=self.capabilities,
+            safety_engine=self.safety,
         )
 
     def handle(
@@ -343,7 +358,133 @@ class AssistantOrchestrator:
                     context=context,
                 )
 
-        # ── Step 2: Fallback to Router (Deterministic Fast-Path, Tools, LLM) ──
+        # ── Step 2: Screen observation & Agent Planner capabilities ──────
+        if result is None:
+            # First: Screen observation check ("what's on my screen", etc.)
+            import re
+
+            if re.search(
+                r"\b(?:what(?:'s|\s+is)\s+on\s+my\s+screen|read\s+(?:what(?:'s|\s+is)\s+on\s+my\s+screen|my\s+screen)|what\s+am\s+i\s+looking\s+at)\b",
+                normalized_prompt.lower(),
+            ):
+                screenshot_res = self.capabilities.execute("desktop.screenshot")
+                if not screenshot_res.success:
+                    result = OrchestratorResult(
+                        text=f"Could not inspect your screen: {screenshot_res.error or screenshot_res.message}",
+                        capability_result=screenshot_res,
+                        metrics=ResponseMetrics(
+                            total_duration_ms=(time.perf_counter() - t0) * 1000.0
+                        ),
+                        context=context,
+                    )
+                else:
+                    path = screenshot_res.data.get("path", "")
+                    provider = getattr(self.router, "_provider", None) or getattr(
+                        self.router, "provider", None
+                    )
+                    caps = (
+                        provider.capabilities()
+                        if provider and hasattr(provider, "capabilities")
+                        else None
+                    )
+                    if caps and caps.vision:
+                        from avi.providers.models import AgentRequest
+
+                        req = AgentRequest(
+                            prompt="Describe what is currently visible on the user's screen in a concise summary.",
+                            system_prompt="You are a helpful desktop assistant.",
+                            context=context,
+                        )
+                        vision_resp = provider.send(req)
+                        result = OrchestratorResult(
+                            text=vision_resp.text,
+                            capability_result=screenshot_res,
+                            metrics=ResponseMetrics(
+                                total_duration_ms=(time.perf_counter() - t0) * 1000.0
+                            ),
+                            context=context,
+                        )
+                    else:
+                        model_name = (
+                            provider.get_model_name()
+                            if provider and hasattr(provider, "get_model_name")
+                            else "local"
+                        )
+                        result = OrchestratorResult(
+                            text=(
+                                f"I captured a screenshot of your screen, but the active AI model "
+                                f"({model_name}) does not support visual reasoning yet. "
+                                f"The screenshot was saved locally to {path}."
+                            ),
+                            capability_result=screenshot_res,
+                            metrics=ResponseMetrics(
+                                total_duration_ms=(time.perf_counter() - t0) * 1000.0
+                            ),
+                            context=context,
+                        )
+
+            # Second: Agent capability planner
+            if result is None:
+                # Handle pending confirmation response
+                if (
+                    normalized_prompt.lower() in ("yes", "y", "confirm", "proceed", "do it")
+                    and self.history.last_turn
+                    and self.history.last_turn.plan
+                    and getattr(self.history.last_turn.plan, "requires_confirmation", False)
+                ):
+                    pending_plan = self.history.last_turn.plan
+                    plan_res = self.executor.execute_plan(pending_plan, confirmed=True)
+                    result = OrchestratorResult(
+                        text=plan_res.final_message,
+                        plan=pending_plan,
+                        capability_result=(
+                            plan_res.completed_steps[-1].result
+                            if plan_res.completed_steps
+                            else None
+                        ),
+                        metrics=ResponseMetrics(
+                            total_duration_ms=(time.perf_counter() - t0) * 1000.0
+                        ),
+                        context=context,
+                    )
+                else:
+                    plan = self.planner.create_plan(normalized_prompt)
+                    if plan is not None:
+                        if plan.requires_confirmation:
+                            result = OrchestratorResult(
+                                text=plan.confirmation_prompt,
+                                plan=plan,
+                                requires_confirmation=True,
+                                metrics=ResponseMetrics(
+                                    total_duration_ms=(time.perf_counter() - t0) * 1000.0
+                                ),
+                                context=context,
+                            )
+                        elif not auto_execute_actions:
+                            result = OrchestratorResult(
+                                text=f"Ready to execute plan: {plan.user_goal}",
+                                plan=plan,
+                                context=context,
+                            )
+                        else:
+                            plan_res = self.executor.execute_plan(plan, confirmed=False)
+                            last_cap_res = (
+                                plan_res.completed_steps[-1].result
+                                if plan_res.completed_steps
+                                else None
+                            )
+                            result = OrchestratorResult(
+                                text=plan_res.final_message,
+                                plan=plan,
+                                requires_confirmation=plan_res.confirmation_required,
+                                capability_result=last_cap_res,
+                                metrics=ResponseMetrics(
+                                    total_duration_ms=(time.perf_counter() - t0) * 1000.0
+                                ),
+                                context=context,
+                            )
+
+        # ── Step 3: Fallback to Router (Deterministic Fast-Path, Tools, LLM) ──
         if result is None:
             resp = self.router.route_full(prompt, context=context)
 
@@ -396,5 +537,7 @@ class AssistantOrchestrator:
             action=result.action,
             command_request=result.command_request,
             execution_result=result.execution_result,
+            plan=result.plan,
+            capability_result=result.capability_result,
         )
         return result
