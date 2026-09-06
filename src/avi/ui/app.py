@@ -42,7 +42,8 @@ class AviApp:
                 env["PYTHONPATH"] = (
                     f"{src_path}:{existing_pythonpath}" if existing_pythonpath else src_path
                 )
-                cmd = [report.system_python_path, "-m", "avi.cli", "ui"]
+                forward_args = sys.argv[1:] if len(sys.argv) > 1 else ["ui"]
+                cmd = [report.system_python_path, "-m", "avi.cli"] + forward_args
                 proc = subprocess.run(cmd, env=env)
                 return proc.returncode
 
@@ -83,11 +84,12 @@ class AviApp:
                 gtk_app, self.router, self.config, orchestrator=self.orchestrator
             )
 
-            def _on_destroy(*_args: Any) -> None:
+            def _on_close_request(*_args: Any) -> bool:
                 self.window = None
+                return False
 
-            if hasattr(self.window, "window"):
-                self.window.window.connect("destroy", _on_destroy)
+            if hasattr(self.window, "window") and self.window.window is not None:
+                self.window.window.connect("close-request", _on_close_request)
 
         app.connect("activate", _on_activate)
         return app.run(None)
