@@ -246,3 +246,94 @@ register_provider("cloud", lambda cfg, **kw: CloudProvider(api_key="...", model=
 | **Full Context Block** | ~150 | **~392 ms** | Injected terminal + git + previous command (~67 extra tokens) |
 | **Session Startup** | N/A | **~80 ms** | Standard library cold process launch to prompt |
 | **Executor Overhead** | N/A | **< 1 ms** | Direct standard library subprocess call |
+
+---
+
+## 5. Desktop UI Subsystem (Phase 9)
+
+### 5.1 Overview
+
+`src/avi/ui/` provides a keyboard-first GTK4 popup window that can be triggered from any Linux desktop environment via a global hotkey bound to `avi ui`.
+
+```
+src/avi/ui/
+├── __init__.py      # Public: AviApp, check_display, is_ui_available
+├── app.py           # AviApp — GTK4 Application wrapper (lazy GTK import)
+└── window.py        # AviWindow — main popup widget, threading bridge, CSS
+```
+
+### 5.2 Design Principles
+
+| Property | Decision |
+| :--- | :--- |
+| **Display servers** | Wayland-native + X11 via GTK4 (no xdotool, no wmctrl required) |
+| **Python deps** | Zero extra: uses system `python3-gi` + `gir1.2-gtk-4.0` |
+| **Threading** | AVI routing in `threading.Thread`; GTK updates via `GLib.idle_add` |
+| **Headless safety** | `check_display()` + `_GTK_AVAILABLE` guard before any GTK import |
+| **No-GTK fallback** | `AviApp.run()` returns exit code 1 + descriptive error if GTK absent |
+
+### 5.3 Window Layout
+
+```
+┌────────────────────────────────────────────────┐
+│ ⚡ AVI  [ Ask anything or type a command...  ] ⟳│
+├────────────────────────────────────────────────┤
+│                                                │
+│  Streamed AVI response appears here in real    │
+│  time (monospace, word-wrapped, scrollable)    │
+│                                                │
+├── confirm bar (hidden unless CONFIRM) ─────────┤
+│ Execute: rm -rf tmp/build?  [✓ Yes] [✗ No]    │
+├────────────────────────────────────────────────┤
+│ Ready · Esc to close           local/qwen2.5   │
+└────────────────────────────────────────────────┘
+```
+
+### 5.4 Keyboard Shortcuts
+
+| Key | Action |
+| :--- | :--- |
+| `Enter` | Submit prompt |
+| `Esc` | Close window |
+| `y` | Confirm CONFIRM-level command execution |
+| `n` | Reject CONFIRM-level command execution |
+
+### 5.5 Invocation
+
+```bash
+# Direct invocation (popup appears on current display)
+avi ui
+
+# With specific provider
+avi ui --provider ollama --model llama3.1
+
+# Via global hotkey (configured in GNOME Settings → Keyboard → Custom Shortcuts):
+# Command: /path/to/.venv/bin/avi ui
+# Shortcut: Super+A  (or any preferred binding)
+
+# Or via avi hotkey for setup instructions:
+avi hotkey
+```
+
+### 5.6 Threading Model
+
+```
+Main Thread (GTK)             Background Thread (AVI)
+─────────────────             ────────────────────────
+  GTK event loop                Router.check_fast_path(prompt)
+        │                             │ (no fast path)
+        │                       Router.route(prompt, stream=True)
+        │                             │ yields chunks
+        │       GLib.idle_add ◀────── chunk received
+  _append_response(chunk)            │
+        │                       full text assembled
+        │       GLib.idle_add ◀────── parse_command_proposal()
+  _show_confirm_prompt()             │ (if CONFIRM)
+        │                            └── thread exits
+  User: [y] key
+        │
+  Background: _run_confirmed_command()
+        │       GLib.idle_add ◀────── result
+  _finish_stream()
+```
+

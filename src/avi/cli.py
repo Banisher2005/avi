@@ -183,6 +183,41 @@ def run_hotkey(args: Sequence[str] | None = None) -> int:
     return 0
 
 
+def run_ui(args: Sequence[str] | None = None) -> int:
+    """Launch the AVI GTK4 desktop popup window."""
+    from avi.ui import AviApp, is_ui_available
+
+    parser = argparse.ArgumentParser(
+        prog="avi ui",
+        description="Launch the AVI keyboard-first desktop popup window (GTK4).",
+    )
+    parser.add_argument(
+        "-p",
+        "--provider",
+        type=str,
+        default=None,
+        help="AI provider to use (default: local)",
+    )
+    parser.add_argument(
+        "-m",
+        "--model",
+        type=str,
+        default=None,
+        help="Model name to use",
+    )
+    opts = parser.parse_args(args)
+
+    overrides = {}
+    if opts.provider:
+        overrides["provider"] = opts.provider
+    if opts.model:
+        overrides["model"] = opts.model
+
+    config = Config.load(**overrides)
+    router = Router(config)
+    return AviApp(router, config).run()
+
+
 def run_cli(argv: Sequence[str] | None = None) -> int:
     """Internal CLI execution logic."""
     args_list = list(sys.argv[1:] if argv is None else argv)
@@ -192,6 +227,8 @@ def run_cli(argv: Sequence[str] | None = None) -> int:
             return run_gateway(args_list[1:])
         elif first == "hotkey":
             return run_hotkey(args_list[1:])
+        elif first == "ui":
+            return run_ui(args_list[1:])
 
     parser = build_parser()
     args = parser.parse_args(args_list)

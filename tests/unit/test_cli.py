@@ -191,3 +191,11 @@ def test_cli_hotkey_systemd(capsys):
     assert "[Unit]" in captured.out
     assert "ExecStart=" in captured.out
 
+
+def test_cli_ui_headless(capsys):
+    """avi ui dispatches to run_ui; in headless it returns 1."""
+    with patch("avi.cli.run_ui") as mock_run_ui:
+        mock_run_ui.return_value = 1
+        code = main(["ui"])
+    assert code == 1
+    mock_run_ui.assert_called_once_with([])

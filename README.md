@@ -348,13 +348,67 @@ Under Wayland, arbitrary background key-grabbing is blocked by compositor securi
 
 ---
 
+## Desktop UI (`avi ui`)
+
+AVI includes a **keyboard-first GTK4 popup window** — a minimal, floating prompt that can be opened from a global hotkey and closed instantly with Escape.
+
+### Requirements
+
+- GTK4 and PyGObject installed on your system:
+  ```bash
+  sudo apt install python3-gi gir1.2-gtk-4.0   # Debian/Ubuntu
+  sudo pacman -S python-gobject gtk4            # Arch
+  sudo dnf install python3-gobject gtk4         # Fedora
+  ```
+- Wayland or X11 display session (auto-detected).
+
+### Launching the Popup
+
+```bash
+# Open popup with default provider
+avi ui
+
+# Open popup with a specific provider
+avi ui --provider ollama --model llama3.1
+```
+
+### Global Hotkey Binding (GNOME/Wayland)
+
+1. Open **Settings** → **Keyboard** → **Custom Shortcuts**
+2. Add shortcut:
+   - **Name**: `AVI Popup`
+   - **Command**: `/path/to/avi/venv/bin/avi ui`
+   - **Shortcut**: `Super+A` (or any preference)
+
+### Popup Keyboard Controls
+
+| Key | Action |
+| :--- | :--- |
+| `Enter` | Submit prompt to AVI |
+| `Esc` | Close window immediately |
+| `y` | Confirm proposed command execution |
+| `n` | Reject proposed command execution |
+
+### Popup Window Features
+
+- **Real-time streaming** — response text appears as tokens arrive
+- **Inline confirmation** — commands requiring approval show `[✓ Yes] [✗ No]` buttons inline
+- **BLOCK enforcement** — dangerous commands are blocked before any execution prompt
+- **Provider/model indicator** — shows active AI provider in the status bar
+- **Headless-safe** — exits cleanly with code 1 + helpful message if no display is available
+
+---
+
 ## Running Tests
 
 Run the test suite with `pytest`:
 
 ```bash
-# Run all 472 unit and integration tests
+# Run all 488 unit and integration tests
 pytest
+
+# Run UI tests
+pytest tests/unit/test_ui.py
 
 # Run gateway and MCP tests
 pytest tests/unit/test_gateway.py
@@ -427,8 +481,13 @@ pytest tests/unit/test_providers.py
   * External agent routing (`agent/send`) and environment context queries (`context/get`)
   * Linux desktop environment detector (Wayland / X11 / Headless) with native compositor hotkey guides
   * Systemd user service generator (`avi hotkey --systemd`)
-* [ ] **Phase 9: Lightweight Desktop UI**
-  * Minimal, keyboard-first desktop popup window
+* [x] **Phase 9: Lightweight Desktop UI**
+  * Keyboard-first GTK4 popup window (`avi ui`)
+  * Real-time streaming response display
+  * Inline CONFIRM/BLOCK safety enforcement with `[y/N]` keyboard controls
+  * Wayland-native + X11 via GTK4 (zero extra Python dependencies)
+  * Thread-safe: AVI routing in background thread, GTK updates via `GLib.idle_add`
+  * Headless-safe: graceful exit with descriptive error when no display available
 * [ ] **Phase 10: Packaging & Distribution**
   * Native Linux packages and PyPI distribution
 
