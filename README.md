@@ -19,7 +19,7 @@ AVI is a fast, local-first AI assistant for Linux terminals. It delivers instant
 * **100% Local & Private**: All data stays on your machine. Powered by Ollama and lightweight local models like `qwen2.5:1.5b`.
 * **Clean Command Output**: Shell commands are delivered directly without extraneous conversational fluff or annoying markdown fences when you just need the syntax.
 * **Interactive Terminal REPL**: Full conversational session with readline support, command history, multi-turn memory, and signal handling.
-* **Safe by Design**: Strict read-only tools. AVI will never execute arbitrary shell commands or modify your filesystem without explicit safety pipelines and confirmation.
+* **Safe by Design**: Model-generated commands pass through a deterministic safety engine and isolated executor before any process is launched. High-risk operations are blocked and modifying operations require explicit confirmation.
 
 ---
 
@@ -250,11 +250,18 @@ pytest
   * 8 core inspection tools (Filesystem, System, Git)
   * Sub-millisecond deterministic tool dispatch
   * Strict security: no `shell=True`, no file modification, no privilege escalation
-* [ ] **Phase 5: Safety Subsystem & Risk Assessment**
-  * Command classification (Safe, Confirmation Required, Blocked)
-  * Safe execution verification pipeline
+* [x] **Phase 5: Safety Subsystem & Risk Assessment**
+  * Deterministic command classification: Safe, Confirmation Required, Blocked
+  * Shell syntax/metacharacter guard against chaining, substitution, and redirection bypasses
+  * Catastrophic/destructive pattern blocking and privilege-escalation blocking
+  * Fail-closed handling for unknown or ambiguous commands
+  * Explicit `[y/N]` confirmation gate for modifying commands
+  * Isolated command executor with `shell=False`, bounded output, configurable timeout, and process-group termination
+  * Structured command/result models and end-to-end command-flow integration
 * [ ] **Phase 6: Fast-Path Routing**
   * Expanded zero-latency deterministic resolution for command templates
+  * Broader intent-to-tool and intent-to-command matching without LLM invocation
+  * Deterministic routing for common shell command templates
 * [ ] **Phase 7: Antigravity Integration**
   * Intelligent handoff of complex refactor and development tasks to Antigravity CLI
 * [ ] **Phase 8: Global Hotkey**
