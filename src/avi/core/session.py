@@ -13,6 +13,7 @@ except ImportError:
 from avi import __version__
 from avi.config import Config
 from avi.core.router import Router
+from avi.execution import CommandRequest
 from avi.providers.ollama import OllamaError
 
 DEFAULT_HISTORY_PATH = Path.home() / ".local" / "share" / "avi" / "history"
@@ -162,33 +163,107 @@ class InteractiveSession:
 
         return 0
 
+    def _read_confirmation(self, cmd_str: str) -> bool:
+        """Prompt user for explicit y/n confirmation. Default answer is NO."""
+        self.out_stream.write(
+            f"\nCommand:\n{cmd_str}\n\nThis command can modify your filesystem.\n\nExecute? [y/N] "
+        )
+        self.out_stream.flush()
+
+        if self.in_stream is sys.stdin:
+            try:
+                line = input()
+            except (EOFError, KeyboardInterrupt):
+                return False
+        else:
+            line = self.in_stream.readline()
+            if not line:
+                return False
+            line = line.rstrip("\r\n")
+
+        return line.strip().lower() == "y"
+
+    def _handle_proposal(self, request: CommandRequest) -> None:
+        """Pass command request through SafetyEngine and execute or confirm."""
+        assessment = self.router.evaluate_command(request)
+
+        if assessment.is_blocked:
+            self.out_stream.write(
+                f"\nCommand:\n{request.command_line}\n\n[Blocked: {assessment.reason}]\n"
+            )
+            self.out_stream.flush()
+            return
+
+        if assessment.requires_confirmation:
+            if not self._read_confirmation(request.command_line):
+                self.out_stream.write("Execution cancelled.\n")
+                self.out_stream.flush()
+                return
+
+        result = self.router.execute_command(request)
+        display = result.format_display()
+        if display:
+            self.out_stream.write(f"{display}\n")
+            self.out_stream.flush()
+
     def _process_turn(self, query: str) -> None:
         """Dispatch a single conversation turn to the router with signal handling."""
         try:
+            # 1. Deterministic fast-path check
+            fast_result = self.router.check_fast_path(query)
+            if isinstance(fast_result, str):
+                self.out_stream.write(fast_result.rstrip("\n") + "\n")
+                self.out_stream.flush()
+                self._show_timing()
+                return
+
+            # 2. Query model provider
             if self.config.stream:
-                last_char = ""
-                for chunk in self.router.route(query, context=self.context, stream=True):
-                    self.out_stream.write(chunk)
+                buffered = ""
+                stream_iter = iter(self.router.route(query, context=self.context, stream=True))
+                is_proposal = False
+
+                for chunk in stream_iter:
+                    buffered += chunk
+                    clean_buf = buffered.strip().upper()
+                    if any(clean_buf.startswith(p) for p in ("COMMAND:", "PROPOSAL:", "```JSON", '{"', "{")):
+                        is_proposal = True
+                        break
+                    if len(buffered.strip()) >= 12:
+                        break
+
+                if is_proposal:
+                    full_text = buffered + "".join(stream_iter)
+                    proposal = self.router.parse_command_proposal(full_text)
+                    if isinstance(proposal, CommandRequest):
+                        self._handle_proposal(proposal)
+                    else:
+                        self.out_stream.write(full_text.rstrip("\n") + "\n")
+                        self.out_stream.flush()
+                else:
+                    self.out_stream.write(buffered)
                     self.out_stream.flush()
-                    if chunk:
-                        last_char = chunk[-1]
-                if last_char and last_char != "\n":
-                    self.out_stream.write("\n")
-                    self.out_stream.flush()
+                    last_char = buffered[-1] if buffered else ""
+                    for chunk in stream_iter:
+                        self.out_stream.write(chunk)
+                        self.out_stream.flush()
+                        if chunk:
+                            last_char = chunk[-1]
+                    if last_char and last_char != "\n":
+                        self.out_stream.write("\n")
+                        self.out_stream.flush()
             else:
                 resp = self.router.route_full(query, context=self.context)
-                if resp.text:
+                proposal = self.router.parse_command_proposal(resp.text)
+                if isinstance(proposal, CommandRequest):
+                    self._handle_proposal(proposal)
+                elif resp.text:
                     self.out_stream.write(resp.text.rstrip("\n") + "\n")
                     self.out_stream.flush()
 
             # Update conversation context for next turn
             self.context = self.router.last_context
-
-            if self.config.show_timing:
-                metrics = self.router.last_metrics
-                if metrics is not None and metrics.total_duration_ms is not None:
-                    self.err_stream.write(f"[Response: {metrics.total_duration_ms:.0f} ms]\n")
-                    self.err_stream.flush()
+            self._show_timing()
 
         except KeyboardInterrupt:
             # Ctrl+C during streaming cancels active turn without terminating session
@@ -197,3 +272,11 @@ class InteractiveSession:
         except OllamaError as err:
             self.err_stream.write(f"Error: {err}\n")
             self.err_stream.flush()
+
+    def _show_timing(self) -> None:
+        """Display elapsed timing if enabled."""
+        if self.config.show_timing:
+            metrics = self.router.last_metrics
+            if metrics is not None and metrics.total_duration_ms is not None:
+                self.err_stream.write(f"[Response: {metrics.total_duration_ms:.0f} ms]\n")
+                self.err_stream.flush()

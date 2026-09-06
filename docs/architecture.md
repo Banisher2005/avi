@@ -103,6 +103,34 @@ A modular, controlled subsystem for executing read-only machine inspections:
   * Regex-based deterministic tool queries (`what files are here?`, `what's using the most RAM?`, `how much disk space do I have?`) execute the corresponding tool directly in **< 20 ms** without calling the LLM.
   * Queries asking for command syntax (`what command lists files?`) bypass tool execution and prompt the LLM for shell commands.
 
+### 2.8 Safety Engine Subsystem (`avi.safety`)
+A deterministic, model-independent validation and risk assessment pipeline:
+* **Risk Levels**:
+  * `SAFE`: Read-only, benign inspection commands (`pwd`, `ls`, `git status`, `git branch`, `df`, `du`, `ps`, `cat`, `grep`, `whoami`, `uname`, `uptime`, `date`, `file`, `stat`, `find` without action flags). Executed automatically without user interruption.
+  * `CONFIRM`: Commands capable of modifying filesystem or system state (`rm`, `mv`, `cp`, `mkdir`, `touch`, `chmod`, `chown`, `kill`, `pkill`, `systemctl`, `git checkout`, `git commit`, `git push`, `find -delete`, `find -exec`, etc.). Requires explicit interactive confirmation (`[y/N]`). Default is NO.
+  * `BLOCK`: High-confidence catastrophic or malicious patterns. Refused immediately with explicit diagnostics:
+    * Recursive deletion of root or critical paths (`rm -rf /`, `rm -rf /*`, `rm -rf /etc`, `rm -rf /boot`, `rm -rf /sys`, etc.).
+    * Disk formatting and partitioning utilities (`mkfs`, `mkfs.*`, `wipefs`, `fdisk`, `parted`).
+    * Writing directly to raw block devices via `dd` (`of=/dev/...`).
+    * Fork bombs (`:(){ :|:& };:`).
+    * Recursive permissions/ownership changes on root (`chmod -R 777 /`).
+    * Direct privilege escalation (`sudo`, `su`).
+* **Shell Syntax Guard**:
+  * Compound command chaining (`&&`, `;`, `||`, `|`, `&`, `\n`) cannot bypass classification and is blocked initially.
+  * Command substitutions (`$(...)`, `` `...` ``) cannot bypass classification and are blocked.
+  * File redirections (`>`, `>>`, `<`) cannot bypass classification and are blocked.
+* **Fail-Closed Policy**: Any unrecognized or ambiguous command defaults to `CONFIRM` rather than `SAFE`.
+
+### 2.9 Command Execution Subsystem (`avi.execution`)
+Strict, isolated command execution boundary:
+* **`CommandRequest`**: Structured representation containing program name, structured arguments list, current working directory, timeout, and max output limit.
+* **`ExecutionResult`**: Strongly typed execution summary returning `exit_code`, captured `stdout`, captured `stderr`, `duration_ms`, `timed_out`, and `output_truncated`.
+* **Subprocess Sandboxing**:
+  * Exclusively invokes `subprocess.Popen(..., shell=False)`. Zero occurrences of `shell=True`.
+  * Executes within the caller's process working directory without displaying environment variables or secrets to the LLM.
+  * Configurable timeout enforcement (default 10s) with clean process group termination (`os.killpg`) to eliminate orphan processes.
+  * Bounded output buffers (default 64 KB) to protect LLM context windows and memory.
+
 ---
 
 ## 3. Performance & Benchmark Verification
@@ -110,11 +138,15 @@ A modular, controlled subsystem for executing read-only machine inspections:
 | Mode | Tokens | Measured Latency | Explanation |
 | :--- | :---: | :---: | :--- |
 | **Deterministic Fast-Path** | 0 | **< 1 ms – 6 ms** | CWD, branch, shell, OS bypass LLM entirely |
-| **Read-Only Tool Execution** | 0 | **< 1 ms – 20 ms** | Direct execution of disk usage, file listing, process info |
+| **Read-Only Tool Execution** | 0 | **< 1 ms – 18 ms** | Direct execution of disk usage, file listing, process info |
+| **Safety Assessment Overhead** | 0 | **< 0.05 ms** | In-memory tokenization and deterministic rule evaluation |
+| **Safe Command Execution** | 0 | **~4 ms – 5 ms** | Subprocess execution of safe commands (e.g. `ls -la`) |
+| **LLM Command Proposal** | ~85 | **~267 ms** | Local LLM generates structured command proposal |
 | **Generic Question (No Context)** | ~83 | **~77 ms – 101 ms** | Fast prompt eval, zero context overhead |
 | **Small Relevant Context** | ~105 | **~284 ms** | Injected terminal block (~22 extra tokens) |
 | **Full Context Block** | ~150 | **~392 ms** | Injected terminal + git + previous command (~67 extra tokens) |
 | **Multi-Turn Chat Turn 2** | ~190 | **~758 ms – 864 ms** | Accumulated conversational history |
 | **Session Startup** | N/A | **~80 ms** | Standard library cold process launch to prompt |
-| **Client Overhead** | N/A | **< 2 ms** | Internal Python processing |
+| **Executor Overhead** | N/A | **< 1 ms** | Direct standard library subprocess call |
+
 

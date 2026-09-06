@@ -13,8 +13,15 @@ from avi.context.collectors import (
 )
 from avi.context.models import ContextSnapshot
 from avi.core.normalizer import normalize_response, normalize_stream
+from avi.execution import (
+    CommandExecutor,
+    CommandRequest,
+    ExecutionResult,
+    extract_command_proposal,
+)
 from avi.providers.base import BaseProvider, ProviderResponse, ResponseMetrics
 from avi.providers.ollama import OllamaProvider
+from avi.safety import RiskLevel, SafetyAssessment, SafetyEngine
 from avi.tools.registry import ToolRegistry, create_default_registry
 
 # Regex patterns for deterministic fast-path context and tool queries
@@ -23,7 +30,7 @@ _FAST_PATH_CWD = re.compile(
     re.IGNORECASE,
 )
 _FAST_PATH_BRANCH = re.compile(
-    r"^(what\s+(is\s+my\s+|the\s+)?(git\s+)?branch(\s+(am\s+i\s+on|is\s+this))?|current\s+(git\s+)?branch|git\s+branch)$",
+    r"^(what\s+(is\s+my\s+|the\s+)?(git\s+)?branch(\s+(am\s+i\s+on|is\s+this))?|(show\s+(me\s+|my\s+)?(current\s+)?|current\s+)(git\s+)?branch|git\s+branch)$",
     re.IGNORECASE,
 )
 _FAST_PATH_SHELL = re.compile(
@@ -64,10 +71,17 @@ class Router:
         config: Config,
         provider: BaseProvider | None = None,
         tools: ToolRegistry | None = None,
+        safety: SafetyEngine | None = None,
+        executor: CommandExecutor | None = None,
     ) -> None:
         self.config = config
         self._provider = provider or self._init_provider(config)
         self.tools = tools or create_default_registry()
+        self.safety = safety or SafetyEngine()
+        self.executor = executor or CommandExecutor(
+            default_timeout=config.command_timeout,
+            default_max_output_bytes=config.max_output_bytes,
+        )
         self._fast_path_metrics: ResponseMetrics | None = None
 
     def _init_provider(self, config: Config) -> BaseProvider:
@@ -259,3 +273,15 @@ class Router:
             metrics=resp.metrics,
             context=resp.context,
         )
+
+    def parse_command_proposal(self, text: str) -> CommandRequest | None:
+        """Attempt to parse a structured command proposal from model response."""
+        return extract_command_proposal(text)
+
+    def evaluate_command(self, command: str | CommandRequest) -> SafetyAssessment:
+        """Evaluate command risk level through the SafetyEngine."""
+        return self.safety.evaluate(command)
+
+    def execute_command(self, request: CommandRequest) -> ExecutionResult:
+        """Execute a validated CommandRequest via the CommandExecutor."""
+        return self.executor.execute(request)

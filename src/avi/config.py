@@ -11,11 +11,14 @@ DEFAULT_MODEL = "qwen2.5:1.5b"
 DEFAULT_TIMEOUT = 30.0
 DEFAULT_TEMPERATURE = 0.1
 DEFAULT_KEEP_ALIVE = "5m"
+DEFAULT_COMMAND_TIMEOUT = 10.0
+DEFAULT_MAX_OUTPUT_BYTES = 65536  # 64 KB output buffer
 DEFAULT_SYSTEM_PROMPT = (
     "You are AVI, a fast, concise Linux terminal assistant. "
-    "Answer directly. When asked for a shell command, output only the exact command. "
-    "Do not wrap single commands in markdown code fences or explanations unless explicitly requested. "
-    "Never generate destructive commands (e.g. rm -rf, mkfs, dd) unless specifically asked."
+    "If the user asks to perform an action, modify files, or execute a system command, propose the exact command in the format:\n"
+    "COMMAND: <exact_command>\n"
+    "If the user asks an informational or explanatory question, answer directly and concisely without COMMAND:.\n"
+    "Never generate destructive commands (e.g. rm -rf /, mkfs, dd) unless specifically asked."
 )
 
 
@@ -32,6 +35,8 @@ class Config:
     stream: bool = True
     show_timing: bool = False
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
+    command_timeout: float = DEFAULT_COMMAND_TIMEOUT
+    max_output_bytes: int = DEFAULT_MAX_OUTPUT_BYTES
 
     @classmethod
     def load(cls, **overrides: Any) -> "Config":
@@ -81,6 +86,20 @@ class Config:
         if env_stream is not None:
             config_data["stream"] = env_stream.lower() not in ("0", "false", "no")
 
+        env_cmd_timeout = os.getenv("AVI_COMMAND_TIMEOUT")
+        if env_cmd_timeout:
+            try:
+                config_data["command_timeout"] = float(env_cmd_timeout)
+            except ValueError:
+                pass
+
+        env_max_out = os.getenv("AVI_MAX_OUTPUT_BYTES")
+        if env_max_out:
+            try:
+                config_data["max_output_bytes"] = int(env_max_out)
+            except ValueError:
+                pass
+
         # 3. Apply explicit CLI / caller overrides (excluding None values)
         for key, value in overrides.items():
             if value is not None:
@@ -96,4 +115,6 @@ class Config:
             stream=bool(config_data.get("stream", True)),
             show_timing=bool(config_data.get("show_timing", False)),
             system_prompt=str(config_data.get("system_prompt", DEFAULT_SYSTEM_PROMPT)),
+            command_timeout=float(config_data.get("command_timeout", DEFAULT_COMMAND_TIMEOUT)),
+            max_output_bytes=int(config_data.get("max_output_bytes", DEFAULT_MAX_OUTPUT_BYTES)),
         )

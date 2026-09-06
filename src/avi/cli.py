@@ -8,6 +8,7 @@ from avi import __version__
 from avi.config import Config
 from avi.core.router import Router
 from avi.core.session import InteractiveSession
+from avi.execution import CommandRequest
 from avi.providers.ollama import OllamaError
 
 
@@ -57,6 +58,38 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _handle_cli_proposal(router: Router, request: CommandRequest) -> int:
+    """Evaluate and execute command proposals in CLI mode."""
+    assessment = router.evaluate_command(request)
+    if assessment.is_blocked:
+        sys.stdout.write(f"\nCommand:\n{request.command_line}\n\n[Blocked: {assessment.reason}]\n")
+        sys.stdout.flush()
+        return 1
+
+    if assessment.requires_confirmation:
+        sys.stdout.write(
+            f"\nCommand:\n{request.command_line}\n\nThis command can modify your filesystem.\n\nExecute? [y/N] "
+        )
+        sys.stdout.flush()
+        try:
+            line = sys.stdin.readline()
+            ans = line.strip().lower() if line else ""
+        except (EOFError, KeyboardInterrupt):
+            ans = ""
+
+        if ans != "y":
+            sys.stdout.write("Execution cancelled.\n")
+            sys.stdout.flush()
+            return 0
+
+    result = router.execute_command(request)
+    display = result.format_display()
+    if display:
+        sys.stdout.write(f"{display}\n")
+        sys.stdout.flush()
+    return result.exit_code
+
+
 def run_cli(argv: Sequence[str] | None = None) -> int:
     """Internal CLI execution logic."""
     parser = build_parser()
@@ -83,20 +116,59 @@ def run_cli(argv: Sequence[str] | None = None) -> int:
         session = InteractiveSession(router, config)
         return session.run()
 
+    # Fast-path check
+    fast_result = router.check_fast_path(raw_prompt)
+    if isinstance(fast_result, str):
+        sys.stdout.write(fast_result.rstrip("\n") + "\n")
+        sys.stdout.flush()
+        if config.show_timing:
+            metrics = router.last_metrics
+            if metrics is not None and metrics.total_duration_ms is not None:
+                sys.stderr.write(f"[Response: {metrics.total_duration_ms:.0f} ms]\n")
+                sys.stderr.flush()
+        return 0
+
     # Single-shot execution mode
     if config.stream:
-        last_char = ""
-        for chunk in router.route(raw_prompt, stream=True):
-            sys.stdout.write(chunk)
+        buffered = ""
+        stream_iter = iter(router.route(raw_prompt, stream=True))
+        is_proposal = False
+
+        for chunk in stream_iter:
+            buffered += chunk
+            clean_buf = buffered.strip().upper()
+            if any(clean_buf.startswith(p) for p in ("COMMAND:", "PROPOSAL:", "```JSON", '{"', "{")):
+                is_proposal = True
+                break
+            if len(buffered.strip()) >= 12:
+                break
+
+        if is_proposal:
+            full_text = buffered + "".join(stream_iter)
+            proposal = router.parse_command_proposal(full_text)
+            if isinstance(proposal, CommandRequest):
+                _handle_cli_proposal(router, proposal)
+            else:
+                sys.stdout.write(full_text.rstrip("\n") + "\n")
+                sys.stdout.flush()
+        else:
+            sys.stdout.write(buffered)
             sys.stdout.flush()
-            if chunk:
-                last_char = chunk[-1]
-        if last_char and last_char != "\n":
-            sys.stdout.write("\n")
-            sys.stdout.flush()
+            last_char = buffered[-1] if buffered else ""
+            for chunk in stream_iter:
+                sys.stdout.write(chunk)
+                sys.stdout.flush()
+                if chunk:
+                    last_char = chunk[-1]
+            if last_char and last_char != "\n":
+                sys.stdout.write("\n")
+                sys.stdout.flush()
     else:
         resp = router.route_full(raw_prompt)
-        if resp.text:
+        proposal = router.parse_command_proposal(resp.text)
+        if isinstance(proposal, CommandRequest):
+            _handle_cli_proposal(router, proposal)
+        elif resp.text:
             sys.stdout.write(resp.text.rstrip("\n") + "\n")
             sys.stdout.flush()
 
