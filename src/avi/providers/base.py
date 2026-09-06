@@ -1,35 +1,44 @@
-"""Base provider abstraction for AI model backends."""
+"""Base AI provider abstraction for AVI."""
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from typing import Any, Iterator
 
-
-@dataclass
-class ResponseMetrics:
-    """Performance and latency metrics for an inference request."""
-
-    total_duration_ms: float
-    load_duration_ms: float | None = None
-    prompt_eval_duration_ms: float | None = None
-    eval_duration_ms: float | None = None
-    prompt_eval_count: int | None = None
-    eval_count: int | None = None
-
-
-@dataclass
-class ProviderResponse:
-    """Full response from a model provider."""
-
-    text: str
-    metrics: ResponseMetrics | None = None
-    context: Any | None = None
+from avi.providers.models import (
+    AgentRequest,
+    AgentResponse,
+    ProviderCapabilities,
+    ProviderHealth,
+    ProviderResponse,
+    ResponseMetrics,
+    ToolCall,
+)
 
 
 class BaseProvider(ABC):
-    """Abstract base class for all model backends (Ollama, Antigravity, etc.)."""
+    """Abstract base class for all AI model backends.
 
-    @abstractmethod
+    AVI Core is provider-independent. All model integrations (Local/Ollama,
+    Antigravity, OpenAI, Anthropic, Gemini, etc.) implement this interface
+    or inherit from it.
+    """
+
+    def send(self, request: AgentRequest) -> AgentResponse:
+        """Send a normalized request and return a structured response."""
+        return self.generate_full(
+            prompt=request.prompt,
+            system_prompt=request.system_prompt,
+            context=request.context,
+        )
+
+    def stream(self, request: AgentRequest) -> Iterator[str]:
+        """Send a normalized request and stream text response chunks."""
+        yield from self.generate(
+            prompt=request.prompt,
+            system_prompt=request.system_prompt,
+            context=request.context,
+            stream=request.stream,
+        )
+
     def generate(
         self,
         prompt: str,
@@ -37,18 +46,41 @@ class BaseProvider(ABC):
         context: Any | None = None,
         stream: bool = True,
     ) -> Iterator[str]:
-        """Stream or generate response chunks for a prompt."""
-        pass
+        """Legacy generation method. Streams or yields text chunks."""
+        req = AgentRequest(
+            prompt=prompt,
+            system_prompt=system_prompt,
+            context=context,
+            stream=stream,
+        )
+        yield from self.stream(req)
 
-    @abstractmethod
     def generate_full(
         self,
         prompt: str,
         system_prompt: str | None = None,
         context: Any | None = None,
     ) -> ProviderResponse:
-        """Generate a complete response along with metrics and conversation context."""
-        pass
+        """Legacy synchronous generation method. Returns complete response."""
+        req = AgentRequest(
+            prompt=prompt,
+            system_prompt=system_prompt,
+            context=context,
+            stream=False,
+        )
+        return self.send(req)
+
+    def capabilities(self) -> ProviderCapabilities:
+        """Return the capabilities supported by this provider."""
+        return ProviderCapabilities()
+
+    def health_check(self) -> ProviderHealth:
+        """Perform a health and reachability check on the provider backend."""
+        healthy = self.is_available()
+        return ProviderHealth(
+            healthy=healthy,
+            message="Ready" if healthy else "Provider unavailable",
+        )
 
     @abstractmethod
     def is_available(self) -> bool:
@@ -76,3 +108,19 @@ class BaseProvider(ABC):
     def last_context(self) -> Any | None:
         """Return conversation context token state from the most recent generation."""
         pass
+
+
+# Conceptual alias for future systems
+AIProvider = BaseProvider
+
+__all__ = [
+    "AIProvider",
+    "BaseProvider",
+    "AgentRequest",
+    "AgentResponse",
+    "ProviderResponse",
+    "ResponseMetrics",
+    "ProviderCapabilities",
+    "ProviderHealth",
+    "ToolCall",
+]

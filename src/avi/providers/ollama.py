@@ -7,30 +7,45 @@ import urllib.error
 import urllib.request
 from typing import Any, Iterator
 
-from avi.providers.base import BaseProvider, ProviderResponse, ResponseMetrics
+from avi.providers.base import (
+    BaseProvider,
+    AgentRequest,
+    AgentResponse,
+    ProviderCapabilities,
+    ProviderHealth,
+    ProviderResponse,
+    ResponseMetrics,
+)
+from avi.providers.models import (
+    ProviderAPIError,
+    ProviderConnectionError,
+    ProviderError,
+    ProviderModelNotFoundError,
+    ProviderTimeoutError,
+)
 
 
-class OllamaError(Exception):
+class OllamaError(ProviderError):
     """Base exception for Ollama provider errors."""
     pass
 
 
-class OllamaConnectionError(OllamaError):
+class OllamaConnectionError(OllamaError, ProviderConnectionError):
     """Raised when Ollama is unreachable or connection is refused."""
     pass
 
 
-class OllamaModelNotFoundError(OllamaError):
+class OllamaModelNotFoundError(OllamaError, ProviderModelNotFoundError):
     """Raised when the specified model is not found in Ollama."""
     pass
 
 
-class OllamaTimeoutError(OllamaError):
+class OllamaTimeoutError(OllamaError, ProviderTimeoutError):
     """Raised when a request to Ollama times out."""
     pass
 
 
-class OllamaAPIError(OllamaError):
+class OllamaAPIError(OllamaError, ProviderAPIError):
     """Raised when Ollama returns an unexpected API error."""
     pass
 
@@ -70,6 +85,31 @@ class OllamaProvider(BaseProvider):
         """Return the active model name."""
         return self.model
 
+    def capabilities(self) -> ProviderCapabilities:
+        """Return capability flags for Ollama local provider."""
+        return ProviderCapabilities(
+            streaming=True,
+            tool_calling=False,
+            structured_output=True,
+            vision=False,
+            reasoning=False,
+            context_size=8192,
+            local=True,
+            remote=False,
+        )
+
+    def health_check(self) -> ProviderHealth:
+        """Check Ollama service health and reachability."""
+        t0 = time.perf_counter()
+        healthy = self.is_available()
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0
+        return ProviderHealth(
+            healthy=healthy,
+            message="Ollama server ready" if healthy else f"Cannot connect to Ollama at {self.host}",
+            latency_ms=elapsed_ms if healthy else None,
+            details={"host": self.host, "model": self.model},
+        )
+
     def is_available(self) -> bool:
         """Check if the Ollama server is running and accessible."""
         url = f"{self.host}/api/version"
@@ -102,6 +142,23 @@ class OllamaProvider(BaseProvider):
                 return resp.status == 200
         except (urllib.error.URLError, socket.timeout, TimeoutError, OSError):
             return False
+
+    def send(self, request: AgentRequest) -> AgentResponse:
+        """Send a normalized request and return a structured response."""
+        return self.generate_full(
+            prompt=request.prompt,
+            system_prompt=request.system_prompt,
+            context=request.context,
+        )
+
+    def stream(self, request: AgentRequest) -> Iterator[str]:
+        """Stream response chunks for a normalized request."""
+        yield from self.generate(
+            prompt=request.prompt,
+            system_prompt=request.system_prompt,
+            context=request.context,
+            stream=request.stream,
+        )
 
     def generate(
         self,
@@ -255,3 +312,7 @@ class OllamaProvider(BaseProvider):
             prompt_eval_count=data.get("prompt_eval_count"),
             eval_count=data.get("eval_count"),
         )
+
+
+# Alias for Provider-Agnostic naming
+LocalProvider = OllamaProvider

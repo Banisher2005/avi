@@ -20,9 +20,17 @@ from avi.execution import (
     ExecutionResult,
     extract_command_proposal,
 )
-from avi.providers.base import BaseProvider, ProviderResponse, ResponseMetrics
-from avi.providers.ollama import OllamaProvider
+from avi.providers.base import (
+    AgentRequest,
+    AgentResponse,
+    BaseProvider,
+    ProviderResponse,
+    ResponseMetrics,
+    ToolCall,
+)
+from avi.providers.registry import ProviderRegistry, get_default_registry
 from avi.safety import RiskLevel, SafetyAssessment, SafetyEngine
+from avi.tools.base import ToolResult
 from avi.tools.registry import ToolRegistry, create_default_registry
 
 # Regex patterns for deterministic fast-path context and tool queries
@@ -75,8 +83,10 @@ class Router:
         safety: SafetyEngine | None = None,
         executor: CommandExecutor | None = None,
         fastpath: FastPathRegistry | None = None,
+        registry: ProviderRegistry | None = None,
     ) -> None:
         self.config = config
+        self.registry = registry or get_default_registry()
         self._provider = provider or self._init_provider(config)
         self.tools = tools or create_default_registry()
         self.safety = safety or SafetyEngine()
@@ -88,17 +98,26 @@ class Router:
         self._fast_path_metrics: ResponseMetrics | None = None
 
     def _init_provider(self, config: Config) -> BaseProvider:
-        """Initialize provider based on configuration."""
-        if config.provider == "ollama":
-            return OllamaProvider(
-                host=config.host,
-                model=config.model,
-                timeout=config.timeout,
-                temperature=config.temperature,
-                keep_alive=config.keep_alive,
+        """Initialize provider based on configuration via ProviderRegistry."""
+        return self.registry.get(config.provider, config=config)
+
+    def execute_tool_call(self, call: ToolCall) -> ToolResult:
+        """Resolve and execute an AI provider tool call through ToolRegistry.
+
+        Safety Boundary Invariant:
+        AI -> ToolCall -> AVI Tool Registry -> Safety -> Tool Execution -> ToolResult
+        """
+        tool = self.tools.get(call.name)
+        if tool is None:
+            available = ", ".join(sorted(self.tools.list_names()))
+            return ToolResult(
+                success=False,
+                error=f"Unknown tool: '{call.name}'. Available tools: {available}",
             )
-        # Future providers (e.g. Antigravity) will be registered here
-        raise ValueError(f"Unsupported provider: '{config.provider}'")
+        try:
+            return tool.execute(**call.arguments)
+        except Exception as err:
+            return ToolResult(success=False, error=str(err))
 
     @property
     def provider(self) -> BaseProvider:
@@ -263,13 +282,14 @@ class Router:
         # 4. Lazy Context Assembly
         system_prompt = self.assemble_system_prompt(prompt, explicit_snapshot=explicit_snapshot)
 
-        # 5. Local LLM Provider
-        raw_stream = self._provider.generate(
+        # 5. AI Provider Invocation via AgentRequest
+        req = AgentRequest(
             prompt=prompt,
             system_prompt=system_prompt,
             context=context,
             stream=stream,
         )
+        raw_stream = self._provider.stream(req)
 
         if stream:
             yield from normalize_stream(raw_stream)
@@ -331,16 +351,37 @@ class Router:
         # 4. Lazy Context Assembly
         system_prompt = self.assemble_system_prompt(prompt, explicit_snapshot=explicit_snapshot)
 
-        # 5. Local LLM Provider
-        resp = self._provider.generate_full(
+        # 5. AI Provider Invocation via AgentRequest
+        req = AgentRequest(
             prompt=prompt,
             system_prompt=system_prompt,
             context=context,
+            stream=False,
         )
+        resp = self._provider.send(req)
+
+        # If provider requested tool calls, resolve them through ToolRegistry
+        if resp.tool_calls:
+            results = []
+            for tc in resp.tool_calls:
+                res = self.execute_tool_call(tc)
+                results.append(res.format_display())
+            return ProviderResponse(
+                text="\n".join(results),
+                metrics=resp.metrics,
+                context=resp.context,
+                tool_calls=resp.tool_calls,
+                finish_reason=resp.finish_reason,
+                raw=resp.raw,
+            )
+
         return ProviderResponse(
             text=normalize_response(resp.text),
             metrics=resp.metrics,
             context=resp.context,
+            tool_calls=resp.tool_calls,
+            finish_reason=resp.finish_reason,
+            raw=resp.raw,
         )
 
     def resolve_fastpath(self, prompt: str) -> CommandRequest | None:

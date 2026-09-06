@@ -37,6 +37,8 @@ class Config:
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
     command_timeout: float = DEFAULT_COMMAND_TIMEOUT
     max_output_bytes: int = DEFAULT_MAX_OUTPUT_BYTES
+    antigravity_bin: str | None = None
+    antigravity_model: str | None = None
 
     @classmethod
     def load(cls, **overrides: Any) -> "Config":
@@ -100,6 +102,18 @@ class Config:
             except ValueError:
                 pass
 
+        env_provider = os.getenv("AVI_PROVIDER")
+        if env_provider:
+            config_data["provider"] = env_provider.strip().lower()
+
+        env_ag_bin = os.getenv("AVI_ANTIGRAVITY_BIN")
+        if env_ag_bin:
+            config_data["antigravity_bin"] = env_ag_bin
+
+        env_ag_model = os.getenv("AVI_ANTIGRAVITY_MODEL")
+        if env_ag_model:
+            config_data["antigravity_model"] = env_ag_model
+
         # 3. Apply explicit CLI / caller overrides (excluding None values)
         for key, value in overrides.items():
             if value is not None:
@@ -117,4 +131,6 @@ class Config:
             system_prompt=str(config_data.get("system_prompt", DEFAULT_SYSTEM_PROMPT)),
             command_timeout=float(config_data.get("command_timeout", DEFAULT_COMMAND_TIMEOUT)),
             max_output_bytes=int(config_data.get("max_output_bytes", DEFAULT_MAX_OUTPUT_BYTES)),
+            antigravity_bin=config_data.get("antigravity_bin"),
+            antigravity_model=config_data.get("antigravity_model"),
         )

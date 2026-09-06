@@ -9,7 +9,7 @@ from avi.config import Config
 from avi.core.router import Router
 from avi.core.session import InteractiveSession
 from avi.execution import CommandRequest
-from avi.providers.ollama import OllamaError
+from avi.providers import OllamaError, ProviderError
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -29,6 +29,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--version",
         action="version",
         version=f"avi {__version__}",
+    )
+    parser.add_argument(
+        "-p",
+        "--provider",
+        type=str,
+        default=None,
+        help="AI provider to use (default: ollama / local, options: local, ollama, antigravity)",
     )
     parser.add_argument(
         "-m",
@@ -97,6 +104,8 @@ def run_cli(argv: Sequence[str] | None = None) -> int:
 
     # Build config from environment/defaults + CLI overrides
     overrides = {}
+    if args.provider is not None:
+        overrides["provider"] = args.provider
     if args.model is not None:
         overrides["model"] = args.model
     if args.host is not None:
@@ -185,7 +194,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Main CLI entry point with top-level error boundary."""
     try:
         return run_cli(argv)
-    except OllamaError as err:
+    except (ProviderError, OllamaError) as err:
         sys.stderr.write(f"Error: {err}\n")
         sys.stderr.flush()
         return 1

@@ -119,3 +119,35 @@ def test_cli_unexpected_error_boundary(capsys):
         assert code == 1
         captured = capsys.readouterr()
         assert "Unexpected error: Something completely unexpected happened" in captured.err
+
+
+def test_cli_provider_flag(capsys):
+    captured_config = []
+
+    def mock_router_init(cfg):
+        captured_config.append(cfg)
+        r = MagicMock()
+        r.check_fast_path.return_value = None
+        r.route.return_value = iter(["ok"])
+        r.last_metrics = None
+        return r
+
+    with patch("avi.cli.Router", side_effect=mock_router_init):
+        code = main(["-p", "antigravity", "some prompt"])
+        assert code == 0
+        assert len(captured_config) == 1
+        assert captured_config[0].provider == "antigravity"
+
+
+def test_cli_provider_error(capsys):
+    from avi.providers import ProviderError
+
+    mock_router = MagicMock()
+    mock_router.check_fast_path.return_value = None
+    mock_router.route.side_effect = ProviderError("Backend model failed")
+
+    with patch("avi.cli.Router", return_value=mock_router):
+        code = main(["trigger provider error"])
+        assert code == 1
+        captured = capsys.readouterr()
+        assert "Error: Backend model failed" in captured.err

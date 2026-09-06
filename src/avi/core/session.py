@@ -14,7 +14,7 @@ from avi import __version__
 from avi.config import Config
 from avi.core.router import Router
 from avi.execution import CommandRequest
-from avi.providers.ollama import OllamaError
+from avi.providers import OllamaError, ProviderError
 
 DEFAULT_HISTORY_PATH = Path.home() / ".local" / "share" / "avi" / "history"
 MAX_HISTORY_LENGTH = 1000
@@ -269,7 +269,7 @@ class InteractiveSession:
             # Ctrl+C during streaming cancels active turn without terminating session
             self.out_stream.write("\n[Interrupted]\n")
             self.out_stream.flush()
-        except OllamaError as err:
+        except (ProviderError, OllamaError) as err:
             self.err_stream.write(f"Error: {err}\n")
             self.err_stream.flush()
 

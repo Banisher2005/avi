@@ -1,7 +1,28 @@
 """Model providers package for AVI."""
 
-from avi.providers.base import BaseProvider, ProviderResponse, ResponseMetrics
+from avi.providers.antigravity import AntigravityProvider
+from avi.providers.base import (
+    AIProvider,
+    BaseProvider,
+    AgentRequest,
+    AgentResponse,
+    ProviderCapabilities,
+    ProviderHealth,
+    ProviderResponse,
+    ResponseMetrics,
+    ToolCall,
+)
+from avi.providers.models import (
+    ProviderAPIError,
+    ProviderAuthError,
+    ProviderConnectionError,
+    ProviderError,
+    ProviderModelNotFoundError,
+    ProviderNotAvailableError,
+    ProviderTimeoutError,
+)
 from avi.providers.ollama import (
+    LocalProvider,
     OllamaAPIError,
     OllamaConnectionError,
     OllamaError,
@@ -9,15 +30,46 @@ from avi.providers.ollama import (
     OllamaProvider,
     OllamaTimeoutError,
 )
+from avi.providers.registry import (
+    ProviderRegistry,
+    create_default_provider_registry,
+    get_default_registry,
+    get_provider,
+    list_providers,
+    register_provider,
+    remove_provider,
+)
 
 __all__ = [
+    "AIProvider",
     "BaseProvider",
+    "AgentRequest",
+    "AgentResponse",
     "ProviderResponse",
     "ResponseMetrics",
+    "ProviderCapabilities",
+    "ProviderHealth",
+    "ToolCall",
+    "ProviderError",
+    "ProviderConnectionError",
+    "ProviderTimeoutError",
+    "ProviderModelNotFoundError",
+    "ProviderAuthError",
+    "ProviderAPIError",
+    "ProviderNotAvailableError",
     "OllamaProvider",
+    "LocalProvider",
     "OllamaError",
     "OllamaConnectionError",
     "OllamaModelNotFoundError",
     "OllamaTimeoutError",
     "OllamaAPIError",
+    "AntigravityProvider",
+    "ProviderRegistry",
+    "create_default_provider_registry",
+    "get_default_registry",
+    "get_provider",
+    "list_providers",
+    "register_provider",
+    "remove_provider",
 ]

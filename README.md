@@ -206,16 +206,98 @@ avi -t "how to check open ports listening on tcp"
 
 ---
 
+### 6. AI Providers & Model Agnosticism
+
+AVI is designed around a strict architectural invariant:
+
+> **AVI Core is provider-independent. Providers are adapters around AVI, not dependencies inside AVI Core.**
+
+The AI client provides intelligence; AVI provides execution, tools, safety, routing, context, and environment access.
+
+```text
+             ┌───────────────────────┐
+             │      AI CLIENTS       │
+             │                       │
+             │ Claude / GPT / Gemini │
+             │ Antigravity / Cursor  │
+             │ Local / Custom Agent  │
+             └───────────┬───────────┘
+                         │
+                         ▼
+             ┌───────────────────────┐
+             │   PROVIDER ADAPTERS   │
+             │ (Ollama / Antigravity │
+             │  OpenAI / Anthropic)  │
+             └───────────┬───────────┘
+                         │
+                         ▼
+             ┌───────────────────────┐
+             │      AVI GATEWAY      │
+             └───────────┬───────────┘
+                         │
+                         ▼
+             ┌───────────────────────┐
+             │       AVI CORE        │
+             │                       │
+             │ Router                │
+             │ FastPath              │
+             │ Tool Registry         │
+             │ Context Subsystem     │
+             └───────────┬───────────┘
+                         │
+                         ▼
+             ┌───────────────────────┐
+             │     SAFETY ENGINE     │
+             │                       │
+             │ SAFE / CONFIRM/BLOCK  │
+             └───────────┬───────────┘
+                         │
+                         ▼
+             ┌───────────────────────┐
+             │ TOOLS / COMMANDS      │
+             │                       │
+             │ Read-Only Tools       │
+             │ CommandExecutor       │
+             └───────────────────────┘
+```
+
+#### Selecting Providers
+
+Select the active provider via the CLI flag `-p / --provider` or the `AVI_PROVIDER` environment variable:
+
+```bash
+# Use local Ollama provider (default)
+avi --provider local "how to check disk space"
+
+# Use Antigravity adapter
+avi --provider antigravity "explain git rebase"
+
+# Or configure via environment variable
+export AVI_PROVIDER=antigravity
+avi "explain python context managers"
+```
+
+#### Strict Safety Invariant
+
+No AI provider can execute shell commands directly or bypass AVI's `SafetyEngine`. All command proposals and tool requests from any provider must strictly pass through:
+
+```text
+AI Provider ──> ToolCall ──> Tool Registry ──> Safe Read-Only Execution ──> ToolResult
+AI Provider ──> Command Proposal ──> SafetyEngine ──> SAFE / CONFIRM / BLOCK ──> CommandExecutor
+```
+
+---
+
 ## Running Tests
 
 Run the test suite with `pytest`:
 
 ```bash
-# Run unit tests (mocked, no live Ollama required)
-pytest tests/unit
-
-# Run full test suite including live Ollama integration
+# Run all unit and integration tests (mocked, no live Ollama or Antigravity required)
 pytest
+
+# Run specifically provider tests
+pytest tests/unit/test_providers.py
 ```
 
 ---
@@ -264,10 +346,19 @@ pytest
   * Strict parameter sanitization (`is_safe_parameter`) rejecting shell metacharacters, control characters, expansions, and injections
   * Full routing through Phase 5 SafetyEngine before execution
   * Fail-closed fallback to LLM provider for ambiguous prompts
-* [ ] **Phase 7: Antigravity Integration**
-  * Intelligent handoff of complex refactor and development tasks to Antigravity CLI
-* [ ] **Phase 8: Global Hotkey**
+* [x] **Phase 7: Provider-Agnostic AI Integration Layer**
+  * AIProvider / BaseProvider clean interface (`send`, `stream`, `capabilities`, `health_check`)
+  * Normalized models (`AgentRequest`, `AgentResponse`, `ToolCall`, `ProviderCapabilities`, `ProviderHealth`, `ProviderError`)
+  * Dynamic `ProviderRegistry` (`register_provider`, `get_provider`, `list_providers`, `remove_provider`)
+  * Zero Antigravity or provider-specific coupling in AVI Core
+  * Antigravity CLI adapter (`AntigravityProvider`)
+  * Local Ollama provider abstraction (`LocalProvider` / `OllamaProvider`)
+  * Universal SafetyEngine enforcement across all providers (zero command safety bypass)
+  * Normalized tool calling architecture (`AI -> ToolCall -> Tool Registry -> Safety -> Execution`)
+  * CLI `--provider` flag and `AVI_PROVIDER` configuration
+* [ ] **Phase 8: Global Hotkey & Protocol Gateway**
   * Linux system-wide hotkey trigger (`Ctrl+Space`)
+  * Standard agent/tool protocol gateway (MCP / JSON-RPC interface)
 * [ ] **Phase 9: Lightweight Desktop UI**
   * Minimal, keyboard-first desktop popup window
 * [ ] **Phase 10: Packaging & Distribution**
