@@ -100,6 +100,19 @@ CORE_MODULES = [
     "avi.ui",
     "avi.ui.app",
     "avi.ui.window",
+    "avi.actions",
+    "avi.apps",
+    "avi.assistant",
+    "avi.orchestrator",
+    "avi.capabilities",
+    "avi.capabilities.models",
+    "avi.capabilities.registry",
+    "avi.capabilities.desktop",
+    "avi.capabilities.filesystem",
+    "avi.agent",
+    "avi.agent.models",
+    "avi.agent.planner",
+    "avi.agent.executor",
 ]
 
 
