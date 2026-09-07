@@ -3,7 +3,7 @@
 **Date:** September 7, 2026  
 **Current Version:** `0.4.0`  
 **Current Branch:** `main` (synchronized with `origin/main`)  
-**Test Suite Health:** 933 passed, 2 skipped (100% green across Python 3.10, 3.11, 3.12)  
+**Test Suite Health:** 954 passed, 2 skipped (100% green across Python 3.10, 3.11, 3.12)  
 **CI Pipeline:** Passing on all matrix runners  
 
 ---
@@ -112,7 +112,18 @@ flowchart TD
 - Added `YOUTUBE_RECOMMEND` intent (e.g. *"find me a good YouTube video about building local AI agents"*): retrieves results, applies duration/quality filters, prompts an AI provider for ranking, and synthesizes a recommendation.
 - Added `OPEN_SEARCH_RESULT` intent for multi-turn deictic resolution (*"open it"*, *"open the second one"*).
 - Added interactive result cards in GTK4 UI.
-- Fixed environment-sensitive `sys.argv` forwarding in tests to achieve 100% CI pass rate across Python 3.10, 3.11, and 3.12.
+### Phase 13.2 — JARVIS Interaction Hardening & Qwen3 4B Migration
+- Migrated default Ollama model to `qwen3:4b`.
+- Cross-process XDG session state persistence (`~/.local/state/avi/session_state.json`).
+- Bounded typo normalization and safety boundaries.
+- Bare application and desktop directory dispatch.
+
+### Phase 13.3 — JARVIS Routing, Fast Path & YouTube Reliability
+- **Fast Deterministic YouTube Candidate Ranking**: Eliminated CPU inference hang on local models by implementing sub-second deterministic ranking with optional bounded LLM ranking (3.0s timeout fallback).
+- **YouTube Intent Grammar**: Fixed `open youtube <query>` and `open <query> on youtube` from resolving to non-existent applications (`Youtube Mkbhd`, `Mkbhd On Youtube`).
+- **Volume Grammar & Unmuting**: Added relative percentage adjustments (`by 10`), boundary targets (`to max`, `to min`), and automatic sink unmuting so adjustments are audibly effective.
+- **CLI Activation & Abort Handling**: Visible confirmation on activation (`Activating AVI...\n`), headless detection, and clean Ctrl-C handling with exit code 130.
+- **Performance Instrumentation**: Proved native desktop operations never invoke LLM generation; extended `ResponseMetrics` with latency breakdown fields.
 
 ---
 
@@ -121,11 +132,11 @@ flowchart TD
 | Category | Count | Status |
 | :--- | :--- | :--- |
 | **Unit Tests** | 711 | Passing |
-| **Integration Tests** | 195 | Passing |
+| **Integration Tests** | 243 | Passing |
 | **Skipped Tests** | 2 | Conditionally skipped (headless GTK display probes) |
-| **Total Test Count** | **906** | **All Green** |
-| **Ruff Linter** | 114 files | 0 errors |
-| **Ruff Formatter** | 114 files | Clean |
+| **Total Test Count** | **954** | **All Green** |
+| **Ruff Linter** | 117 files | 0 errors |
+| **Ruff Formatter** | 117 files | Clean |
 | **Python Compatibility** | 3.10, 3.11, 3.12 | Verified |
 | **Version Parity** | `0.4.0` | Verified |
 
@@ -135,19 +146,21 @@ flowchart TD
 
 | Prompt Example | Subsystem / Capability | Behavior |
 | :--- | :--- | :--- |
-| `avi "increase volume"`, `volum up`, `louder` | `desktop.volume.set` | Adjusts volume by +5% via PipeWire/PulseAudio |
+| `avi "increase volume"`, `volum up`, `louder` | `desktop.volume.set` | Adjusts volume by +5% via PipeWire/ALSA & automatically unmutes sink |
+| `avi "increase volume by 10"`, `decrease volume by 10` | `desktop.volume.set` | Adjusts volume by exact percentage (+/-10%) and unmutes if raising |
+| `avi "set volume to max"`, `increase volume to max` | `desktop.volume.set` | Sets volume to 100% and unmutes sink |
+| `avi "set volume to min"` | `desktop.volume.set` | Sets volume to 0% |
 | `avi "mute"`, `mute volume` | `desktop.volume.set` | Mutes audio without shell generation |
 | `avi "take screenshot"`, `screeenshot` | `desktop.screenshot` | Saves timestamped PNG to `~/Pictures/Screenshots/` |
-| `avi chrome`, `avi brave`, `avi spotify` | `desktop.app.launch` | Resolves bare app name and spawns process |
+| `avi chrome`, `avi brave`, `avi spotify` | `desktop.app.launch` | Resolves bare app name and spawns process (< 50ms) |
 | `avi "open Nonexistent"` | `desktop.app.launch` | Reports clearly *"I couldn't find Nonexistent installed."* |
 | `avi downloads`, `downlods` | `desktop.directory.open` | Opens Downloads folder in file manager |
-| `avi "how much disk space do I have"` | `synthesizer` + `df` | Returns conversational summary of root drive |
-| `avi "set a timer for 10 minutes"` | `actions.TimerAction` | Starts async countdown daemon with bell alert |
-| `avi "search YouTube for Python tutorials"` | `web.youtube.search` | Opens browser directly to query results page |
-| `avi "find me a good video on Docker"` | `web.youtube.search_results` | Fetches metadata, ranks with AI, recommends best match |
+| `avi "open youtube mkbhd"`, `open mkbhd on youtube` | `web.youtube.search` | Opens YouTube search results for query (*mkbhd*) |
+| `avi "open youtube"` | `desktop.url.open` | Opens YouTube homepage (`https://www.youtube.com`) |
+| `avi "find me the best YouTube video about AI agents"` | `YOUTUBE_RECOMMEND` | Fetches metadata and deterministically ranks top candidate in < 1s |
 | `avi "open it"` (after search across runs) | `OPEN_SEARCH_RESULT` | Cross-process XDG session persistence opens remembered result |
 | `avi "open it"` (no prior search) | `CLARIFICATION` | Reports *"I don't have a recent result to open."* without filesystem leak |
-| `avi activate`, `activaite` | `AviWindow` (GTK4) | Summons or focuses floating desktop assistant |
+| `avi activate`, `activaite` | `AviWindow` (GTK4) | Summons or focuses floating desktop assistant with visible terminal feedback |
 | `avi "rm -rf /"` | `SafetyEngine` | Blocked immediately with critical risk assessment |
 | `avi "systemctl enable lightdm"` | Shell Router + Safety | Preserved as valid administrative shell proposal |
 
@@ -155,7 +168,7 @@ flowchart TD
 
 ## 6. Next Steps & Roadmap
 
-1. **Phase 13.3 — General Web Search Broadening (DuckDuckGo / SearXNG)**
+1. **Phase 13.4 — General Web Search Broadening (DuckDuckGo / SearXNG)**
    - Expand `avi.retrieval` with general web search providers for queries beyond YouTube.
    - Structured summarization for documentation, recipes, and news.
 
@@ -165,3 +178,4 @@ flowchart TD
 
 3. **System Daemon & Global Shortcuts**
    - Provide an optional user systemd service (`avi.service`) for instant hotkey response without cold startup lag.
+

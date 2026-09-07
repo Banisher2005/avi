@@ -138,6 +138,10 @@ class ResponseMetrics:
     eval_duration_ms: float | None = None
     prompt_eval_count: int | None = None
     eval_count: int | None = None
+    intent_duration_ms: float | None = None
+    capability_duration_ms: float | None = None
+    retrieval_duration_ms: float | None = None
+    time_to_first_token_ms: float | None = None
 
 
 @dataclass

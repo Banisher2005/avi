@@ -98,6 +98,15 @@ class YouTubeSearchRetrievalProvider(BaseSearchProvider):
                 total_found=len(results),
                 source=self.source_name,
             )
+        except (socket.timeout, TimeoutError) as err:
+            logger.warning("YouTube timeout: %s", err)
+            return SearchResults(
+                query=clean_query,
+                results=[],
+                total_found=0,
+                source=self.source_name,
+                error="YouTube search timed out. Try again.",
+            )
         except urllib.error.HTTPError as err:
             logger.warning("YouTube API HTTP error %d: %s", err.code, err.reason)
             return SearchResults(
@@ -107,14 +116,32 @@ class YouTubeSearchRetrievalProvider(BaseSearchProvider):
                 source=self.source_name,
                 error=f"YouTube service returned HTTP {err.code}.",
             )
-        except (urllib.error.URLError, socket.timeout, TimeoutError, OSError) as err:
+        except urllib.error.URLError as err:
+            if isinstance(err.reason, (socket.timeout, TimeoutError)):
+                logger.warning("YouTube timeout: %s", err)
+                return SearchResults(
+                    query=clean_query,
+                    results=[],
+                    total_found=0,
+                    source=self.source_name,
+                    error="YouTube search timed out. Try again.",
+                )
             logger.warning("YouTube network error: %s", err)
             return SearchResults(
                 query=clean_query,
                 results=[],
                 total_found=0,
                 source=self.source_name,
-                error="Network unavailable or search request timed out.",
+                error="I couldn't reach YouTube right now.",
+            )
+        except OSError as err:
+            logger.warning("YouTube network error: %s", err)
+            return SearchResults(
+                query=clean_query,
+                results=[],
+                total_found=0,
+                source=self.source_name,
+                error="I couldn't reach YouTube right now.",
             )
         except Exception as err:
             logger.error(

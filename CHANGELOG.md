@@ -87,6 +87,29 @@ Versions follow [Semantic Versioning](https://semver.org/).
   - Direct opening for bare desktop folders (`avi downloads`, `avi downlods`).
 - **Test Suite Expansion**: Added comprehensive integration test suite `test_jarvis_routing.py` (total 930 passing tests).
 
+#### Phase 13.3 — JARVIS Routing, Fast Path & YouTube Reliability
+- **Fast Deterministic YouTube Candidate Ranking**:
+  - Eliminated the multi-minute CPU inference hang on local models (e.g. Qwen3 4B taking 243+ seconds).
+  - Deterministic first-class candidate ranking selects top candidates in < 1 second using structured metadata relevance.
+  - Optional LLM-based re-ranking strictly bounded with timeout (3.0s) and immediate fallback.
+  - Structured debug logging (`youtube.intent.detected`, `youtube.provider.selected`, `youtube.request.started`, `youtube.request.completed`, `youtube.results.parsed`, `youtube.recommendation.ranked`, `youtube.session.saved`).
+  - Bounded network and search timeouts with friendly messages (*"YouTube search timed out. Try again."*, *"I couldn't reach YouTube right now."*, *"I couldn't find any matching YouTube videos."*).
+- **YouTube Intent Grammar & Search Resolution**:
+  - `avi open youtube mkbhd` and `avi open mkbhd on youtube` correctly resolve to YouTube searches rather than non-existent applications (`Youtube Mkbhd`, `Mkbhd On Youtube`).
+  - Differentiated pure `avi open youtube` (opens `https://www.youtube.com`) from queries with search arguments.
+  - Handled infix, suffix, and prefix patterns (`youtube mkbhd`, `open youtube and search mkbdh`).
+- **Natural Volume Grammar & Automatic Unmuting**:
+  - Added relative adjustment by percentage: `increase volume by 10`, `decrease volume by 10`.
+  - Added absolute adjustment to boundaries: `increase volume to max`, `set volume to max` (100%), `set volume to min` (0%).
+  - Automatically unmutes audio sink (`wpctl set-mute @DEFAULT_AUDIO_SINK@ 0` or `amixer sset Master unmute`) when raising volume or setting volume > 0 so adjustments are immediately audible.
+- **CLI Activation & Abort Handling**:
+  - `avi activate` / `avi activaite` prints visible confirmation (`Activating AVI...\n`) on display servers or friendly guidance if headless.
+  - Graceful `KeyboardInterrupt` (Ctrl-C) handling with `Operation cancelled. Aborted.` and exit code 130 without tracebacks.
+- **Performance Invariants & Instrumentation**:
+  - Verified native desktop commands (`chrome`, `screenshot`, `volume`, `mute`, `downloads`) never invoke LLM providers.
+  - Extended `ResponseMetrics` with latency breakdown fields (`intent_duration_ms`, `capability_duration_ms`, `retrieval_duration_ms`, `time_to_first_token_ms`).
+- **Test Suite Expansion**: Added comprehensive test suite `TestPhase133JarvisFastPathAndYouTubeReliability` (954 passing tests, 2 skipped).
+
 ---
 
 ## [0.3.0] — 2026-09-06

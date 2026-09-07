@@ -295,3 +295,206 @@ class TestJarvisInteractionHardening:
         """'systemctl enable lightdm' is an explicit shell command and should not be hijacked as desktop intent."""
         orch = AssistantOrchestrator(config=Config(provider="ollama"))
         assert orch.is_assistant_request("systemctl enable lightdm") is False
+
+
+class TestPhase133JarvisFastPathAndYouTubeReliability:
+    """Comprehensive integration tests for Phase 13.3: Fast Path, YouTube & Reliability."""
+
+    @pytest.fixture(autouse=True)
+    def setup_config(self):
+        with patch("avi.config.Config.load") as mock_load:
+            cfg = Config(provider="ollama", model="qwen3:4b", show_timing=False)
+            mock_load.return_value = cfg
+            yield cfg
+
+    # ── 1. YouTube Intent Resolution ────────────────────────────────────────
+
+    @pytest.mark.parametrize(
+        ("prompt", "expected_query"),
+        [
+            ("open youtube mkbhd", "mkbhd"),
+            ("open mkbhd on youtube", "mkbhd"),
+            ("open youtube and search mkbdh", "mkbdh"),
+            ("search youtube for mkbhd", "mkbhd"),
+            ("youtube mkbhd", "mkbhd"),
+        ],
+    )
+    def test_youtube_search_variations(self, prompt, expected_query):
+        intent = detect_assistant_intent(prompt)
+        assert intent.intent_type == AssistantIntentType.YOUTUBE_SEARCH
+        assert intent.extra.get("query") == expected_query
+        assert "not installed" not in intent.target.lower()
+
+    def test_pure_open_youtube_routes_to_url(self):
+        intent = detect_assistant_intent("open youtube")
+        assert intent.intent_type == AssistantIntentType.OPEN_URL
+        assert intent.target == "https://www.youtube.com"
+
+    # ── 2. Volume Grammar & Unmuting ────────────────────────────────────────
+
+    @pytest.mark.parametrize(
+        ("prompt", "expected_action", "expected_delta", "expected_level"),
+        [
+            ("increase volume by 10", "raise", 10, None),
+            ("decrease volume by 10", "lower", 10, None),
+            ("increase volume to max", "set", None, 100),
+            ("set volume to max", "set", None, 100),
+            ("set volume to min", "set", None, 0),
+        ],
+    )
+    def test_volume_grammar(self, prompt, expected_action, expected_delta, expected_level):
+        intent = detect_assistant_intent(prompt)
+        assert intent.intent_type == AssistantIntentType.VOLUME_SET
+        assert intent.extra.get("action") == expected_action
+        if expected_delta is not None:
+            assert intent.extra.get("delta") == expected_delta
+        if expected_level is not None:
+            assert intent.extra.get("level") == expected_level
+
+    def test_volume_increase_unmutes_sink(self):
+        from avi.capabilities.desktop.system_controls import VolumeSetCapability
+
+        cap = VolumeSetCapability()
+        with (
+            patch(
+                "avi.capabilities.desktop.system_controls.shutil.which",
+                return_value="/usr/bin/wpctl",
+            ),
+            patch("avi.capabilities.desktop.system_controls.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="")
+            res = cap.execute(action="raise", delta=5)
+            assert res.success is True
+            # Verify set-mute 0 was called
+            mute_calls = [
+                c for c in mock_run.call_args_list if "set-mute" in c[0][0] and "0" in c[0][0]
+            ]
+            assert len(mute_calls) >= 1
+
+    # ── 3. Fast Deterministic YouTube Recommend ─────────────────────────────
+
+    def test_youtube_recommend_fast_deterministic(self):
+        from avi.capabilities.models import CapabilityResult, ExecutionStatus
+
+        results = [
+            SearchResult(
+                id="yt_res_1",
+                title="Building Local AI Agents",
+                url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                source="youtube",
+                channel="AI Hub",
+                duration="12:30",
+            )
+        ]
+        mock_router = MagicMock()
+        mock_router.provider = MagicMock()
+        mock_router.provider.__class__.__name__ = "OllamaProvider"
+        mock_router.provider.generate_full.side_effect = AssertionError(
+            "Ollama generate_full must not be called"
+        )
+
+        orch = AssistantOrchestrator(config=Config(provider="ollama"), router=mock_router)
+        with patch.object(orch.capabilities, "execute") as mock_exec:
+            mock_exec.return_value = CapabilityResult(
+                success=True,
+                status=ExecutionStatus.SUCCESS,
+                data={"query": "building local AI agents", "search_results": results},
+            )
+            t_start = time.perf_counter()
+            res = orch.handle(
+                "find me the best YouTube video about building local AI agents",
+                auto_execute_actions=True,
+            )
+            elapsed = time.perf_counter() - t_start
+
+        assert elapsed < 1.0
+        assert "Best match" in res.text
+        assert res.selected_result is not None
+        assert res.selected_result.id == "yt_res_1"
+
+    # ── 4. Performance Invariants: No LLM Invocation for Native Actions ──────
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "chrome",
+            "screenshot",
+            "increase volume",
+            "mute",
+            "downloads",
+        ],
+    )
+    def test_performance_invariants_no_llm_invocation(self, cmd, capsys):
+        mock_router = MagicMock()
+        mock_router.route.side_effect = AssertionError(
+            f"LLM router.route() was called for native cmd: {cmd}"
+        )
+        mock_router.route_full.side_effect = AssertionError(
+            f"LLM router.route_full() was called for native cmd: {cmd}"
+        )
+
+        with (
+            patch("avi.cli.Router", return_value=mock_router),
+            patch("avi.apps.resolver.ApplicationResolver.resolve") as mock_app,
+            patch("avi.capabilities.desktop.screenshot.ScreenshotCapability.execute") as mock_shot,
+            patch(
+                "avi.capabilities.desktop.system_controls.VolumeSetCapability.execute"
+            ) as mock_vol,
+        ):
+            mock_app.return_value = ApplicationResolution(
+                requested_name="chrome",
+                canonical_name="Google Chrome",
+                executable="/usr/bin/google-chrome",
+                desktop_entry="google-chrome.desktop",
+                platform="linux",
+                installed=True,
+                confidence=1.0,
+            )
+            mock_shot.return_value = MagicMock(
+                success=True, message="Captured screenshot", data={"path": "/tmp/s.png"}
+            )
+            mock_vol.return_value = MagicMock(success=True, message="Volume adjusted", data={})
+
+            code = main([cmd])
+            assert code == 0
+            mock_router.route.assert_not_called()
+            mock_router.route_full.assert_not_called()
+
+    # ── 5. CLI Activation Visible Response & Headless Detection ─────────────
+
+    def test_activation_with_display_prints_activating(self, capsys):
+        with (
+            patch.dict("os.environ", {"DISPLAY": ":0"}, clear=False),
+            patch("avi.ui.app.AviApp.run", return_value=0),
+        ):
+            code = main(["activaite"])
+            assert code == 0
+            captured = capsys.readouterr()
+            assert "Activating AVI...\n" in captured.out
+
+    def test_activation_headless_prints_guidance(self, capsys):
+        with (
+            patch.dict("os.environ", {}, clear=True),
+            patch("avi.ui.app.AviApp.run", return_value=0),
+        ):
+            code = main(["activate"])
+            assert code == 1
+            captured = capsys.readouterr()
+            assert "No display server detected" in captured.out
+
+    # ── 6. ResponseMetrics Breakdown Fields ─────────────────────────────────
+
+    def test_response_metrics_breakdown_fields(self):
+        from avi.providers.models import ResponseMetrics
+
+        m = ResponseMetrics(
+            total_duration_ms=150.0,
+            intent_duration_ms=10.0,
+            capability_duration_ms=40.0,
+            retrieval_duration_ms=80.0,
+            time_to_first_token_ms=50.0,
+        )
+        assert m.intent_duration_ms == 10.0
+        assert m.capability_duration_ms == 40.0
+        assert m.retrieval_duration_ms == 80.0
+        assert m.time_to_first_token_ms == 50.0

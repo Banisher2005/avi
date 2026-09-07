@@ -196,7 +196,21 @@ def run_hotkey(args: Sequence[str] | None = None) -> int:
 
 def run_ui(args: Sequence[str] | None = None, is_activate: bool = False) -> int:
     """Launch the AVI GTK4 desktop popup window."""
+    import os
+
     from avi.ui import AviApp
+
+    if is_activate:
+        has_display = bool(os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY"))
+        if has_display:
+            sys.stdout.write("Activating AVI...\n")
+            sys.stdout.flush()
+        else:
+            sys.stdout.write(
+                "Did you mean activate AVI? No display server detected (WAYLAND_DISPLAY or DISPLAY not set).\n"
+            )
+            sys.stdout.flush()
+            return 1
 
     parser = argparse.ArgumentParser(
         prog="avi ui" if not is_activate else "avi activate",
@@ -379,7 +393,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         sys.stderr.flush()
         return 1
     except KeyboardInterrupt:
-        sys.stderr.write("\nAborted.\n")
+        sys.stderr.write("\nOperation cancelled. Aborted.\n")
         sys.stderr.flush()
         return 130
     except Exception as err:

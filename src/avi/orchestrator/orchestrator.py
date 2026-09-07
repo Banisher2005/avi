@@ -433,7 +433,7 @@ class AssistantOrchestrator:
         # Q2. Native Assistant Activation
         elif intent.intent_type == AssistantIntentType.ACTIVATE:
             result = OrchestratorResult(
-                text="AVI is active and ready. How can I help you?",
+                text="Activating AVI...\nAVI is active and ready. How can I help you?",
                 metrics=ResponseMetrics(total_duration_ms=(time.perf_counter() - t0) * 1000.0),
                 context=context,
             )
@@ -794,6 +794,7 @@ class AssistantOrchestrator:
         """Retrieve YouTube results and optionally rank with a provider."""
         import json
         import logging
+        import os
 
         log = logging.getLogger("avi.orchestrator.recommend")
 
@@ -801,8 +802,11 @@ class AssistantOrchestrator:
         from_history: bool = bool(intent.extra.get("from_history", False))
         constraints: dict = intent.extra.get("constraints", {})
 
+        log.debug("youtube.intent.detected query=%s constraints=%s", query, constraints)
+
         # If re-ranking from previous search, reuse stored results
         raw_results: list | None = None
+        retrieval_duration_ms: float | None = None
         if from_history:
             last_turn = self.history.last_turn
             if last_turn and last_turn.search_results:
@@ -821,24 +825,60 @@ class AssistantOrchestrator:
                     metrics=ResponseMetrics(total_duration_ms=(time.perf_counter() - t0) * 1000.0),
                     context=context,
                 )
+
+            log.debug("youtube.provider.selected provider=youtube_innertube")
+            log.debug(
+                "youtube.request.started endpoint=https://www.youtube.com/youtubei/v1/search query=%s",
+                query,
+            )
+            t_retrieval_start = time.perf_counter()
             cap_res = self.capabilities.execute(
                 "web.youtube.search_results",
                 query=query,
                 limit=self._MAX_RETRIEVAL_RESULTS,
             )
+            retrieval_duration_ms = (time.perf_counter() - t_retrieval_start) * 1000.0
+            log.debug(
+                "youtube.request.completed count=%d duration_ms=%.1f",
+                len(cap_res.data.get("search_results", [])) if cap_res.success else 0,
+                retrieval_duration_ms,
+            )
+
             if not cap_res.success:
+                err_msg = str(cap_res.error or "")
+                if cap_res.error == "YouTube search timed out. Try again.":
+                    user_msg = "YouTube search timed out. Try again."
+                elif cap_res.error == "I couldn't reach YouTube right now.":
+                    user_msg = "I couldn't reach YouTube right now."
+                elif "network" in err_msg.lower():
+                    user_msg = (
+                        cap_res.message
+                        or "I couldn't reach YouTube right now. Network unavailable."
+                    )
+                elif "timed out" in err_msg.lower():
+                    user_msg = "YouTube search timed out. Try again."
+                else:
+                    user_msg = (
+                        cap_res.message or f"Could not retrieve YouTube results: {cap_res.error}"
+                    )
                 return OrchestratorResult(
-                    text=cap_res.message or f"Could not retrieve YouTube results: {cap_res.error}",
+                    text=user_msg,
                     capability_result=cap_res,
-                    metrics=ResponseMetrics(total_duration_ms=(time.perf_counter() - t0) * 1000.0),
+                    metrics=ResponseMetrics(
+                        total_duration_ms=(time.perf_counter() - t0) * 1000.0,
+                        retrieval_duration_ms=retrieval_duration_ms,
+                    ),
                     context=context,
                 )
             raw_results = cap_res.data.get("search_results", [])
 
         if not raw_results:
             return OrchestratorResult(
-                text=f'I couldn\'t find any YouTube videos for "{query}". Try a different query.',
-                metrics=ResponseMetrics(total_duration_ms=(time.perf_counter() - t0) * 1000.0),
+                text="I couldn't find any matching YouTube videos.",
+                metrics=ResponseMetrics(
+                    total_duration_ms=(time.perf_counter() - t0) * 1000.0,
+                    retrieval_duration_ms=retrieval_duration_ms,
+                ),
                 context=context,
             )
 
@@ -859,9 +899,13 @@ class AssistantOrchestrator:
 
         # Truncate to reasoning window
         reasoning_candidates = filtered[: self._MAX_REASONING_RESULTS]
+        log.debug("youtube.results.parsed count=%d", len(reasoning_candidates))
 
         # Build result ID → result mapping for validation
         result_map = {r.id: r for r in reasoning_candidates}
+
+        selected_result = None
+        reason_text = ""
 
         # Try provider-based ranking
         reasoning_provider = select_provider(
@@ -869,10 +913,26 @@ class AssistantOrchestrator:
             active_provider=self.router.provider,
         )
 
-        selected_result = None
-        reason_text = ""
+        # Detect if the active provider is a local Ollama model (slow CPU inference)
+        is_ollama = (
+            reasoning_provider is not None
+            and reasoning_provider.__class__.__name__ == "OllamaProvider"
+        )
 
-        if reasoning_provider is not None and auto_execute_actions:
+        enable_llm_ranking = bool(
+            os.environ.get("AVI_LLM_YOUTUBE_RANKING", "").lower() in ("1", "true", "yes")
+            or getattr(self.config, "enable_llm_ranking", False)
+        )
+
+        if is_ollama and not enable_llm_ranking:
+            # Deterministic first-class candidate selection (<1ms) without blocking Ollama on CPU
+            selected_result = reasoning_candidates[0] if reasoning_candidates else None
+            if selected_result:
+                if selected_result.channel:
+                    reason_text = f"Top result on YouTube by {selected_result.channel}."
+                else:
+                    reason_text = "Top relevant result matching your request."
+        elif reasoning_provider is not None and auto_execute_actions and reasoning_candidates:
             candidates_json = json.dumps(
                 [
                     {
@@ -896,21 +956,35 @@ class AssistantOrchestrator:
                 'Respond with ONLY valid JSON: {"selected_result_id": "<id>", "reason": "<one sentence>"}\n'
                 "Do not add any other text or explanation."
             )
-            try:
-                resp = reasoning_provider.generate_full(prompt=prompt)
-                raw_text = (resp.text or "").strip()
-                # Extract JSON object robustly
-                import re
+            import concurrent.futures
 
-                json_match = re.search(r"\{[^{}]+\}", raw_text, re.DOTALL)
-                if json_match:
-                    parsed = json.loads(json_match.group())
-                    sel_id = parsed.get("selected_result_id", "")
-                    if sel_id in result_map:
-                        selected_result = result_map[sel_id]
-                        reason_text = parsed.get("reason", "")
+            try:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(reasoning_provider.generate_full, prompt=prompt)
+                    resp = future.result(timeout=3.0)
+                    raw_text = (resp.text or "").strip()
+                    import re
+
+                    json_match = re.search(r"\{[^{}]+\}", raw_text, re.DOTALL)
+                    if json_match:
+                        parsed = json.loads(json_match.group())
+                        sel_id = parsed.get("selected_result_id", "")
+                        if sel_id in result_map:
+                            selected_result = result_map[sel_id]
+                            reason_text = parsed.get("reason", "")
             except Exception as exc:
-                log.warning("Provider ranking failed: %s", exc)
+                log.warning("Provider ranking failed or timed out: %s", exc)
+                if is_ollama and reasoning_candidates:
+                    selected_result = reasoning_candidates[0]
+                    reason_text = "Top relevant result matching your request."
+
+        if selected_result is not None:
+            log.debug(
+                "youtube.recommendation.ranked selected_id=%s reason=%s",
+                selected_result.id,
+                reason_text,
+            )
+            log.debug("youtube.session.saved count=%d", len(raw_results))
 
         # Format response
         if selected_result is not None:
@@ -938,7 +1012,7 @@ class AssistantOrchestrator:
                     lines.append(f"  {marker} {r.title}" + (f" ({r.channel})" if r.channel else ""))
             response_text = "\n".join(lines)
         else:
-            # Provider unavailable — just list results
+            # Just list results
             lines = [
                 f'Here are YouTube results for "{query}":' if query else "Here are the results:",
                 "",
@@ -957,7 +1031,10 @@ class AssistantOrchestrator:
             text=response_text,
             search_results=raw_results,
             selected_result=selected_result,
-            metrics=ResponseMetrics(total_duration_ms=(time.perf_counter() - t0) * 1000.0),
+            metrics=ResponseMetrics(
+                total_duration_ms=(time.perf_counter() - t0) * 1000.0,
+                retrieval_duration_ms=retrieval_duration_ms,
+            ),
             context=context,
         )
 

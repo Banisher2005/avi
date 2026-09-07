@@ -254,6 +254,32 @@ class VolumeSetCapability(BaseCapability):
         # Handle relative increase
         if act in ("raise", "increase", "up") or (not act and delta is not None and delta > 0):
             step = delta if delta is not None else 5
+            # Automatically unmute if muted when increasing volume
+            if shutil.which("wpctl"):
+                try:
+                    subprocess.run(
+                        ["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "0"],
+                        shell=False,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        check=False,
+                        timeout=1.0,
+                    )
+                except Exception:
+                    pass
+            elif shutil.which("amixer"):
+                try:
+                    subprocess.run(
+                        ["amixer", "sset", "Master", "unmute"],
+                        shell=False,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        check=False,
+                        timeout=1.0,
+                    )
+                except Exception:
+                    pass
+
             if shutil.which("wpctl"):
                 try:
                     proc = subprocess.run(
@@ -382,7 +408,45 @@ class VolumeSetCapability(BaseCapability):
             )
 
         # Handle absolute level
-        clamped_level = max(0, min(100, int(level if level is not None else 50)))
+        if isinstance(level, str):
+            if level.lower() == "max":
+                clamped_level = 100
+            elif level.lower() == "min":
+                clamped_level = 0
+            else:
+                try:
+                    clamped_level = max(0, min(100, int(level)))
+                except ValueError:
+                    clamped_level = 50
+        else:
+            clamped_level = max(0, min(100, int(level if level is not None else 50)))
+
+        # Automatically unmute if level > 0
+        if clamped_level > 0:
+            if shutil.which("wpctl"):
+                try:
+                    subprocess.run(
+                        ["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "0"],
+                        shell=False,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        check=False,
+                        timeout=1.0,
+                    )
+                except Exception:
+                    pass
+            elif shutil.which("amixer"):
+                try:
+                    subprocess.run(
+                        ["amixer", "sset", "Master", "unmute"],
+                        shell=False,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        check=False,
+                        timeout=1.0,
+                    )
+                except Exception:
+                    pass
 
         # 1. Try wpctl
         if shutil.which("wpctl"):

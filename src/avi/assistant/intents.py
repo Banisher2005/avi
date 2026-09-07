@@ -43,6 +43,31 @@ _UNMUTE_RE = re.compile(
     re.IGNORECASE,
 )
 
+_VOL_MAX_RE = re.compile(
+    r"^(?:please\s+)?(?:(?:increase|set|turn|raise|boost)\s+(?:(?:the|my|our)\s+)?(?:volume|audio|sound)?\s*(?:to|at)?\s*(?:max|maximum|100%?)|volume\s+(?:to\s+)?(?:max|maximum|100%?)|max\s+volume)$",
+    re.IGNORECASE,
+)
+
+_VOL_MIN_RE = re.compile(
+    r"^(?:please\s+)?(?:(?:decrease|lower|set|turn|reduce)\s+(?:(?:the|my|our)\s+)?(?:volume|audio|sound)?\s*(?:to|at)?\s*(?:min|minimum|0%?)|volume\s+(?:to\s+)?(?:min|minimum|0%?)|min\s+volume)$",
+    re.IGNORECASE,
+)
+
+_VOL_BY_UP_RE = re.compile(
+    r"^(?:please\s+)?(?:increase|raise|boost|turn\s+up)\s+(?:(?:the|my|our)\s+)?(?:volume|audio|sound)?\s*(?:by)?\s*(\d+)%?$",
+    re.IGNORECASE,
+)
+
+_VOL_BY_DOWN_RE = re.compile(
+    r"^(?:please\s+)?(?:decrease|lower|reduce|turn\s+down)\s+(?:(?:the|my|our)\s+)?(?:volume|audio|sound)?\s*(?:by)?\s*(\d+)%?$",
+    re.IGNORECASE,
+)
+
+_VOL_SET_RE = re.compile(
+    r"^(?:please\s+)?(?:(?:set|change|increase|decrease|turn|adjust)\s+(?:(?:the|my|our)\s+)?(?:volume|audio|sound)\s+(?:to|at)?\s*(\d+)%?|volume\s+(?:to\s+)?(\d+)%?)$",
+    re.IGNORECASE,
+)
+
 _VOL_UP_RE = re.compile(
     r"^(?:please\s+)?(?:turn\s+(?:(?:the|my|our)\s+)?volume\s+up|"
     r"turn\s+it\s+up|"
@@ -67,16 +92,10 @@ _VOL_DOWN_RE = re.compile(
     re.IGNORECASE,
 )
 
-_VOL_SET_RE = re.compile(
-    r"^(?:please\s+)?(?:(?:set|change)\s+(?:(?:the|my|our)\s+)?(?:volume|audio)(?:\s+to)?\s+(\d+)%?|volume\s+(\d+)%?)$",
-    re.IGNORECASE,
-)
-
 _VOL_GET_RE = re.compile(
     r"^(?:what(?:'s|\s+is)\s+(?:the\s+)?(?:volume|audio\s+level)|check\s+(?:(?:the|my|our)\s+)?(?:volume|audio)|get\s+(?:(?:the|my|our)\s+)?volume|current\s+volume|volume\s+level|how\s+loud\s+is\s+it)\??$",
     re.IGNORECASE,
 )
-
 
 # Media playback controls
 _MEDIA_RE = re.compile(
@@ -89,8 +108,9 @@ _YOUTUBE_PREFIX_SEARCH_RE = re.compile(
     r"^(?:please\s+|can\s+you\s+|could\s+you\s+)?"
     r"(?:"
     r"(?:search|serch|look\s*up)\s+(?:on\s+)?(?:youtube|youtub|yotube)\s*(?:for)?|"
-    r"(?:youtube|youtub|yotube)\s+(?:search|serch)\s*(?:for)?|"
-    r"(?:open|launch)\s+(?:youtube|youtub|yotube)\s+(?:and\s+)?(?:search|find|look\s*up)\s*(?:for)?"
+    r"(?:open|launch)\s+(?:youtube|youtub|yotube)\s+(?:and\s+)?(?:search|find|look\s*up)\s*(?:for)?|"
+    r"(?:open|launch)\s+(?:youtube|youtub|yotube)\s*(?:for)?|"
+    r"(?:youtube|youtub|yotube)\s*(?:search|serch)?\s*(?:for)?"
     r")"
     r"(?:\s+(.+))?$",
     re.IGNORECASE,
@@ -98,7 +118,7 @@ _YOUTUBE_PREFIX_SEARCH_RE = re.compile(
 
 _YOUTUBE_SUFFIX_SEARCH_RE = re.compile(
     r"^(?:please\s+|can\s+you\s+|could\s+you\s+)?"
-    r"(?:find(?:\s+me)?|search(?:\s+for)?|look\s*up|show(?:\s+me)?|watch)\s+"
+    r"(?:find(?:\s+me)?|search(?:\s+for)?|look\s*up|show(?:\s+me)?|watch|open|launch|play)\s+"
     r"(?:(?:videos?|clips?|tutorials?)\s+(?:about|on|for|of)\s+|video\s+(?:about|on|for|of)\s+)?"
     r"(.+?)"
     r"\s+(?:on|in)\s+(?:youtube|youtub|yotube)$",
@@ -107,7 +127,7 @@ _YOUTUBE_SUFFIX_SEARCH_RE = re.compile(
 
 _YOUTUBE_INFIX_SEARCH_RE = re.compile(
     r"^(?:please\s+|can\s+you\s+|could\s+you\s+)?"
-    r"(?:find(?:\s+me)?|search(?:\s+for)?|look\s*up|show(?:\s+me)?|watch)\s+"
+    r"(?:find(?:\s+me)?|search(?:\s+for)?|look\s*up|show(?:\s+me)?|watch|open|launch|play)\s+"
     r"(?:(?:videos?|clips?|tutorials?)\s+)?"
     r"(?:on|in)\s+(?:youtube|youtub|yotube)\s+"
     r"(?:(?:about|on|for|of)\s+)?"
@@ -130,7 +150,7 @@ _YOUTUBE_QUESTION_RE = re.compile(
 
 _YOUTUBE_GENERIC_VIDEO_RE = re.compile(
     r"^(?:please\s+|can\s+you\s+|could\s+you\s+)?"
-    r"(?:find(?:\s+me)?|search(?:\s+for)?|look\s*up|show(?:\s+me)?|recommend(?:\s+me)?|suggest(?:\s+me)?|watch)\s+"
+    r"(?:find(?:\s+me)?|search(?:\s+for)?|look\s*up|show(?:\s+me)?|recommend(?:\s+me)?|suggest(?:\s+me)?|watch|get(?:\s+me)?)\s+"
     r"(?:(?:a|an|the)\s+)?"
     r"(?:(?:good|great|best|top|short|recommended|beginner(?:-friendly)?)\s+)?"
     r"(?:(?:youtube\s+)?videos?|tutorials?|clips?)\s+"
@@ -543,7 +563,7 @@ def _extract_youtube_search_intent(prompt: str) -> DetectedIntent | None:
         if m_infix:
             query = m_infix.group(1).strip()
 
-    # Check Prefix: e.g. "search YouTube for Linux tutorials"
+    # Check Prefix: e.g. "search YouTube for Linux tutorials", "open youtube mkbhd"
     if query is None:
         m_prefix = _YOUTUBE_PREFIX_SEARCH_RE.match(s)
         if m_prefix:
@@ -551,7 +571,23 @@ def _extract_youtube_search_intent(prompt: str) -> DetectedIntent | None:
             for pfx in ("for ", "about ", "on "):
                 if raw_q.lower().startswith(pfx):
                     raw_q = raw_q[len(pfx) :].strip()
-            query = raw_q
+            prefix_matched = m_prefix.group(0).lower()
+            if not raw_q:
+                # Explicit search request with no query -> clarification
+                if any(w in prefix_matched for w in ("search", "serch", "find", "look up")):
+                    return DetectedIntent(
+                        intent_type=AssistantIntentType.CLARIFICATION,
+                        raw_prompt=prompt,
+                        target="youtube",
+                        extra={
+                            "clarification_type": "youtube_search",
+                            "message": "What would you like me to search for on YouTube?",
+                        },
+                    )
+                # Pure open/launch without query -> fall through to OPEN_URL
+                query = None
+            else:
+                query = raw_q
 
     if query is not None:
         clean_q = query.strip().strip("\"'")
@@ -840,7 +876,16 @@ def detect_assistant_intent(prompt: str, last_turn: Any | None = None) -> Detect
         )
 
     # 2.5 Activation intent
-    if lower in ("activate", "activate avi", "launch avi", "open avi"):
+    if lower in (
+        "activate",
+        "activate avi",
+        "launch avi",
+        "open avi",
+        "activaite",
+        "activte",
+        "actvate",
+        "activat",
+    ):
         return DetectedIntent(intent_type=AssistantIntentType.ACTIVATE, raw_prompt=prompt)
 
     # 3. Greetings
@@ -1163,6 +1208,42 @@ def detect_assistant_intent(prompt: str, last_turn: Any | None = None) -> Detect
             raw_prompt=prompt,
             extra={"action": "unmute"},
         )
+    if _VOL_MAX_RE.match(s):
+        return DetectedIntent(
+            intent_type=AssistantIntentType.VOLUME_SET,
+            raw_prompt=prompt,
+            extra={"action": "set", "level": 100},
+        )
+    if _VOL_MIN_RE.match(s):
+        return DetectedIntent(
+            intent_type=AssistantIntentType.VOLUME_SET,
+            raw_prompt=prompt,
+            extra={"action": "set", "level": 0},
+        )
+    vol_by_up = _VOL_BY_UP_RE.match(s)
+    if vol_by_up:
+        d = int(vol_by_up.group(1))
+        return DetectedIntent(
+            intent_type=AssistantIntentType.VOLUME_SET,
+            raw_prompt=prompt,
+            extra={"action": "raise", "delta": d},
+        )
+    vol_by_down = _VOL_BY_DOWN_RE.match(s)
+    if vol_by_down:
+        d = int(vol_by_down.group(1))
+        return DetectedIntent(
+            intent_type=AssistantIntentType.VOLUME_SET,
+            raw_prompt=prompt,
+            extra={"action": "lower", "delta": d},
+        )
+    vol_set_match = _VOL_SET_RE.match(s)
+    if vol_set_match:
+        lvl_str = vol_set_match.group(1) or vol_set_match.group(2)
+        return DetectedIntent(
+            intent_type=AssistantIntentType.VOLUME_SET,
+            raw_prompt=prompt,
+            extra={"action": "set", "level": int(lvl_str)},
+        )
     if _VOL_UP_RE.match(s):
         return DetectedIntent(
             intent_type=AssistantIntentType.VOLUME_SET,
@@ -1174,14 +1255,6 @@ def detect_assistant_intent(prompt: str, last_turn: Any | None = None) -> Detect
             intent_type=AssistantIntentType.VOLUME_SET,
             raw_prompt=prompt,
             extra={"action": "lower", "delta": 5},
-        )
-    vol_set_match = _VOL_SET_RE.match(s)
-    if vol_set_match:
-        lvl_str = vol_set_match.group(1) or vol_set_match.group(2)
-        return DetectedIntent(
-            intent_type=AssistantIntentType.VOLUME_SET,
-            raw_prompt=prompt,
-            extra={"action": "set", "level": int(lvl_str)},
         )
     if _VOL_GET_RE.match(s):
         return DetectedIntent(
