@@ -91,9 +91,11 @@ def format_user_friendly_error(err: Exception | str, prompt: str = "") -> str:
 
 
 CSS_STYLE = b"""
-window.avi-main-window {
+window.avi-overlay-window, window.avi-main-window {
     background-color: #1e1e2e;
     color: #cdd6f4;
+    border: 1px solid #45475a;
+    border-radius: 14px;
 }
 
 headerbar {
@@ -102,6 +104,40 @@ headerbar {
     border-bottom: 1px solid #313244;
     min-height: 38px;
     padding: 0 6px;
+}
+
+.avi-overlay-header {
+    background-color: #181825;
+    padding: 8px 12px 4px 12px;
+    border-top-left-radius: 14px;
+    border-top-right-radius: 14px;
+}
+
+.avi-brand-badge {
+    font-weight: 800;
+    font-size: 13px;
+    color: #89b4fa;
+    letter-spacing: 0.5px;
+}
+
+.avi-close-btn {
+    background: transparent;
+    color: #6c7086;
+    border: none;
+    border-radius: 6px;
+    padding: 2px 8px;
+    font-size: 15px;
+    font-weight: bold;
+}
+
+.avi-close-btn:hover {
+    background-color: #313244;
+    color: #f38ba8;
+}
+
+.avi-input-box {
+    background-color: #181825;
+    padding: 4px 12px 8px 12px;
 }
 
 .avi-header-title {
@@ -120,8 +156,8 @@ headerbar {
     background-color: #1e1e2e;
     color: #cdd6f4;
     border: 1px solid #45475a;
-    border-radius: 8px;
-    padding: 8px 12px;
+    border-radius: 10px;
+    padding: 10px 14px;
     font-size: 14px;
 }
 
@@ -129,22 +165,48 @@ headerbar {
     border-color: #89b4fa;
 }
 
-.avi-send-btn {
-    background-color: #89b4fa;
-    color: #11111b;
-    font-weight: bold;
-    border-radius: 8px;
-    padding: 6px 14px;
+.avi-controls-row {
+    background-color: #181825;
+    border-top: 1px solid #2b2c3c;
+    padding: 6px 12px 8px 12px;
+}
+
+.avi-status-label {
+    color: #a6adc8;
+    font-size: 11px;
+}
+
+.avi-voice-btn {
+    background-color: #313244;
+    color: #cdd6f4;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 13px;
     border: none;
 }
 
-.avi-send-btn:hover {
+.avi-voice-btn:hover {
+    background-color: #45475a;
+    color: #a6e3a1;
+}
+
+.avi-enter-btn, .avi-send-btn {
+    background-color: #89b4fa;
+    color: #11111b;
+    font-weight: bold;
+    border-radius: 6px;
+    padding: 4px 12px;
+    font-size: 12px;
+    border: none;
+}
+
+.avi-enter-btn:hover, .avi-send-btn:hover {
     background-color: #b4befe;
 }
 
-.avi-conversation-area {
+.avi-dynamic-results, .avi-conversation-area {
     background-color: #1e1e2e;
-    padding: 12px;
+    padding: 8px 12px 12px 12px;
 }
 
 .avi-bubble-user {
@@ -298,7 +360,7 @@ headerbar {
 
 
 class AviWindow:
-    """Main AVI assistant popup window."""
+    """Main AVI command overlay window (Spotlight / Raycast style)."""
 
     def __init__(
         self,
@@ -321,79 +383,81 @@ class AviWindow:
         self._current_stream_label: Any | None = None
         self._current_stream_text = ""
         self._worker_thread: threading.Thread | None = None
+        self._auto_dismiss_tag: int | None = None
 
         self._build_window()
 
     def _build_window(self) -> None:
-        """Build the GTK4 window layout."""
+        """Build the compact, frameless GTK4 overlay window layout."""
         self.window = Gtk.ApplicationWindow(application=self.app)
         self.window.set_title("⚡ AVI Assistant")
-        self.window.set_default_size(680, 520)
+        self.window.set_decorated(False)
         self.window.set_resizable(True)
+        self.window.set_default_size(620, -1)
+        self.window.add_css_class("avi-overlay-window")
         self.window.add_css_class("avi-main-window")
 
-        # Native HeaderBar with title
-        header_bar = Gtk.HeaderBar()
-        title_label = Gtk.Label(label="⚡ AVI Assistant")
-        title_label.add_css_class("avi-header-title")
-        header_bar.set_title_widget(title_label)
-        self.window.set_titlebar(header_bar)
-
-        # Root vertical box
+        # Root vertical container
         root_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.window.set_child(root_box)
 
-        # ── Input Header Box ──────────────────────────────────────────────
+        # ── Overlay Header Bar ──────────────────────────────────────────
         header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        header_box.add_css_class("avi-header-box")
+        header_box.add_css_class("avi-overlay-header")
 
-        self.prompt_entry = Gtk.Entry()
-        self.prompt_entry.add_css_class("avi-prompt-entry")
-        self.prompt_entry.set_placeholder_text("Ask anything or tell AVI what to do...")
-        self.prompt_entry.set_tooltip_text("Enter your request for AVI")
-        self.prompt_entry.set_hexpand(True)
-        self.prompt_entry.set_activates_default(False)
-        self.prompt_entry.connect("activate", self._on_prompt_submit)
-        header_box.append(self.prompt_entry)
+        brand_label = Gtk.Label(label="✦ AVI")
+        brand_label.add_css_class("avi-brand-badge")
+        brand_label.set_halign(Gtk.Align.START)
+        header_box.append(brand_label)
 
-        self.send_button = Gtk.Button(label="Send")
-        self.send_button.add_css_class("avi-send-btn")
-        self.send_button.set_tooltip_text("Send request to AVI")
-        self.send_button.connect("clicked", lambda _b: self._on_prompt_submit(self.prompt_entry))
-        header_box.append(self.send_button)
+        header_spacer = Gtk.Box()
+        header_spacer.set_hexpand(True)
+        header_box.append(header_spacer)
 
-        self.spinner = Gtk.Spinner()
-        self.spinner.set_size_request(20, 20)
-        self.spinner.set_visible(False)
-        header_box.append(self.spinner)
+        self.close_button = Gtk.Button(label="×")
+        self.close_button.add_css_class("avi-close-btn")
+        self.close_button.set_tooltip_text("Close overlay (Esc)")
+        self.close_button.connect("clicked", lambda _b: self.hide_overlay())
+        header_box.append(self.close_button)
 
         root_box.append(header_box)
 
-        # ── Conversation Area (ScrolledWindow) ─────────────────────────────
-        self.scroll_window = Gtk.ScrolledWindow()
-        self.scroll_window.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        self.scroll_window.set_vexpand(True)
-        self.scroll_window.set_min_content_height(240)
+        # ── Central Prompt Input ────────────────────────────────────────
+        input_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        input_box.add_css_class("avi-header-box")
+        input_box.add_css_class("avi-input-box")
 
-        self.conversation_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        self.conversation_box.add_css_class("avi-conversation-area")
-        self.conversation_box.set_margin_start(14)
-        self.conversation_box.set_margin_end(14)
-        self.conversation_box.set_margin_top(12)
-        self.conversation_box.set_margin_bottom(12)
-        self.scroll_window.set_child(self.conversation_box)
+        self.prompt_entry = Gtk.Entry()
+        self.prompt_entry.add_css_class("avi-prompt-entry")
+        self.prompt_entry.set_placeholder_text("Ask AVI anything...")
+        self.prompt_entry.set_tooltip_text("Enter your request for AVI (or press 🎙 to speak)")
+        self.prompt_entry.set_hexpand(True)
+        self.prompt_entry.set_activates_default(False)
+        self.prompt_entry.connect("activate", self._on_prompt_submit)
+        self.prompt_entry.connect("changed", self._on_prompt_changed)
+        input_box.append(self.prompt_entry)
 
-        root_box.append(self.scroll_window)
+        root_box.append(input_box)
 
-        # ── Status Bar ────────────────────────────────────────────────────
-        status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
-        status_box.add_css_class("avi-status-bar")
+        # ── Controls & Status Row ───────────────────────────────────────
+        controls_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        controls_box.add_css_class("avi-status-bar")
+        controls_box.add_css_class("avi-controls-row")
+
+        self.spinner = Gtk.Spinner()
+        self.spinner.set_size_request(16, 16)
+        self.spinner.set_visible(False)
+        controls_box.append(self.spinner)
 
         self.status_label = Gtk.Label(label="Ready  ·  Esc to close")
         self.status_label.add_css_class("avi-hint-label")
+        self.status_label.add_css_class("avi-status-label")
         self.status_label.set_xalign(0.0)
-        self.status_label.set_hexpand(True)
-        status_box.append(self.status_label)
+        controls_box.append(self.status_label)
+
+        controls_spacer = Gtk.Box()
+        controls_spacer.set_hexpand(True)
+        controls_box.append(controls_spacer)
 
         provider_text = (
             f"{getattr(self.config, 'provider', 'local')} / "
@@ -401,13 +465,44 @@ class AviWindow:
         )
         self.provider_label = Gtk.Label(label=provider_text)
         self.provider_label.add_css_class("avi-provider-label")
-        self.provider_label.set_margin_end(4)
+        self.provider_label.set_margin_end(6)
         self.provider_label.set_visible(False)
-        status_box.append(self.provider_label)
+        controls_box.append(self.provider_label)
 
-        root_box.append(status_box)
+        self.voice_button = Gtk.Button(label="🎙")
+        self.voice_button.add_css_class("avi-voice-btn")
+        self.voice_button.set_tooltip_text("Voice input (Press to speak · Super+Shift+A)")
+        self.voice_button.connect("clicked", self._on_voice_clicked)
+        controls_box.append(self.voice_button)
 
-        # ── Keyboard controller ───────────────────────────────────────────
+        self.send_button = Gtk.Button(label="⏎ Enter")
+        self.send_button.add_css_class("avi-send-btn")
+        self.send_button.add_css_class("avi-enter-btn")
+        self.send_button.set_tooltip_text("Execute request")
+        self.send_button.connect("clicked", lambda _b: self._on_prompt_submit(self.prompt_entry))
+        controls_box.append(self.send_button)
+
+        root_box.append(controls_box)
+
+        # ── Dynamic Result Container (ScrolledWindow) ───────────────────
+        self.scroll_window = Gtk.ScrolledWindow()
+        self.scroll_window.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.scroll_window.set_vexpand(True)
+        self.scroll_window.set_max_content_height(400)
+        self.scroll_window.set_visible(False)
+
+        self.conversation_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.conversation_box.add_css_class("avi-conversation-area")
+        self.conversation_box.add_css_class("avi-dynamic-results")
+        self.conversation_box.set_margin_start(12)
+        self.conversation_box.set_margin_end(12)
+        self.conversation_box.set_margin_top(6)
+        self.conversation_box.set_margin_bottom(10)
+        self.scroll_window.set_child(self.conversation_box)
+
+        root_box.append(self.scroll_window)
+
+        # ── Keyboard Controller ─────────────────────────────────────────
         key_ctrl = Gtk.EventControllerKey()
         key_ctrl.connect("key-pressed", self._on_key_pressed)
         self.window.add_controller(key_ctrl)
@@ -416,12 +511,61 @@ class AviWindow:
         self.window.present()
         self.prompt_entry.grab_focus()
 
-    def present(self) -> None:
-        """Bring window to foreground and focus the prompt entry."""
+    def show_overlay(self, select_all: bool = True, clear_input: bool = False) -> None:
+        """Present and focus the overlay window."""
+        self._cancel_auto_dismiss()
+        if clear_input:
+            self.prompt_entry.set_text("")
         if hasattr(self, "window") and self.window:
+            self.window.set_visible(True)
             self.window.present()
         if hasattr(self, "prompt_entry") and self.prompt_entry:
             self.prompt_entry.grab_focus()
+            if select_all and not clear_input:
+                self.prompt_entry.select_region(0, -1)
+
+    def hide_overlay(self) -> None:
+        """Dismiss and hide the overlay window."""
+        self._cancel_auto_dismiss()
+        if hasattr(self, "window") and self.window:
+            self.window.set_visible(False)
+
+    def toggle_overlay(self) -> None:
+        """Toggle overlay window visibility."""
+        if hasattr(self, "window") and self.window and self.window.is_visible():
+            self.hide_overlay()
+        else:
+            self.show_overlay()
+
+    def present(self) -> None:
+        """Bring window to foreground and focus the prompt entry."""
+        self.show_overlay()
+
+    def _schedule_auto_dismiss(self, delay_ms: int = 1800) -> None:
+        """Schedule automatic dismissal of overlay after brief delay."""
+        self._cancel_auto_dismiss()
+        self._auto_dismiss_tag = GLib.timeout_add(delay_ms, self._on_auto_dismiss_timeout)
+
+    def _cancel_auto_dismiss(self) -> None:
+        """Cancel any pending auto-dismiss timer."""
+        if self._auto_dismiss_tag is not None:
+            GLib.source_remove(self._auto_dismiss_tag)
+            self._auto_dismiss_tag = None
+
+    def _on_auto_dismiss_timeout(self) -> bool:
+        """Timer callback to dismiss overlay."""
+        self._auto_dismiss_tag = None
+        self.hide_overlay()
+        return False
+
+    def _on_prompt_changed(self, _entry: Any) -> None:
+        """Cancel auto-dismiss when user types into entry."""
+        self._cancel_auto_dismiss()
+
+    def _on_voice_clicked(self, _button: Any) -> None:
+        """Handle voice button click placeholder."""
+        self._cancel_auto_dismiss()
+        self._set_status("🎙 Voice input: Speak now (or press Super+Shift+A)...", spinning=False)
 
     # -----------------------------------------------------------------------
     # Message Widget Construction & History Management
@@ -434,6 +578,8 @@ class AviWindow:
         while len(self._history_widgets) > self.max_history:
             oldest = self._history_widgets.pop(0)
             self.conversation_box.remove(oldest)
+        if hasattr(self, "scroll_window") and self.scroll_window:
+            self.scroll_window.set_visible(True)
         self._scroll_to_bottom()
 
     def _scroll_to_bottom(self) -> None:
@@ -506,10 +652,19 @@ class AviWindow:
         self._append_message_widget(row)
         return row
 
-    def _show_assistant_response(self, text: str, action_path: str | None = None) -> None:
+    def _show_assistant_response(
+        self,
+        text: str,
+        action_path: str | None = None,
+        auto_dismiss: bool = False,
+    ) -> None:
         """Display an assistant response message card."""
         self._add_assistant_message(text, action_path=action_path)
-        self._set_status("Ready  ·  Esc to close", spinning=False)
+        if auto_dismiss:
+            self._set_status("✓ Done  ·  Auto-closing in 2s", spinning=False)
+            self._schedule_auto_dismiss(1800)
+        else:
+            self._set_status("Ready  ·  Esc to close", spinning=False)
 
     def _add_search_results_widget(
         self,
@@ -912,6 +1067,7 @@ class AviWindow:
         state: "Gdk.ModifierType",
     ) -> bool:
         """Handle keyboard shortcuts: Escape, Ctrl+L, Ctrl+Q, y/n confirmation."""
+        self._cancel_auto_dismiss()
         is_ctrl = bool(state & Gdk.ModifierType.CONTROL_MASK)
 
         # Ctrl+Q -> Quit application
@@ -1044,7 +1200,20 @@ class AviWindow:
                     or res.execution_result is not None
                     or res.text
                 ):
-                    GLib.idle_add(self._show_assistant_response, res.text, action_path)
+                    is_transient = intent.intent_type in (
+                        AssistantIntentType.OPEN_APP,
+                        AssistantIntentType.VOLUME_SET,
+                        AssistantIntentType.VOLUME_GET,
+                        AssistantIntentType.OPEN_DIR,
+                        AssistantIntentType.OPEN_URL,
+                        AssistantIntentType.MEDIA_CONTROL,
+                        AssistantIntentType.OPEN_SEARCH_RESULT,
+                        AssistantIntentType.SCREENSHOT,
+                    )
+                    auto_dismiss = is_transient and not res.search_results
+                    GLib.idle_add(
+                        self._show_assistant_response, res.text, action_path, auto_dismiss
+                    )
                     # Show interactive result cards if search results are available
                     if (
                         res.search_results
@@ -1060,7 +1229,7 @@ class AviWindow:
             # 2. Router fast-path
             fast_result = self.router.check_fast_path(prompt)
             if isinstance(fast_result, str):
-                GLib.idle_add(self._show_assistant_response, fast_result.rstrip("\n"))
+                GLib.idle_add(self._show_assistant_response, fast_result.rstrip("\n"), None, True)
                 return
 
             # 3. Stream from provider

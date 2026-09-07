@@ -235,6 +235,34 @@ def run_ui(args: Sequence[str] | None = None, is_activate: bool = False) -> int:
         action="store_true",
         help="Launch GTK4 UI via system Python interpreter if current environment lacks PyGObject",
     )
+    parser.add_argument(
+        "-b",
+        "--background",
+        "--daemon",
+        action="store_true",
+        dest="background",
+        help="Start AVI overlay daemon resident in background with window hidden",
+    )
+    parser.add_argument(
+        "--toggle",
+        action="store_true",
+        help="Toggle overlay visibility (hide if visible, show if hidden)",
+    )
+    parser.add_argument(
+        "--show",
+        action="store_true",
+        help="Show and focus overlay window",
+    )
+    parser.add_argument(
+        "--hide",
+        action="store_true",
+        help="Hide overlay window",
+    )
+    parser.add_argument(
+        "--quit",
+        action="store_true",
+        help="Quit running background AVI overlay daemon",
+    )
     opts = parser.parse_args(args)
 
     from avi.orchestrator import AssistantOrchestrator
@@ -248,10 +276,25 @@ def run_ui(args: Sequence[str] | None = None, is_activate: bool = False) -> int:
     config = Config.load(**overrides)
     router = Router(config)
     orchestrator = AssistantOrchestrator(config=config, router=router)
-    allow_fallback = opts.use_system_python or is_activate
-    return AviApp(router, config, orchestrator=orchestrator).run(
-        allow_system_fallback=allow_fallback
+    allow_fallback = (
+        opts.use_system_python
+        or is_activate
+        or opts.toggle
+        or opts.background
+        or opts.hide
+        or opts.show
+        or opts.quit
     )
+    toggle_mode = opts.toggle or is_activate
+    return AviApp(
+        router,
+        config,
+        orchestrator=orchestrator,
+        background=opts.background,
+        toggle=toggle_mode,
+        show=opts.show,
+        hide=opts.hide,
+    ).run(allow_system_fallback=allow_fallback)
 
 
 def run_cli(argv: Sequence[str] | None = None) -> int:

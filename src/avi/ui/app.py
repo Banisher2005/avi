@@ -13,6 +13,7 @@ from avi.ui.window import _GTK_AVAILABLE, CSS_STYLE, AviWindow, check_display
 class AviApp:
     """
     Wraps a Gtk.Application with AVI router, orchestrator, and config.
+    Manages resident background/daemon mode and single-instance command dispatch.
 
     Usage::
 
@@ -20,11 +21,25 @@ class AviApp:
         AviApp(router, config).run()
     """
 
-    def __init__(self, router: Any, config: Any, orchestrator: Any | None = None) -> None:
+    def __init__(
+        self,
+        router: Any,
+        config: Any,
+        orchestrator: Any | None = None,
+        background: bool = False,
+        toggle: bool = False,
+        show: bool = False,
+        hide: bool = False,
+    ) -> None:
         self.router = router
         self.config = config
         self.orchestrator = orchestrator
+        self.background = background
+        self.toggle = toggle
+        self.show = show
+        self.hide = hide
         self.window: Any | None = None
+        self._is_held = False
 
     def run(self, allow_system_fallback: bool = False) -> int:
         """Start the GTK4 event loop. Returns exit code."""
@@ -49,7 +64,7 @@ class AviApp:
                     "activte",
                     "actvate",
                 ):
-                    forward_args = ["ui"] + forward_args[1:]
+                    forward_args = ["ui", "--toggle"] + forward_args[1:]
                 cmd = [report.system_python_path, "-m", "avi.cli"] + forward_args
                 proc = subprocess.run(cmd, env=env)
                 return proc.returncode
@@ -68,20 +83,22 @@ class AviApp:
         import gi
 
         gi.require_version("Gtk", "4.0")
-        from gi.repository import Gdk, Gtk
+        from gi.repository import Gdk, Gio, Gtk
 
-        app = Gtk.Application(application_id="io.github.banisher2005.avi")
+        app = Gtk.Application(
+            application_id="io.github.banisher2005.avi",
+            flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE,
+        )
 
-        def _on_activate(gtk_app: Gtk.Application) -> None:
+        def _ensure_window(gtk_app: Gtk.Application) -> Any:
             if self.window is not None:
-                self.window.present()
-                return
+                return self.window
 
             display = Gdk.Display.get_default()
             if display is None:
                 sys.stderr.write("Error: Could not connect to display server.\n")
                 gtk_app.quit()
-                return
+                return None
 
             # Apply CSS styling
             css_provider = Gtk.CssProvider()
@@ -96,11 +113,52 @@ class AviApp:
             )
 
             def _on_close_request(*_args: Any) -> bool:
-                self.window = None
-                return False
+                if self.window is not None:
+                    self.window.hide_overlay()
+                return True  # Intercept and prevent window destruction
 
             if hasattr(self.window, "window") and self.window.window is not None:
                 self.window.window.connect("close-request", _on_close_request)
 
+            return self.window
+
+        def _on_command_line(gtk_app: Gtk.Application, cmdline: Any) -> int:
+            args = list(cmdline.get_arguments())
+            win = _ensure_window(gtk_app)
+            if win is None:
+                return 1
+
+            if any(arg in ("--quit", "-q") for arg in args):
+                if self._is_held:
+                    gtk_app.release()
+                    self._is_held = False
+                gtk_app.quit()
+                return 0
+
+            if "--hide" in args or self.hide:
+                win.hide_overlay()
+                return 0
+
+            if any(arg in ("--background", "-b", "--daemon") for arg in args) or self.background:
+                win.hide_overlay()
+                return 0
+
+            if "--toggle" in args or self.toggle:
+                win.toggle_overlay()
+                return 0
+
+            win.show_overlay()
+            return 0
+
+        def _on_activate(gtk_app: Gtk.Application) -> None:
+            win = _ensure_window(gtk_app)
+            if win is not None and not self.background:
+                win.show_overlay()
+
+        app.connect("command-line", _on_command_line)
         app.connect("activate", _on_activate)
-        return app.run(None)
+
+        app.hold()
+        self._is_held = True
+
+        return app.run(sys.argv)

@@ -500,6 +500,158 @@ class TestAviWindowMocked:
         assert "Open" in button_labels
 
 
+class TestOverlayRedesign:
+    """Tests for Phase 14 AVI Command Overlay layout, controls, and behavior."""
+
+    @pytest.fixture
+    def mock_gtk(self, monkeypatch):
+        mock_gtk = MagicMock()
+        mock_gdk = MagicMock()
+        mock_glib = MagicMock()
+        mock_pango = MagicMock()
+        mock_glib.idle_add = lambda fn, *args: fn(*args)
+        mock_glib.timeout_add = MagicMock(return_value=999)
+        mock_glib.source_remove = MagicMock()
+
+        import avi.ui.window as wmod
+
+        monkeypatch.setattr(wmod, "Gtk", mock_gtk)
+        monkeypatch.setattr(wmod, "Gdk", mock_gdk)
+        monkeypatch.setattr(wmod, "GLib", mock_glib)
+        monkeypatch.setattr(wmod, "Pango", mock_pango)
+        monkeypatch.setattr(wmod, "_GTK_AVAILABLE", True)
+        return mock_gtk, mock_gdk, mock_glib, mock_pango
+
+    def test_overlay_frameless_window_properties(self, mock_gtk):
+        from avi.ui.window import AviWindow
+
+        mock_app = MagicMock()
+        mock_router = MagicMock()
+        mock_config = MagicMock()
+
+        win = AviWindow(mock_app, mock_router, mock_config)
+        win.window.set_decorated.assert_called_with(False)
+        win.window.set_default_size.assert_called_with(620, -1)
+        win.window.add_css_class.assert_any_call("avi-overlay-window")
+        assert win.close_button is not None
+        assert win.voice_button is not None
+        assert win.send_button is not None
+
+    def test_overlay_show_hide_toggle(self, mock_gtk):
+        from avi.ui.window import AviWindow
+
+        win = AviWindow(MagicMock(), MagicMock(), MagicMock())
+        win.window.is_visible.return_value = False
+
+        win.show_overlay()
+        win.window.set_visible.assert_called_with(True)
+        win.window.present.assert_called()
+        win.prompt_entry.grab_focus.assert_called()
+
+        win.hide_overlay()
+        win.window.set_visible.assert_called_with(False)
+
+        # Toggle from hidden -> should show
+        win.window.is_visible.return_value = False
+        win.toggle_overlay()
+        win.window.set_visible.assert_called_with(True)
+
+        # Toggle from visible -> should hide
+        win.window.is_visible.return_value = True
+        win.toggle_overlay()
+        win.window.set_visible.assert_called_with(False)
+
+    def test_auto_dismiss_scheduling_and_cancellation(self, mock_gtk):
+        from avi.ui.window import AviWindow
+
+        win = AviWindow(MagicMock(), MagicMock(), MagicMock())
+        _, _, mock_glib, _ = mock_gtk
+
+        win._schedule_auto_dismiss(1800)
+        assert win._auto_dismiss_tag == 999
+        mock_glib.timeout_add.assert_called_with(1800, win._on_auto_dismiss_timeout)
+
+        # Typing in prompt cancels auto dismiss
+        win._on_prompt_changed(win.prompt_entry)
+        mock_glib.source_remove.assert_called_with(999)
+        assert win._auto_dismiss_tag is None
+
+        # Keypress also cancels auto dismiss
+        win._schedule_auto_dismiss(1800)
+        win._on_key_pressed(MagicMock(), 0, 0, 0)
+        assert win._auto_dismiss_tag is None
+
+    def test_transient_action_auto_dismiss(self, mock_gtk):
+        from avi.ui.window import AviWindow
+
+        win = AviWindow(MagicMock(), MagicMock(), MagicMock())
+        win._show_assistant_response("✓ Opening Google Chrome.", auto_dismiss=True)
+
+        assert win._auto_dismiss_tag == 999
+        win.status_label.set_text.assert_called_with("✓ Done  ·  Auto-closing in 2s")
+
+    def test_app_flags_and_daemon_mode(self):
+        from avi.ui.app import AviApp
+
+        app = AviApp(MagicMock(), MagicMock(), background=True, toggle=True, show=False, hide=False)
+        assert app.background is True
+        assert app.toggle is True
+        assert app.show is False
+        assert app.hide is False
+
+    def test_cli_ui_flags_parsing(self):
+        from avi.cli import main
+
+        with patch("avi.ui.AviApp") as mock_app_cls:
+            mock_inst = MagicMock()
+            mock_inst.run.return_value = 0
+            mock_app_cls.return_value = mock_inst
+
+            main(["ui", "--background", "--toggle"])
+            mock_app_cls.assert_called()
+            _, kwargs = mock_app_cls.call_args
+            assert kwargs["background"] is True
+            assert kwargs["toggle"] is True
+
+            with patch.dict(os.environ, {"WAYLAND_DISPLAY": "wayland-0"}):
+                main(["activate"])
+                _, kwargs = mock_app_cls.call_args
+                assert kwargs["toggle"] is True
+
+    def test_session_state_preserved_across_dismissal(self, mock_gtk, tmp_path):
+        import time
+
+        from avi.orchestrator.models import ConversationTurn
+        from avi.retrieval.models import SearchResult
+        from avi.session.state import load_session_state, save_session_state
+        from avi.ui.window import AviWindow
+
+        state_file = tmp_path / "session_state.json"
+        res = SearchResult(
+            id="v1", title="Local Agents", url="https://youtube.com/v1", source="youtube"
+        )
+        turn = ConversationTurn(
+            turn_id=1,
+            timestamp=time.time(),
+            user_query="find youtube agent video",
+            intent_type="youtube_search",
+            response_text="Found: Local Agents",
+            search_results=[res],
+            selected_result=res,
+        )
+        save_session_state(turn, state_path=state_file)
+        assert state_file.exists()
+
+        win = AviWindow(MagicMock(), MagicMock(), MagicMock())
+        win.show_overlay()
+        win.hide_overlay()
+
+        # Session state file must still exist and be intact across overlay dismissals
+        loaded = load_session_state(state_path=state_file, ttl_seconds=9999999999.0)
+        assert loaded is not None
+        assert loaded.selected_result.title == "Local Agents"
+
+
 # ============================================================
 # 6. GTK-specific tests (system Python or GTK-enabled venv)
 # ============================================================

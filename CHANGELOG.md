@@ -133,6 +133,36 @@ Versions follow [Semantic Versioning](https://semver.org/).
   - Added synchronous double-submission guard disabling the Send button and blocking duplicate queries while an operation is in-flight.
 - **Test Suite Expansion**: Added unit and integration tests for UI input normalization, double submission prevention, loading status behavior, and best match card rendering (total 962 passing tests, 2 skipped).
 
+#### Phase 14 — AVI Command Overlay (JARVIS-Style Desktop UI Redesign)
+- **Frameless Floating Command Overlay (`src/avi/ui/window.py`)**:
+  - Transformed the assistant into a compact, floating desktop command overlay (~620px width, minimal ~90px initial height) inspired by Spotlight, Raycast, and PowerToys Run.
+  - Frameless window (`set_decorated(False)`) with Catppuccin Mocha styling, rounded corners (`border-radius: 14px`), and custom header.
+  - Custom header featuring `✦ AVI` brand badge and `×` dismiss button.
+  - Full-width prompt entry (`Ask AVI anything...`).
+  - Action/Controls row with activity spinner, status indicator (`Ready · Esc to close`), `🎙` microphone placeholder, and `⏎ Enter` execution button.
+- **Result-First / Adaptive Layout**:
+  - Dynamic result area remains hidden when idle, expanding downward when results or cards are displayed.
+  - Simple native actions (`chrome`, `increase volume to max`, `screenshot`, `downloads`): display clean action feedback and automatically dismiss after a brief delay (~1.8s).
+  - Rich / complex results (YouTube search/recommendations, multi-step confirmations, long answers): dynamically expand interactive `🎯 Best match` card with `[Play]`, secondary result cards with `[Open]`, or confirmation cards with `[y] Proceed` / `[n] Cancel` without auto-dismissing.
+- **Instant Auto-Dismiss & Cancellation**:
+  - Transient native operations auto-dismiss after ~1.8 seconds.
+  - User typing, clicking, or pressing keys cancels pending auto-dismiss instantly.
+  - Escape cancels pending confirmations or dismisses the overlay immediately.
+- **Daemon / Background Mode & Single-Instance D-Bus Control (`src/avi/ui/app.py`, `src/avi/cli.py`)**:
+  - Added `avi ui --background` (`-b` / `--daemon`) to start the overlay resident in RAM with window hidden (`app.hold()`), enabling instant <50ms summoning.
+  - Single-instance command handling via `Gio.ApplicationFlags.HANDLES_COMMAND_LINE`:
+    - `avi activate` or `avi ui --toggle` summons/focuses or toggles existing overlay without spawning duplicate processes.
+    - `avi ui --show` and `avi ui --hide` provide explicit visibility controls.
+    - `avi ui --quit` cleanly shuts down resident daemon over D-Bus.
+  - Window `close-request` intercepted to hide rather than destroy window, preserving resident application state.
+- **Cross-Process Session State Continuity**:
+  - Session state in `~/.local/state/avi/session_state.json` is preserved across overlay dismissals, allowing follow-ups like `open it` to work seamlessly.
+- **Desktop Entry & Hotkey Updates (`src/avi/hotkey/service.py`)**:
+  - Updated desktop launcher to `AVI Command Overlay` with `avi activate`.
+  - Updated global hotkey documentation for `<Super>Space` / `<Ctrl>Space`.
+- **Test Suite Expansion**:
+  - Added unit tests covering frameless overlay layout, header, controls, show/hide/toggle, auto-dismiss scheduling and cancellation, daemon flags, and session state preservation across dismissals (969 passing tests, 2 skipped).
+
 ---
 
 ## [0.3.0] — 2026-09-06

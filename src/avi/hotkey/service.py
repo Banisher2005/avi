@@ -40,12 +40,12 @@ def generate_desktop_entry(
         return f"""[Desktop Entry]
 Version=1.0
 Type=Application
-Name=AVI Desktop Assistant
-Comment=Instant local-first desktop AI assistant for Linux
+Name=AVI Command Overlay
+Comment=Lightweight, instant desktop command overlay and AI assistant for Linux
 Exec={bin_path} activate
 Terminal=false
 Categories=Utility;System;Development;
-Keywords=ai;assistant;desktop;capability;
+Keywords=ai;assistant;desktop;overlay;command;spotlight;raycast;
 """
     return f"""[Desktop Entry]
 Version=1.0
@@ -66,14 +66,14 @@ def get_hotkey_instructions() -> dict[str, Any]:
     if env.display_server == "wayland":
         instructions = (
             "Under Wayland, compositor security prevents background processes from intercepting "
-            "global keystrokes. Bind a native compositor shortcut to activate the single-instance AVI popup:\n\n"
+            "global keystrokes. Bind a native compositor shortcut to activate the single-instance AVI command overlay:\n\n"
             "1. GNOME: Settings -> Keyboard -> Keyboard Shortcuts -> Custom Shortcuts\n"
-            "   Add: Name='AVI Assistant', Command='avi activate', Shortcut='<Super>Space' (or '<Ctrl>Space')\n\n"
+            "   Add: Name='AVI Overlay', Command='avi activate', Shortcut='<Super>Space' (or '<Ctrl>Space')\n\n"
             "2. KDE Plasma: System Settings -> Shortcuts -> Custom Shortcuts\n"
             "   Add: New -> Global Shortcut -> Command/URL -> 'avi activate'\n\n"
             "3. Sway / Hyprland:\n"
             "   Add to config: bindsym $mod+Space exec avi activate\n\n"
-            "Pressing the shortcut instantly summons the AVI desktop assistant without opening a terminal."
+            "Tip: Start the overlay daemon in the background on login with 'avi ui --background' for instant <50ms summon."
         )
     elif env.display_server == "x11":
         instructions = (
