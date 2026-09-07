@@ -39,6 +39,38 @@ Versions follow [Semantic Versioning](https://semver.org/).
 - **Comprehensive Test Suite**:
   - Added unit, integration, and packaging tests covering capabilities, screenshots, agent planner, executor, and the Part 19 acceptance scenarios (total 766 passing tests).
 
+#### Phase 12.1 — Native CLI Routing Integration
+- Eliminated legacy shell-command fallback for desktop actions (`avi "increase volume"`).
+- Direct capability execution for volume, screenshot, and application actions without sudo prompts or amixer generation.
+
+#### Phase 12.2 — Desktop Routing Gaps, Typo Safety & Activation Fixes
+- Added volume mute/unmute phrasing routing (`"mute volume"`, `"turn sound back on"`).
+- Added typo tolerance with Levenshtein fuzzy distance matching for desktop intents.
+- Enforced strict domain boundary protection preventing random shell queries from executing dangerous operations.
+- Single-instance GTK4 window activation via PID lock and process signaling.
+
+#### Phase 12.3 — GTK4 UI Stabilization & Assistant UX
+- Fixed PyGObject / GTK4 crash from deprecated GTK3 `override_font` and `TextView` APIs.
+- Multi-bubble assistant conversation cards (User bubble, Assistant bubble, Error card, Confirmation card).
+- Non-blocking background worker thread with `GLib.idle_add` UI dispatch.
+- Added direct interactive action buttons for screenshots and files.
+
+#### Phase 13.0 — Native Search Capabilities & Web Navigation
+- Added `web.youtube.search` capability.
+- Differentiated navigation (`"open YouTube"`) from search (`"search YouTube for Linux tutorials"`).
+- Safe parameter-encoded URL construction (`build_youtube_search_url`).
+
+#### Phase 13.1 — Web Retrieval, Search Result Understanding & Provider Selection
+- Built retrieval subsystem (`src/avi/retrieval/`): `BaseSearchProvider`, `SearchResult`, `SearchResults`, `SearchOptions`.
+- YouTube InnerTube endpoint integration (`YouTubeSearchRetrievalProvider`) for direct structured metadata fetching without browser automation.
+- Strict HTTPS YouTube URL validation (`validate_youtube_url`).
+- Dynamic provider capability selection via `ProviderCapabilities.supports()` and `select_provider()`.
+- Added `web.youtube.search_results` capability.
+- Added `YOUTUBE_RECOMMEND` intent (e.g. *"find me a good YouTube video about building local AI agents"*) with AI ranking.
+- Added `OPEN_SEARCH_RESULT` intent for multi-turn deictic follow-up (*"open it"*, *"open the second one"*).
+- Added interactive result cards in GTK4 UI with one-click `[Open]` buttons.
+- Fixed environment-sensitive test execution (`sys.argv` mocking) across Python 3.10, 3.11, and 3.12 (906 passing tests).
+
 ---
 
 ## [0.3.0] — 2026-09-06
