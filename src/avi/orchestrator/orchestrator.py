@@ -17,6 +17,7 @@ from avi.actions.timer import TimerAction
 from avi.apps.resolver import ApplicationResolver
 from avi.assistant.intents import (
     AssistantIntentType,
+    clean_natural_language_input,
     detect_assistant_intent,
 )
 from avi.assistant.synthesizer import (
@@ -76,7 +77,7 @@ class AssistantOrchestrator:
 
     def is_assistant_request(self, prompt: str) -> bool:
         """Determine if a prompt should be routed to native assistant capabilities rather than shell fallback."""
-        normalized_prompt = prompt.strip()
+        normalized_prompt = clean_natural_language_input(prompt)
         if not normalized_prompt:
             return False
 
@@ -141,7 +142,7 @@ class AssistantOrchestrator:
     ) -> OrchestratorResult:
         """Process user input through the assistant hierarchy."""
         t0 = time.perf_counter()
-        normalized_prompt = prompt.strip()
+        normalized_prompt = clean_natural_language_input(prompt)
         if not normalized_prompt:
             return OrchestratorResult(text="")
 

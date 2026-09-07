@@ -28,9 +28,14 @@ import os
 import re
 import subprocess
 import threading
+from pathlib import Path
 from typing import Any
 
-from avi.assistant.intents import AssistantIntentType, detect_assistant_intent
+from avi.assistant.intents import (
+    AssistantIntentType,
+    clean_natural_language_input,
+    detect_assistant_intent,
+)
 
 logger = logging.getLogger("avi.ui")
 
@@ -262,6 +267,33 @@ headerbar {
     font-size: 11px;
     color: #6c7086;
 }
+
+.avi-best-match-card {
+    background-color: #26273a;
+    border: 1px solid #89b4fa;
+    border-radius: 8px;
+    padding: 10px 12px;
+}
+
+.avi-best-match-tag {
+    color: #89b4fa;
+    font-size: 11px;
+    font-weight: bold;
+}
+
+.avi-play-btn {
+    background-color: #a6e3a1;
+    color: #11111b;
+    font-weight: bold;
+    border-radius: 6px;
+    padding: 4px 12px;
+    font-size: 12px;
+    border: none;
+}
+
+.avi-play-btn:hover {
+    background-color: #94e2d5;
+}
 """
 
 
@@ -370,6 +402,7 @@ class AviWindow:
         self.provider_label = Gtk.Label(label=provider_text)
         self.provider_label.add_css_class("avi-provider-label")
         self.provider_label.set_margin_end(4)
+        self.provider_label.set_visible(False)
         status_box.append(self.provider_label)
 
         root_box.append(status_box)
@@ -478,19 +511,86 @@ class AviWindow:
         self._add_assistant_message(text, action_path=action_path)
         self._set_status("Ready  ·  Esc to close", spinning=False)
 
-    def _add_search_results_widget(self, search_results: list) -> None:
+    def _add_search_results_widget(
+        self,
+        search_results: list,
+        selected_result: Any | None = None,
+    ) -> None:
         """Render compact interactive cards for YouTube search results."""
         if not search_results:
             return
 
-        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         outer.set_margin_start(8)
         outer.set_margin_end(8)
         outer.set_margin_bottom(6)
         outer.set_hexpand(True)
 
-        # Show at most 5 results in the card list
-        for i, result in enumerate(search_results[:5], 1):
+        other_results = []
+        if selected_result is not None:
+            # Render Featured Best Match card
+            best_card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+            best_card.add_css_class("avi-best-match-card")
+            best_card.set_margin_bottom(4)
+            best_card.set_hexpand(True)
+
+            meta = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            meta.set_hexpand(True)
+            meta.set_valign(Gtk.Align.CENTER)
+
+            tag_lbl = Gtk.Label(label="🎯 Best match")
+            tag_lbl.set_xalign(0.0)
+            tag_lbl.add_css_class("avi-best-match-tag")
+            meta.append(tag_lbl)
+
+            title_lbl = Gtk.Label(label=getattr(selected_result, "title", "Best match"))
+            title_lbl.set_wrap(True)
+            title_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            title_lbl.set_xalign(0.0)
+            title_lbl.add_css_class("avi-result-title")
+            meta.append(title_lbl)
+
+            sub_parts = []
+            channel = getattr(selected_result, "channel", None)
+            duration = getattr(selected_result, "duration", None)
+            if channel:
+                sub_parts.append(f"Channel: {channel}")
+            if duration:
+                sub_parts.append(f"Duration: {duration}")
+            if sub_parts:
+                sub_lbl = Gtk.Label(label="  ·  ".join(sub_parts))
+                sub_lbl.set_xalign(0.0)
+                sub_lbl.add_css_class("avi-result-meta")
+                meta.append(sub_lbl)
+
+            best_card.append(meta)
+
+            url = getattr(selected_result, "url", None)
+            if url:
+                play_btn = Gtk.Button(label="Play")
+                play_btn.add_css_class("avi-play-btn")
+                play_btn.set_valign(Gtk.Align.CENTER)
+                play_btn.connect(
+                    "clicked",
+                    lambda _b, _url=url: self._open_local_path(_url),
+                )
+                best_card.append(play_btn)
+
+            outer.append(best_card)
+
+            sel_id = getattr(selected_result, "id", None)
+            sel_url = getattr(selected_result, "url", None)
+            other_results = [
+                r
+                for r in search_results
+                if (sel_id is None or getattr(r, "id", None) != sel_id)
+                and (sel_url is None or getattr(r, "url", None) != sel_url)
+            ]
+        else:
+            other_results = search_results
+
+        start_idx = 2 if selected_result is not None else 1
+        for i, result in enumerate(other_results[:4], start_idx):
             card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
             card.add_css_class("avi-result-card")
             card.set_margin_bottom(2)
@@ -535,7 +635,6 @@ class AviWindow:
                 open_btn = Gtk.Button(label="Open")
                 open_btn.add_css_class("avi-action-btn")
                 open_btn.set_valign(Gtk.Align.CENTER)
-                # Capture url in closure
                 open_btn.connect(
                     "clicked",
                     lambda _b, _url=url: self._open_local_path(_url),
@@ -545,7 +644,7 @@ class AviWindow:
             outer.append(card)
 
         self._append_message_widget(outer)
-        self._set_status("Ready  ·  Esc to close", spinning=False)
+        self._set_status("Ready  ·  Esc to close", spinning=False, is_llm=False)
 
     def _show_error(self, message: str) -> None:
         """Display an error card in the conversation."""
@@ -678,23 +777,129 @@ class AviWindow:
     # User Interactions & Event Handlers
     # -----------------------------------------------------------------------
 
+    def _get_loading_status(self, prompt: str) -> tuple[str, bool]:
+        """Compute the appropriate status bar text and whether LLM is active.
+
+        Returns (status_text, is_llm). For deterministic desktop commands,
+        fast action status is returned with is_llm=False.
+        """
+        last_turn = (
+            self.orchestrator.history.last_turn
+            if self.orchestrator and hasattr(self.orchestrator, "history")
+            else None
+        )
+        intent = detect_assistant_intent(prompt, last_turn=last_turn)
+
+        if intent.intent_type == AssistantIntentType.OPEN_APP:
+            app_name = intent.target
+            if app_name.lower() in ("chrome", "google chrome"):
+                return ("Opening Google Chrome…", False)
+            return (f"Opening {app_name.title()}…", False)
+
+        if intent.intent_type == AssistantIntentType.SCREENSHOT:
+            return ("Capturing screenshot…", False)
+
+        if intent.intent_type == AssistantIntentType.VOLUME_SET:
+            action = intent.extra.get("action")
+            if action == "raise":
+                return ("Increasing volume…", False)
+            if action == "lower":
+                return ("Decreasing volume…", False)
+            if action == "mute":
+                return ("Muting audio…", False)
+            if action == "unmute":
+                return ("Unmuting audio…", False)
+            val = intent.extra.get("value")
+            if val == 100 or intent.extra.get("target") == "max":
+                return ("Setting volume to max…", False)
+            if val == 0:
+                return ("Muting audio…", False)
+            if val is not None:
+                return (f"Setting volume to {val}%…", False)
+            return ("Setting volume…", False)
+
+        if intent.intent_type == AssistantIntentType.VOLUME_GET:
+            return ("Checking volume…", False)
+
+        if intent.intent_type == AssistantIntentType.OPEN_DIR:
+            folder = intent.extra.get("folder") or intent.target
+            name = Path(folder).name if folder else "folder"
+            if name.lower() == "downloads":
+                return ("Opening Downloads…", False)
+            if name.lower() == "documents":
+                return ("Opening Documents…", False)
+            if name.lower() == "desktop":
+                return ("Opening Desktop…", False)
+            return (f"Opening {name}…", False)
+
+        if intent.intent_type == AssistantIntentType.OPEN_FILE:
+            name = Path(intent.target).name if intent.target else "file"
+            return (f"Opening {name}…", False)
+
+        if intent.intent_type == AssistantIntentType.OPEN_URL:
+            return ("Opening browser…", False)
+
+        if intent.intent_type in (
+            AssistantIntentType.YOUTUBE_SEARCH,
+            AssistantIntentType.YOUTUBE_RECOMMEND,
+        ):
+            return ("Searching YouTube…", False)
+
+        if intent.intent_type == AssistantIntentType.OPEN_SEARCH_RESULT:
+            return ("Opening result…", False)
+
+        if intent.intent_type == AssistantIntentType.TIMER:
+            return ("Setting timer…", False)
+
+        if intent.intent_type in (
+            AssistantIntentType.DISK_SPACE,
+            AssistantIntentType.RAM_USAGE,
+            AssistantIntentType.CPU_USAGE,
+            AssistantIntentType.SYSTEM_INFO,
+        ):
+            return ("Checking system…", False)
+
+        if intent.intent_type == AssistantIntentType.MEDIA_CONTROL:
+            return ("Controlling media…", False)
+
+        if intent.intent_type in (
+            AssistantIntentType.GREETING,
+            AssistantIntentType.CAPABILITIES,
+            AssistantIntentType.COURTESY,
+            AssistantIntentType.SMALL_TALK,
+            AssistantIntentType.CLARIFICATION,
+        ):
+            return ("Working…", False)
+
+        return ("Thinking…", True)
+
     def _on_prompt_submit(self, entry: "Gtk.Entry") -> None:
         """Handle prompt submission from Enter key or Send button."""
-        prompt = entry.get_text().strip()
-        if not prompt:
+        raw_text = entry.get_text().strip()
+        if not raw_text:
             return
 
         if self._is_busy:
             self._set_status("AVI is currently busy working on a request...", spinning=True)
             return
 
+        cleaned_text = clean_natural_language_input(raw_text)
+        if not cleaned_text:
+            return
+
+        # Double-submission guard: synchronously mark busy and disable Send button
+        self._is_busy = True
+        self.send_button.set_sensitive(False)
+
         entry.set_text("")
-        self._add_user_message(prompt)
-        self._set_status("Thinking…", spinning=True)
+        self._add_user_message(cleaned_text)
+
+        status_text, is_llm = self._get_loading_status(cleaned_text)
+        self._set_status(status_text, spinning=True, is_llm=is_llm)
 
         self._worker_thread = threading.Thread(
             target=self._run_query,
-            args=(prompt,),
+            args=(cleaned_text,),
             daemon=True,
         )
         self._worker_thread.start()
@@ -841,8 +1046,15 @@ class AviWindow:
                 ):
                     GLib.idle_add(self._show_assistant_response, res.text, action_path)
                     # Show interactive result cards if search results are available
-                    if res.search_results:
-                        GLib.idle_add(self._add_search_results_widget, res.search_results)
+                    if (
+                        res.search_results
+                        and intent.intent_type != AssistantIntentType.OPEN_SEARCH_RESULT
+                    ):
+                        GLib.idle_add(
+                            self._add_search_results_widget,
+                            res.search_results,
+                            res.selected_result,
+                        )
                     return
 
             # 2. Router fast-path
@@ -912,9 +1124,10 @@ class AviWindow:
     # GTK Main-Thread UI State Management
     # -----------------------------------------------------------------------
 
-    def _set_status(self, text: str, spinning: bool = False) -> None:
-        """Update status bar text and spinner."""
+    def _set_status(self, text: str, spinning: bool = False, is_llm: bool = False) -> None:
+        """Update status bar text, spinner, and provider visibility."""
         self.status_label.set_text(text)
+        self.provider_label.set_visible(is_llm)
         if spinning:
             self.spinner.set_visible(True)
             self.spinner.start()
@@ -925,11 +1138,12 @@ class AviWindow:
     def _restore_idle_state(self) -> None:
         """Reset UI to idle state (clearing spinner and restoring status)."""
         self._is_busy = False
+        self.send_button.set_sensitive(True)
         self.spinner.stop()
         self.spinner.set_visible(False)
         self.prompt_entry.grab_focus()
         if self._pending_confirmation is None:
-            self._set_status("Ready  ·  Esc to close", spinning=False)
+            self._set_status("Ready  ·  Esc to close", spinning=False, is_llm=False)
 
     def _open_local_path(self, path: str) -> None:
         """Open a local file or https:// URL in the default desktop application without blocking."""

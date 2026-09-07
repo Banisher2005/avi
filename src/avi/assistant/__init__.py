@@ -3,6 +3,7 @@
 from avi.assistant.intents import (
     AssistantIntentType,
     DetectedIntent,
+    clean_natural_language_input,
     detect_assistant_intent,
     parse_duration_seconds,
 )
@@ -16,6 +17,7 @@ from avi.assistant.synthesizer import (
 __all__ = [
     "AssistantIntentType",
     "DetectedIntent",
+    "clean_natural_language_input",
     "detect_assistant_intent",
     "parse_duration_seconds",
     "format_disk_space_conversational",

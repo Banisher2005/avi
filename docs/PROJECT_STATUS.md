@@ -3,7 +3,7 @@
 **Date:** September 7, 2026  
 **Current Version:** `0.4.0`  
 **Current Branch:** `main` (synchronized with `origin/main`)  
-**Test Suite Health:** 954 passed, 2 skipped (100% green across Python 3.10, 3.11, 3.12)  
+**Test Suite Health:** 962 passed, 2 skipped (100% green across Python 3.10, 3.11, 3.12)  
 **CI Pipeline:** Passing on all matrix runners  
 
 ---
@@ -131,10 +131,10 @@ flowchart TD
 
 | Category | Count | Status |
 | :--- | :--- | :--- |
-| **Unit Tests** | 711 | Passing |
-| **Integration Tests** | 243 | Passing |
+| **Unit Tests** | 715 | Passing |
+| **Integration Tests** | 247 | Passing |
 | **Skipped Tests** | 2 | Conditionally skipped (headless GTK display probes) |
-| **Total Test Count** | **954** | **All Green** |
+| **Total Test Count** | **962** | **All Green** |
 | **Ruff Linter** | 117 files | 0 errors |
 | **Ruff Formatter** | 117 files | Clean |
 | **Python Compatibility** | 3.10, 3.11, 3.12 | Verified |
@@ -142,7 +142,7 @@ flowchart TD
 
 ---
 
-## 5. Summary of Verified User Commands
+## 5. Summary of Verified User Commands & GUI Interactions
 
 | Prompt Example | Subsystem / Capability | Behavior |
 | :--- | :--- | :--- |
@@ -160,7 +160,10 @@ flowchart TD
 | `avi "find me the best YouTube video about AI agents"` | `YOUTUBE_RECOMMEND` | Fetches metadata and deterministically ranks top candidate in < 1s |
 | `avi "open it"` (after search across runs) | `OPEN_SEARCH_RESULT` | Cross-process XDG session persistence opens remembered result |
 | `avi "open it"` (no prior search) | `CLARIFICATION` | Reports *"I don't have a recent result to open."* without filesystem leak |
-| `avi activate`, `activaite` | `AviWindow` (GTK4) | Summons or focuses floating desktop assistant with visible terminal feedback |
+| `avi activate`, `activaite` | `AviWindow` (GTK4) | Summons or focuses floating desktop assistant with single visible confirmation |
+| GTK prompt with CLI syntax / quotes | `clean_natural_language_input` | Automatically strips `avi ` and quotes; displays pure natural language in chat bubble |
+| GTK YouTube recommendations | `AviWindow` Cards | Renders featured `🎯 Best match` card with `[Play]` button and numbered `[Open]` cards |
+| GTK Deterministic Actions | `_get_loading_status` | Immediately displays fast action status (`Opening...`, `Capturing...`); hides LLM provider label |
 | `avi "rm -rf /"` | `SafetyEngine` | Blocked immediately with critical risk assessment |
 | `avi "systemctl enable lightdm"` | Shell Router + Safety | Preserved as valid administrative shell proposal |
 
@@ -168,7 +171,7 @@ flowchart TD
 
 ## 6. Next Steps & Roadmap
 
-1. **Phase 13.4 — General Web Search Broadening (DuckDuckGo / SearXNG)**
+1. **Phase 13.5 — General Web Search Broadening (DuckDuckGo / SearXNG)**
    - Expand `avi.retrieval` with general web search providers for queries beyond YouTube.
    - Structured summarization for documentation, recipes, and news.
 

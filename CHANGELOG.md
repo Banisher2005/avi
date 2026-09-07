@@ -110,6 +110,29 @@ Versions follow [Semantic Versioning](https://semver.org/).
   - Extended `ResponseMetrics` with latency breakdown fields (`intent_duration_ms`, `capability_duration_ms`, `retrieval_duration_ms`, `time_to_first_token_ms`).
 - **Test Suite Expansion**: Added comprehensive test suite `TestPhase133JarvisFastPathAndYouTubeReliability` (954 passing tests, 2 skipped).
 
+#### Phase 13.4 — JARVIS GTK Integration & Native Conversation UX
+- **CLI Syntax & Quote Stripping (`clean_natural_language_input`)**:
+  - Automatically normalizes input by stripping CLI command prefixes (`avi `, `avi: `, `avi, `) and wrapping quotes whether submitted via CLI or GTK UI.
+  - Ensures GTK chat bubble displays clean natural language (`find me the best YouTube video about building local AI agents`) instead of shell syntax.
+  - Converged GTK and CLI on the same public assistant API (`orchestrator.handle`) before intent detection.
+- **Unified YouTube Retrieval & Deterministic Ranking in GTK**:
+  - GTK queries like `avi "find me the best YouTube video..."` or `open youtube mkbhd` route directly to native YouTube search/recommendation rather than triggering fallback clarification (*"What would you like me to search for on YouTube?"*).
+- **Structured Interactive Result Cards**:
+  - Highlights `🎯 Best match` featured card with Title, Channel, Duration, and a prominent `[Play]` action button.
+  - Numbered secondary result cards with `[Open]` action buttons.
+  - Direct execution using structured `result.url` without regex prose parsing.
+- **Deictic `open it` Follow-Up Resolution**:
+  - Resolves `open it` from session state to open the top recommended YouTube result without falling through to open `/home/<user>/it` or launch an application named `it`.
+  - Also resolves `open it` when preceded by screenshot captures or file operations, and safely requests clarification when no prior referent exists.
+- **Activation Recursion Elimination**:
+  - Separated UI startup from conversation; UI never injects `activate` into prompt entry or chat history.
+  - Fixed fallback to system Python forwarding `["ui"]` instead of re-executing `activate`, eliminating duplicate `Activating AVI...` prints.
+- **Dynamic GTK Loading State & Double-Submission Guard**:
+  - Status bar displays immediate fast action status (`Opening Google Chrome…`, `Capturing screenshot…`, `Increasing volume…`, `Muting audio…`, `Opening Downloads…`, `Searching YouTube…`) for deterministic operations without showing `Thinking…` or the LLM provider label.
+  - Hides `ollama / qwen3:4b` provider label unless Qwen3 is actually being queried for complex reasoning.
+  - Added synchronous double-submission guard disabling the Send button and blocking duplicate queries while an operation is in-flight.
+- **Test Suite Expansion**: Added unit and integration tests for UI input normalization, double submission prevention, loading status behavior, and best match card rendering (total 962 passing tests, 2 skipped).
+
 ---
 
 ## [0.3.0] — 2026-09-06

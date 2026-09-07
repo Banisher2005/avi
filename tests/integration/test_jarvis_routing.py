@@ -498,3 +498,97 @@ class TestPhase133JarvisFastPathAndYouTubeReliability:
         assert m.capability_duration_ms == 40.0
         assert m.retrieval_duration_ms == 80.0
         assert m.time_to_first_token_ms == 50.0
+
+    # ── 7. Phase 13.4: GUI Natural Language Normalization & Deictic Resolution ─
+
+    def test_clean_natural_language_input_variants(self):
+        from avi.assistant.intents import clean_natural_language_input
+
+        assert (
+            clean_natural_language_input(
+                'avi "find me the best YouTube video about building local AI agents"'
+            )
+            == "find me the best YouTube video about building local AI agents"
+        )
+        assert clean_natural_language_input("avi chrome") == "chrome"
+        assert clean_natural_language_input('"increase volume"') == "increase volume"
+        assert (
+            clean_natural_language_input("avi: increase volume to max") == "increase volume to max"
+        )
+        assert clean_natural_language_input("avi, screenshot") == "screenshot"
+        assert clean_natural_language_input("open youtube mkbhd") == "open youtube mkbhd"
+        assert clean_natural_language_input("open it") == "open it"
+
+    def test_orchestrator_handles_cli_prefixed_youtube_request(self):
+        from avi.retrieval.models import SearchResult
+
+        orch = AssistantOrchestrator(config=Config(provider="ollama"))
+        mock_results = [
+            SearchResult(
+                id="v123",
+                title="Local AI Agents with Ollama",
+                url="https://www.youtube.com/watch?v=v123",
+                source="youtube",
+                channel="AI Lab",
+                duration="12:30",
+            )
+        ]
+
+        def _mock_exec(cap_name, **kwargs):
+            if cap_name == "web.youtube.search_results":
+                return MagicMock(success=True, error=None, data={"search_results": mock_results})
+            return MagicMock(success=True, error=None, data={})
+
+        with patch.object(orch.capabilities, "execute", side_effect=_mock_exec):
+            res = orch.handle('avi "find me the best YouTube video about building local AI agents"')
+            assert res.text
+            assert "What would you like me to search for on YouTube?" not in res.text
+            assert "Local AI Agents with Ollama" in res.text
+            assert res.selected_result is not None
+            assert res.selected_result.id == "v123"
+
+    def test_deictic_open_it_after_youtube_opens_selected_result(self):
+        from avi.retrieval.models import SearchResult
+
+        orch = AssistantOrchestrator(config=Config(provider="ollama"))
+        mock_results = [
+            SearchResult(
+                id="dQw4w9WgXcQ",
+                title="Local AI Agents with Ollama",
+                url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                source="youtube",
+                channel="AI Lab",
+                duration="12:30",
+            )
+        ]
+
+        opened_urls = []
+
+        def _mock_exec(cap_name, **kwargs):
+            if cap_name == "web.youtube.search_results":
+                return MagicMock(success=True, error=None, data={"search_results": mock_results})
+            if cap_name in ("desktop.url.open", "desktop.open_url", "open_url"):
+                opened_urls.append(kwargs.get("url"))
+                return MagicMock(success=True, error=None, message="URL opened", data={})
+            return MagicMock(success=True, error=None, data={})
+
+        with patch.object(orch.capabilities, "execute", side_effect=_mock_exec):
+            # 1. Search YouTube
+            res1 = orch.handle("find me the best YouTube video about building local AI agents")
+            assert res1.selected_result is not None
+
+            # 2. "open it"
+            res2 = orch.handle("open it")
+            assert "Opening" in res2.text
+            assert "Local AI Agents with Ollama" in res2.text
+            assert opened_urls == ["https://www.youtube.com/watch?v=dQw4w9WgXcQ"]
+
+    def test_deictic_open_it_without_prior_turn_does_not_open_user_it_path(self):
+        orch = AssistantOrchestrator(config=Config(provider="ollama"))
+        with patch(
+            "avi.capabilities.desktop.app_launcher.OpenUrlCapability.execute"
+        ) as mock_open_url:
+            res = orch.handle("open it")
+            # Should ask for clarification, never open /home/.../it or execute app 'it'
+            assert "What would you like me to open?" in res.text or "specify" in res.text.lower()
+            mock_open_url.assert_not_called()

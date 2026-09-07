@@ -382,6 +382,123 @@ class TestAviWindowMocked:
             app.window.present()
             mock_win.present.assert_called_once()
 
+    def test_prompt_submission_cleans_cli_syntax_and_quotes(self, mock_gtk):
+        from avi.ui.window import AviWindow
+
+        mock_app = MagicMock()
+        mock_router = MagicMock()
+        mock_config = MagicMock()
+        mock_orch = MagicMock()
+
+        win = AviWindow(mock_app, mock_router, mock_config, orchestrator=mock_orch)
+        win.prompt_entry.get_text.return_value = (
+            'avi "find me the best YouTube video about building local AI agents"'
+        )
+
+        win._on_prompt_submit(win.prompt_entry)
+
+        win.prompt_entry.set_text.assert_called_with("")
+        assert win._worker_thread is not None
+        win._worker_thread.join(timeout=1.0)
+        assert len(win._history_widgets) >= 1
+
+    def test_double_submission_guard(self, mock_gtk):
+        from avi.ui.window import AviWindow
+
+        mock_app = MagicMock()
+        mock_router = MagicMock()
+        mock_config = MagicMock()
+        mock_orch = MagicMock()
+
+        win = AviWindow(mock_app, mock_router, mock_config, orchestrator=mock_orch)
+        win.prompt_entry.get_text.return_value = "screenshot"
+
+        # Manually set busy to simulate an active in-flight request
+        win._is_busy = True
+        win._on_prompt_submit(win.prompt_entry)
+
+        win.status_label.set_text.assert_called_with(
+            "AVI is currently busy working on a request..."
+        )
+        assert win._worker_thread is None
+
+    def test_loading_status_deterministic_vs_llm(self, mock_gtk):
+        from avi.ui.window import AviWindow
+
+        win = AviWindow(MagicMock(), MagicMock(), MagicMock())
+
+        # Deterministic commands
+        status, is_llm = win._get_loading_status("chrome")
+        assert "Opening Google Chrome" in status
+        assert is_llm is False
+
+        status, is_llm = win._get_loading_status("screenshot")
+        assert "Capturing screenshot" in status
+        assert is_llm is False
+
+        status, is_llm = win._get_loading_status("increase volume")
+        assert "Increasing volume" in status
+        assert is_llm is False
+
+        status, is_llm = win._get_loading_status("mute")
+        assert "Muting audio" in status
+        assert is_llm is False
+
+        status, is_llm = win._get_loading_status("downloads")
+        assert "Opening Downloads" in status
+        assert is_llm is False
+
+        status, is_llm = win._get_loading_status(
+            "find me the best YouTube video about local AI agents"
+        )
+        assert "Searching YouTube" in status
+        assert is_llm is False
+
+        # Open-ended query requiring LLM
+        status, is_llm = win._get_loading_status(
+            "why is the sky blue and how does light scattering work?"
+        )
+        assert "Thinking" in status
+        assert is_llm is True
+
+    def test_best_match_card_rendering_with_play_and_open(self, mock_gtk):
+        from avi.retrieval.models import SearchResult
+        from avi.ui.window import AviWindow
+
+        win = AviWindow(MagicMock(), MagicMock(), MagicMock())
+        best = SearchResult(
+            id="v1",
+            title="Local AI Agents Masterclass",
+            url="https://www.youtube.com/watch?v=v1",
+            source="youtube",
+            channel="Tech Guru",
+            duration="14:20",
+        )
+        other1 = SearchResult(
+            id="v2",
+            title="Build an Agent in 10 mins",
+            url="https://www.youtube.com/watch?v=v2",
+            source="youtube",
+            channel="Code Lab",
+            duration="10:05",
+        )
+        other2 = SearchResult(
+            id="v3",
+            title="AI Agents from Scratch",
+            url="https://www.youtube.com/watch?v=v3",
+            source="youtube",
+            channel="Dev Central",
+            duration="22:15",
+        )
+
+        win._add_search_results_widget([best, other1, other2], selected_result=best)
+
+        assert len(win._history_widgets) == 1
+        gtk_mock = mock_gtk[0]
+        button_labels = [call.kwargs.get("label") for call in gtk_mock.Button.call_args_list]
+        assert "Play" in button_labels
+        assert "Open" in button_labels
+
 
 # ============================================================
 # 6. GTK-specific tests (system Python or GTK-enabled venv)

@@ -734,9 +734,39 @@ def find_desktop_typo(prompt: str) -> str | None:
     return None
 
 
+def clean_natural_language_input(text: str) -> str:
+    """Normalize user input by removing CLI invocation prefixes and wrapping quotes.
+
+    Ensures input is pure natural language whether entered in CLI or GUI.
+    E.g.:
+      avi "increase volume" -> increase volume
+      avi chrome -> chrome
+      "find me youtube" -> find me youtube
+      avi "find me the best YouTube video" -> find me the best YouTube video
+    """
+    s = text.strip()
+    if not s:
+        return ""
+
+    # Strip outer quotes if enclosed
+    if len(s) >= 2 and ((s[0] == '"' and s[-1] == '"') or (s[0] == "'" and s[-1] == "'")):
+        s = s[1:-1].strip()
+
+    # Strip leading 'avi' command prefix (e.g. "avi ", "avi: ", "avi, ")
+    if re.match(r"^avi[\s,:]+", s, re.IGNORECASE):
+        s = re.sub(r"^avi[\s,:]+", "", s, count=1, flags=re.IGNORECASE).strip()
+
+    # Strip outer quotes again if prompt was avi "..."
+    if len(s) >= 2 and ((s[0] == '"' and s[-1] == '"') or (s[0] == "'" and s[-1] == "'")):
+        s = s[1:-1].strip()
+
+    return s
+
+
 def detect_assistant_intent(prompt: str, last_turn: Any | None = None) -> DetectedIntent:
     """Analyze prompt and detect if it maps to a native assistant capability."""
-    s = prompt.strip().rstrip("?.!").strip()
+    cleaned = clean_natural_language_input(prompt)
+    s = cleaned.rstrip("?.!").strip()
     if not s:
         return DetectedIntent(intent_type=AssistantIntentType.UNKNOWN, raw_prompt=prompt)
     lower = s.lower()
@@ -1163,6 +1193,47 @@ def detect_assistant_intent(prompt: str, last_turn: Any | None = None) -> Detect
                 intent_type=AssistantIntentType.OPEN_DIR,
                 raw_prompt=prompt,
                 target=str(folder_alias),
+            )
+
+        # Handle deictic targets like "it", "that"
+        if target_lower in ("it", "that", "this", "them", "that one", "that video"):
+            if last_turn is not None:
+                has_res = bool(
+                    getattr(last_turn, "search_results", None)
+                    or getattr(last_turn, "selected_result", None)
+                )
+                if has_res:
+                    return DetectedIntent(
+                        intent_type=AssistantIntentType.OPEN_SEARCH_RESULT,
+                        raw_prompt=prompt,
+                        target="0",
+                        extra={"index": 0},
+                    )
+                action_path = None
+                cap_res = getattr(last_turn, "capability_result", None)
+                if cap_res and hasattr(cap_res, "data") and isinstance(cap_res.data, dict):
+                    action_path = cap_res.data.get("path")
+                if not action_path and getattr(last_turn, "response_text", None):
+                    m_png = re.search(
+                        r"(/home/[^\s]+\.png|~/[^\s]+\.png|/[^\s]+\.png)",
+                        last_turn.response_text,
+                    )
+                    if m_png:
+                        action_path = Path(m_png.group(1)).expanduser()
+                if action_path and Path(action_path).exists():
+                    return DetectedIntent(
+                        intent_type=AssistantIntentType.OPEN_FILE,
+                        raw_prompt=prompt,
+                        target=str(action_path),
+                    )
+            return DetectedIntent(
+                intent_type=AssistantIntentType.CLARIFICATION,
+                raw_prompt=prompt,
+                target=target,
+                extra={
+                    "clarification_type": "deictic",
+                    "message": "What would you like me to open?",
+                },
             )
 
         # Check local file or directory

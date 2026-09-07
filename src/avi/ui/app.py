@@ -42,7 +42,14 @@ class AviApp:
                 env["PYTHONPATH"] = (
                     f"{src_path}:{existing_pythonpath}" if existing_pythonpath else src_path
                 )
-                forward_args = sys.argv[1:] if len(sys.argv) > 1 else ["ui"]
+                forward_args = list(sys.argv[1:]) if len(sys.argv) > 1 else ["ui"]
+                if forward_args and forward_args[0] in (
+                    "activate",
+                    "activaite",
+                    "activte",
+                    "actvate",
+                ):
+                    forward_args = ["ui"] + forward_args[1:]
                 cmd = [report.system_python_path, "-m", "avi.cli"] + forward_args
                 proc = subprocess.run(cmd, env=env)
                 return proc.returncode
@@ -70,16 +77,20 @@ class AviApp:
                 self.window.present()
                 return
 
+            display = Gdk.Display.get_default()
+            if display is None:
+                sys.stderr.write("Error: Could not connect to display server.\n")
+                gtk_app.quit()
+                return
+
             # Apply CSS styling
             css_provider = Gtk.CssProvider()
             css_provider.load_from_data(CSS_STYLE)
-            display = Gdk.Display.get_default()
-            if display:
-                Gtk.StyleContext.add_provider_for_display(
-                    display,
-                    css_provider,
-                    Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
-                )
+            Gtk.StyleContext.add_provider_for_display(
+                display,
+                css_provider,
+                Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+            )
             self.window = AviWindow(
                 gtk_app, self.router, self.config, orchestrator=self.orchestrator
             )
