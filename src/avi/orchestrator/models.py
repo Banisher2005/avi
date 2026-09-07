@@ -24,6 +24,8 @@ class ConversationTurn:
     plan: Any | None = None
     capability_result: Any | None = None
     target: str | None = None
+    search_results: list[Any] | None = None
+    selected_result: Any | None = None
     timestamp: float = field(default_factory=time.time)
 
 
@@ -46,6 +48,8 @@ class ConversationHistory:
         plan: Any | None = None,
         capability_result: Any | None = None,
         target: str | None = None,
+        search_results: list[Any] | None = None,
+        selected_result: Any | None = None,
     ) -> ConversationTurn:
         turn = ConversationTurn(
             turn_id=len(self.turns) + 1,
@@ -59,6 +63,8 @@ class ConversationHistory:
             execution_result=execution_result,
             plan=plan,
             capability_result=capability_result,
+            search_results=search_results,
+            selected_result=selected_result,
             timestamp=time.time(),
         )
         self.turns.append(turn)
@@ -93,3 +99,6 @@ class OrchestratorResult:
     context: Any | None = None
     plan: Any | None = None
     capability_result: Any | None = None
+    search_results: list[Any] | None = None
+    selected_result: Any | None = None
+    action_url: str | None = None

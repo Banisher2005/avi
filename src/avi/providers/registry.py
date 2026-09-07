@@ -8,7 +8,7 @@ from typing import Any, Callable
 
 from avi.config import Config
 from avi.providers.base import BaseProvider
-from avi.providers.models import ProviderNotAvailableError
+from avi.providers.models import ProviderCapabilities, ProviderNotAvailableError
 
 ProviderFactory = Callable[[Config, dict[str, Any]], BaseProvider]
 
@@ -61,6 +61,33 @@ class ProviderRegistry:
 
     def __len__(self) -> int:
         return len(self._factories)
+
+    def select_provider(
+        self,
+        required: ProviderCapabilities,
+        config: Config | None = None,
+        active_provider: BaseProvider | None = None,
+    ) -> BaseProvider | None:
+        """Select a suitable provider satisfying required capabilities without hard-coding names."""
+        if active_provider is not None:
+            try:
+                caps = active_provider.capabilities()
+                if caps.supports(required) and active_provider.is_available():
+                    return active_provider
+            except Exception:
+                pass
+
+        cfg = config or Config()
+        for name in self.list_providers():
+            try:
+                candidate = self.get(name, config=cfg)
+                caps = candidate.capabilities()
+                if caps.supports(required) and candidate.is_available():
+                    return candidate
+            except Exception:
+                continue
+
+        return None
 
 
 def _create_ollama_provider(config: Config, **kwargs: Any) -> BaseProvider:
@@ -136,3 +163,14 @@ def list_providers() -> list[str]:
 def remove_provider(name: str) -> None:
     """Remove a provider from the global registry."""
     get_default_registry().remove(name)
+
+
+def select_provider(
+    required: ProviderCapabilities,
+    config: Config | None = None,
+    active_provider: BaseProvider | None = None,
+) -> BaseProvider | None:
+    """Select a suitable provider from the global registry satisfying required capabilities."""
+    return get_default_registry().select_provider(
+        required=required, config=config, active_provider=active_provider
+    )

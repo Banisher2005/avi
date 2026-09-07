@@ -341,6 +341,7 @@ class TestCliRoutingIntegration:
             patch("avi.ui.app._GTK_AVAILABLE", False),
             patch("avi.ui.app.diagnose_gtk_environment", return_value=fake_report),
             patch("avi.ui.app.subprocess.run") as mock_subproc,
+            patch("avi.ui.app.sys.argv", ["avi", "ui"]),
         ):
             mock_subproc.return_value = MagicMock(returncode=0)
             code = app.run(allow_system_fallback=True)

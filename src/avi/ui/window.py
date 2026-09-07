@@ -233,6 +233,35 @@ headerbar {
     font-family: monospace;
     font-size: 10px;
 }
+
+.avi-result-card {
+    background-color: #1e1e2e;
+    border: 1px solid #313244;
+    border-radius: 8px;
+    padding: 6px 10px;
+}
+
+.avi-result-card:hover {
+    background-color: #252636;
+}
+
+.avi-result-num {
+    color: #6c7086;
+    font-size: 11px;
+    font-family: monospace;
+    min-width: 16px;
+}
+
+.avi-result-title {
+    font-size: 13px;
+    color: #cdd6f4;
+    font-weight: bold;
+}
+
+.avi-result-meta {
+    font-size: 11px;
+    color: #6c7086;
+}
 """
 
 
@@ -447,6 +476,75 @@ class AviWindow:
     def _show_assistant_response(self, text: str, action_path: str | None = None) -> None:
         """Display an assistant response message card."""
         self._add_assistant_message(text, action_path=action_path)
+        self._set_status("Ready  ·  Esc to close", spinning=False)
+
+    def _add_search_results_widget(self, search_results: list) -> None:
+        """Render compact interactive cards for YouTube search results."""
+        if not search_results:
+            return
+
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        outer.set_margin_start(8)
+        outer.set_margin_end(8)
+        outer.set_margin_bottom(6)
+        outer.set_hexpand(True)
+
+        # Show at most 5 results in the card list
+        for i, result in enumerate(search_results[:5], 1):
+            card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+            card.add_css_class("avi-result-card")
+            card.set_margin_bottom(2)
+            card.set_hexpand(True)
+
+            # Left: number badge
+            num_lbl = Gtk.Label(label=str(i))
+            num_lbl.add_css_class("avi-result-num")
+            num_lbl.set_valign(Gtk.Align.CENTER)
+            card.append(num_lbl)
+
+            # Center: metadata
+            meta = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+            meta.set_hexpand(True)
+            meta.set_valign(Gtk.Align.CENTER)
+
+            title_lbl = Gtk.Label(label=getattr(result, "title", f"Result {i}"))
+            title_lbl.set_wrap(True)
+            title_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            title_lbl.set_xalign(0.0)
+            title_lbl.add_css_class("avi-result-title")
+            meta.append(title_lbl)
+
+            sub_parts = []
+            channel = getattr(result, "channel", None)
+            duration = getattr(result, "duration", None)
+            if channel:
+                sub_parts.append(channel)
+            if duration:
+                sub_parts.append(duration)
+            if sub_parts:
+                sub_lbl = Gtk.Label(label="  ·  ".join(sub_parts))
+                sub_lbl.set_xalign(0.0)
+                sub_lbl.add_css_class("avi-result-meta")
+                meta.append(sub_lbl)
+
+            card.append(meta)
+
+            # Right: Open button
+            url = getattr(result, "url", None)
+            if url:
+                open_btn = Gtk.Button(label="Open")
+                open_btn.add_css_class("avi-action-btn")
+                open_btn.set_valign(Gtk.Align.CENTER)
+                # Capture url in closure
+                open_btn.connect(
+                    "clicked",
+                    lambda _b, _url=url: self._open_local_path(_url),
+                )
+                card.append(open_btn)
+
+            outer.append(card)
+
+        self._append_message_widget(outer)
         self._set_status("Ready  ·  Esc to close", spinning=False)
 
     def _show_error(self, message: str) -> None:
@@ -742,6 +840,9 @@ class AviWindow:
                     or res.text
                 ):
                     GLib.idle_add(self._show_assistant_response, res.text, action_path)
+                    # Show interactive result cards if search results are available
+                    if res.search_results:
+                        GLib.idle_add(self._add_search_results_widget, res.search_results)
                     return
 
             # 2. Router fast-path
@@ -831,14 +932,22 @@ class AviWindow:
             self._set_status("Ready  ·  Esc to close", spinning=False)
 
     def _open_local_path(self, path: str) -> None:
-        """Open a local file in the default desktop viewer without blocking."""
+        """Open a local file or https:// URL in the default desktop application without blocking."""
         try:
-            clean_path = os.path.expanduser(path)
-            if os.path.exists(clean_path):
+            if path.startswith("https://") or path.startswith("http://"):
+                # Open URL via xdg-open (no shell=True, no eval)
                 subprocess.Popen(
-                    ["xdg-open", clean_path],
+                    ["xdg-open", path],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                 )
+            else:
+                clean_path = os.path.expanduser(path)
+                if os.path.exists(clean_path):
+                    subprocess.Popen(
+                        ["xdg-open", clean_path],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
         except Exception as err:
-            logger.warning("Could not open local file %s: %s", path, err)
+            logger.warning("Could not open path/url %s: %s", path, err)

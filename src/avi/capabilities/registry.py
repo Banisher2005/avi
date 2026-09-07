@@ -30,7 +30,10 @@ from avi.capabilities.models import (
     ExecutionStatus,
     ToolCapabilityAdapter,
 )
-from avi.capabilities.web.search import YouTubeSearchCapability
+from avi.capabilities.web.search import (
+    YouTubeSearchCapability,
+    YouTubeSearchResultsCapability,
+)
 from avi.safety.models import ActionCategory
 from avi.tools.registry import ToolRegistry, create_default_registry
 
@@ -195,6 +198,10 @@ def create_default_capability_registry(
     registry.register(
         YouTubeSearchCapability(url_capability=url_opener),
         aliases=["youtube.search", "youtube_search"],
+    )
+    registry.register(
+        YouTubeSearchResultsCapability(),
+        aliases=["youtube.search_results", "youtube_search_results", "youtube.retrieve"],
     )
 
     # 4. Filesystem Capabilities
