@@ -159,6 +159,75 @@ class ApplicationResolver:
         s = re.sub(r"\s+(?:application|app|browser)$", "", s).strip()
         return s
 
+    def is_known_app(self, query: str) -> bool:
+        """Check if query corresponds to a recognized application alias or desktop entry."""
+        normalized = self.normalize_app_name(query)
+        if not normalized or len(normalized) < 2:
+            return False
+        if normalized in self.aliases:
+            return True
+        desktop_entries = self._index_desktop_entries()
+        if normalized in desktop_entries:
+            return True
+        for key, info in desktop_entries.items():
+            if normalized == key or normalized == info.get("name", "").lower():
+                return True
+        return False
+
+    def find_matching_applications(self, query: str) -> list[ApplicationResolution]:
+        """Find all distinct installed applications matching a query."""
+        normalized = self.normalize_app_name(query)
+        resolutions: list[ApplicationResolution] = []
+        seen_execs: set[str] = set()
+
+        candidates: list[str] = []
+        if normalized in self.aliases:
+            candidates.extend(self.aliases[normalized])
+        if normalized not in candidates:
+            candidates.append(normalized)
+
+        desktop_entries = self._index_desktop_entries()
+        for cand in candidates:
+            for key, info in desktop_entries.items():
+                if (
+                    cand == key
+                    or cand in info["exec"].lower()
+                    or cand == info.get("name", "").lower()
+                ):
+                    binary = info["exec"]
+                    full_path = shutil.which(binary) or (
+                        binary if os.path.isabs(binary) and os.access(binary, os.X_OK) else None
+                    )
+                    if full_path and full_path not in seen_execs:
+                        seen_execs.add(full_path)
+                        resolutions.append(
+                            ApplicationResolution(
+                                requested_name=query,
+                                canonical_name=info["name"],
+                                executable=full_path,
+                                desktop_entry=info["path"],
+                                platform=platform.system(),
+                                installed=True,
+                                confidence=0.9,
+                            )
+                        )
+            found_which = shutil.which(cand)
+            if found_which and found_which not in seen_execs:
+                seen_execs.add(found_which)
+                resolutions.append(
+                    ApplicationResolution(
+                        requested_name=query,
+                        canonical_name=cand.replace("-", " ").title(),
+                        executable=found_which,
+                        desktop_entry=None,
+                        platform=platform.system(),
+                        installed=True,
+                        confidence=0.85,
+                    )
+                )
+
+        return resolutions
+
     def resolve(self, query: str) -> ApplicationResolution:
         """Resolve a requested application name to an executable."""
         normalized = self.normalize_app_name(query)
@@ -229,10 +298,30 @@ class ApplicationResolver:
                             confidence=0.85,
                         )
 
-        # Not installed / not found
+        # Not installed / not found — provide clean canonical display name
+        friendly_names = {
+            "chrome": "Chrome",
+            "google chrome": "Google Chrome",
+            "chromium": "Chromium",
+            "brave": "Brave",
+            "brave browser": "Brave",
+            "firefox": "Firefox",
+            "firefox browser": "Firefox",
+            "spotify": "Spotify",
+            "antigravity": "Antigravity",
+            "agy": "Antigravity",
+            "vscode": "VS Code",
+            "code": "VS Code",
+            "slack": "Slack",
+            "discord": "Discord",
+            "vlc": "VLC",
+            "gimp": "GIMP",
+            "obs": "OBS",
+        }
+        canonical_display = friendly_names.get(normalized, normalized.title())
         return ApplicationResolution(
             requested_name=query,
-            canonical_name=normalized.title(),
+            canonical_name=canonical_display,
             executable=None,
             desktop_entry=None,
             platform=current_platform,

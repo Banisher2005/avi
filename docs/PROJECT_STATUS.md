@@ -3,7 +3,7 @@
 **Date:** September 7, 2026  
 **Current Version:** `0.4.0`  
 **Current Branch:** `main` (synchronized with `origin/main`)  
-**Test Suite Health:** 906 passed, 2 skipped (100% green across Python 3.10, 3.11, 3.12)  
+**Test Suite Health:** 933 passed, 2 skipped (100% green across Python 3.10, 3.11, 3.12)  
 **CI Pipeline:** Passing on all matrix runners  
 
 ---
@@ -135,23 +135,28 @@ flowchart TD
 
 | Prompt Example | Subsystem / Capability | Behavior |
 | :--- | :--- | :--- |
-| `avi "increase volume"` | `desktop.volume.set` | Adjusts volume by +5% via PipeWire/PulseAudio |
-| `avi "mute volume"` | `desktop.volume.set` | Mutes audio without shell generation |
-| `avi "take a screenshot"` | `desktop.screenshot` | Saves timestamped PNG to `~/Pictures/Screenshots/` |
+| `avi "increase volume"`, `volum up`, `louder` | `desktop.volume.set` | Adjusts volume by +5% via PipeWire/PulseAudio |
+| `avi "mute"`, `mute volume` | `desktop.volume.set` | Mutes audio without shell generation |
+| `avi "take screenshot"`, `screeenshot` | `desktop.screenshot` | Saves timestamped PNG to `~/Pictures/Screenshots/` |
+| `avi chrome`, `avi brave`, `avi spotify` | `desktop.app.launch` | Resolves bare app name and spawns process |
+| `avi "open Nonexistent"` | `desktop.app.launch` | Reports clearly *"I couldn't find Nonexistent installed."* |
+| `avi downloads`, `downlods` | `desktop.directory.open` | Opens Downloads folder in file manager |
 | `avi "how much disk space do I have"` | `synthesizer` + `df` | Returns conversational summary of root drive |
 | `avi "set a timer for 10 minutes"` | `actions.TimerAction` | Starts async countdown daemon with bell alert |
-| `avi "open Firefox"` | `desktop.app.launch` | Resolves `.desktop` entry and spawns process |
 | `avi "search YouTube for Python tutorials"` | `web.youtube.search` | Opens browser directly to query results page |
 | `avi "find me a good video on Docker"` | `web.youtube.search_results` | Fetches metadata, ranks with AI, recommends best match |
-| `avi "open it"` (after search) | `OPEN_SEARCH_RESULT` | Validates YouTube URL and launches browser |
-| `avi activate` | `AviWindow` (GTK4) | Summons or focuses floating desktop assistant |
+| `avi "open it"` (after search across runs) | `OPEN_SEARCH_RESULT` | Cross-process XDG session persistence opens remembered result |
+| `avi "open it"` (no prior search) | `CLARIFICATION` | Reports *"I don't have a recent result to open."* without filesystem leak |
+| `avi activate`, `activaite` | `AviWindow` (GTK4) | Summons or focuses floating desktop assistant |
+| `avi "rm -rf /"` | `SafetyEngine` | Blocked immediately with critical risk assessment |
+| `avi "systemctl enable lightdm"` | Shell Router + Safety | Preserved as valid administrative shell proposal |
 
 ---
 
 ## 6. Next Steps & Roadmap
 
-1. **Phase 13.2 — Web Search Broadening (DuckDuckGo / SearXNG)**
-   - Expand `avi.retrieval` with a general web search provider for web queries beyond YouTube.
+1. **Phase 13.3 — General Web Search Broadening (DuckDuckGo / SearXNG)**
+   - Expand `avi.retrieval` with general web search providers for queries beyond YouTube.
    - Structured summarization for documentation, recipes, and news.
 
 2. **Phase 14 — Vision & Screen Understanding**

@@ -17,7 +17,7 @@ AVI is a fast, local-first AI assistant for Linux terminals. It delivers instant
 * **Deterministic Fast-Path (< 20 ms)**: Read-only system inspection and environment queries resolve immediately via built-in tools without invoking the neural network.
 * **Controlled Read-Only Tools**: Inspect filesystem contents, running processes, disk usage, system info, and Git repository status with strict security guarantees.
 * **Lazy Context Awareness**: Understands your current directory, shell, Git repository state, and previous command errors—only when relevant to your question.
-* **100% Local & Private**: All data stays on your machine. Powered by Ollama and lightweight local models like `qwen2.5:1.5b`.
+* **100% Local & Private**: All data stays on your machine. Powered by Ollama and lightweight local models like `qwen3:4b` (or `qwen2.5:1.5b`).
 * **Clean Command Output**: Shell commands are delivered directly without extraneous conversational fluff or annoying markdown fences when you just need the syntax.
 * **Granular Risk & Capability Taxonomy**: Distinguishes read-only inspection, benign desktop actions, outbound network calls, filesystem writes, destructive commands, and privileged operations with clear, contextual confirmation prompts.
 * **Interactive Terminal REPL & GTK4 Popup**: Full conversational session with readline support, command history, and a keyboard-first GTK4 desktop popup window.
@@ -30,7 +30,7 @@ AVI is a fast, local-first AI assistant for Linux terminals. It delivers instant
 * **OS**: Linux (tested on modern Linux kernels with AMD/Intel/NVIDIA hardware)
 * **Python**: Python 3.10 or higher
 * **Ollama**: [Ollama](https://ollama.ai) installed and running locally
-* **Default Model**: `qwen2.5:1.5b` (fast, lightweight, highly capable on 16GB RAM and integrated GPUs)
+* **Default Model**: `qwen3:4b` (recommended default, highly capable local reasoning; fallback models like `qwen2.5:1.5b` are fully supported)
 
 ---
 
@@ -43,7 +43,7 @@ AVI is a fast, local-first AI assistant for Linux terminals. It delivers instant
 
 2. **Pull the default model**:
    ```bash
-   ollama pull qwen2.5:1.5b
+   ollama pull qwen3:4b
    ```
 
 3. **Verify model availability**:

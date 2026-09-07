@@ -71,6 +71,22 @@ Versions follow [Semantic Versioning](https://semver.org/).
 - Added interactive result cards in GTK4 UI with one-click `[Open]` buttons.
 - Fixed environment-sensitive test execution (`sys.argv` mocking) across Python 3.10, 3.11, and 3.12 (906 passing tests).
 
+#### Phase 13.2 — JARVIS Interaction Hardening + Qwen3 4B Migration
+- **Model Migration**: Migrated default Ollama model to `qwen3:4b` across `Config`, `DEFAULT_MODEL`, and `OllamaProvider`, while preserving full user configurability via `--model` and config files.
+- **JARVIS System Prompt Tuning**: Tailored system prompt to prioritize native desktop capabilities, enforce fail-safe boundaries against arbitrary shell generation, and keep reasoning concise.
+- **Cross-Process Session State Persistence (`src/avi/session/`)**:
+  - Implemented persistent session state (`~/.local/state/avi/session_state.json` via standard XDG state directory) with 30-minute bounded TTL.
+  - Enables cross-process deictic follow-ups (e.g. `avi "find videos about python"` followed in a separate CLI run by `avi "open it"` or `avi "play it"` or `avi "use the first one"`).
+  - Explicitly rejects treating `"it"` as a local filesystem path if no recent result exists.
+- **Bounded Typo Normalization & Fuzzy Matching**:
+  - Fuzzy intent matching for native desktop actions (`activaite`, `activte`, `screeenshot`, `screnshot`, `volum up`, `incrase volume`, `louder`).
+  - Strict domain boundary ensures typos never fall back to unintended destructive or privileged shell commands (e.g. `systemctl enable lightdm`).
+- **Bare Application & Directory Dispatch**:
+  - Direct launching for bare application names (`avi chrome`, `avi brave`, `avi firefox`, `avi spotify`, `avi antigravity`).
+  - Clear user-facing reporting for uninstalled applications (*"I couldn't find <app> installed."*).
+  - Direct opening for bare desktop folders (`avi downloads`, `avi downlods`).
+- **Test Suite Expansion**: Added comprehensive integration test suite `test_jarvis_routing.py` (total 930 passing tests).
+
 ---
 
 ## [0.3.0] — 2026-09-06

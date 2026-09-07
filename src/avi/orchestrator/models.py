@@ -32,8 +32,9 @@ class ConversationTurn:
 class ConversationHistory:
     """Maintains a bounded sequence of conversation turns for multi-turn assistant context."""
 
-    def __init__(self, max_turns: int = 50) -> None:
+    def __init__(self, max_turns: int = 50, persist_state: bool = True) -> None:
         self.max_turns = max_turns
+        self.persist_state = persist_state
         self.turns: list[ConversationTurn] = []
 
     def add_turn(
@@ -70,14 +71,39 @@ class ConversationHistory:
         self.turns.append(turn)
         if len(self.turns) > self.max_turns:
             self.turns.pop(0)
+
+        if self.persist_state:
+            try:
+                from avi.session.state import save_session_state
+
+                save_session_state(turn)
+            except Exception:
+                pass
+
         return turn
 
     @property
     def last_turn(self) -> ConversationTurn | None:
-        return self.turns[-1] if self.turns else None
+        if self.turns:
+            return self.turns[-1]
+        if self.persist_state:
+            try:
+                from avi.session.state import load_session_state
+
+                return load_session_state()
+            except Exception:
+                return None
+        return None
 
     def clear(self) -> None:
         self.turns.clear()
+        if self.persist_state:
+            try:
+                from avi.session.state import clear_session_state
+
+                clear_session_state()
+            except Exception:
+                pass
 
     def __len__(self) -> int:
         return len(self.turns)

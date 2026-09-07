@@ -117,11 +117,15 @@ class AssistantOrchestrator:
             "screenshot",
             "screnshot",
             "screeshot",
+            "screeenshot",
             "mute",
             "unmute",
             "youtube",
             "youtub",
             "yotube",
+            "activaite",
+            "activte",
+            "actvate",
         }
         lower_tokens = set(re.findall(r"\b\w+\b", normalized_prompt.lower()))
         if lower_tokens.intersection(desktop_keywords):
@@ -389,31 +393,50 @@ class AssistantOrchestrator:
 
         # Q. Native Action: Open Application
         elif intent.intent_type == AssistantIntentType.OPEN_APP:
-            resolution = self.app_resolver.resolve(intent.target)
-            if resolution.is_resolved:
-                action = OpenAppAction(resolution=resolution, resolver=self.app_resolver)
-                if auto_execute_actions:
-                    act_res = action.execute()
+            matches = self.app_resolver.find_matching_applications(intent.target)
+            if len(matches) > 1 and intent.target.lower() not in self.app_resolver.aliases:
+                app_names = ", ".join(m.canonical_name for m in matches)
+                result = OrchestratorResult(
+                    text=f"I found multiple matching applications: {app_names}. Which one would you like to open?",
+                    metrics=ResponseMetrics(total_duration_ms=(time.perf_counter() - t0) * 1000.0),
+                    context=context,
+                )
+            else:
+                resolution = self.app_resolver.resolve(intent.target)
+                if resolution.is_resolved:
+                    action = OpenAppAction(resolution=resolution, resolver=self.app_resolver)
+                    if auto_execute_actions:
+                        act_res = action.execute()
+                        result = OrchestratorResult(
+                            text=act_res.message,
+                            action=action,
+                            metrics=ResponseMetrics(
+                                total_duration_ms=(time.perf_counter() - t0) * 1000.0
+                            ),
+                            context=context,
+                        )
+                    else:
+                        result = OrchestratorResult(
+                            text=f"Ready to open {resolution.canonical_name}.",
+                            action=action,
+                            context=context,
+                        )
+                else:
                     result = OrchestratorResult(
-                        text=act_res.message,
-                        action=action,
+                        text=f"I couldn't find {resolution.canonical_name} installed. Application '{resolution.canonical_name}' is not installed on this system.",
                         metrics=ResponseMetrics(
                             total_duration_ms=(time.perf_counter() - t0) * 1000.0
                         ),
                         context=context,
                     )
-                else:
-                    result = OrchestratorResult(
-                        text=f"Ready to open {resolution.canonical_name}.",
-                        action=action,
-                        context=context,
-                    )
-            else:
-                result = OrchestratorResult(
-                    text=f"Application '{resolution.canonical_name}' is not installed on this system.",
-                    metrics=ResponseMetrics(total_duration_ms=(time.perf_counter() - t0) * 1000.0),
-                    context=context,
-                )
+
+        # Q2. Native Assistant Activation
+        elif intent.intent_type == AssistantIntentType.ACTIVATE:
+            result = OrchestratorResult(
+                text="AVI is active and ready. How can I help you?",
+                metrics=ResponseMetrics(total_duration_ms=(time.perf_counter() - t0) * 1000.0),
+                context=context,
+            )
 
         # R. Native Capability: Screenshot
         elif intent.intent_type == AssistantIntentType.SCREENSHOT:
@@ -653,8 +676,8 @@ class AssistantOrchestrator:
                                 context=context,
                             )
 
-        # ── Step 2.5: Desktop domain boundary ────────────────────────────
-        # Prevent unresolved desktop requests from falling through to LLM shell generator
+        # ── Step 2.5: Desktop and application domain boundary ───────────
+        # Prevent unresolved desktop requests or application queries from falling through to LLM shell generator
         if result is None:
             desktop_keywords = {
                 "volume",
@@ -665,15 +688,21 @@ class AssistantOrchestrator:
                 "screenshot",
                 "screnshot",
                 "screeshot",
+                "screeenshot",
                 "mute",
                 "unmute",
                 "youtube",
                 "youtub",
                 "yotube",
+                "activaite",
+                "activte",
+                "actvate",
             }
             lower_tokens = set(re.findall(r"\b\w+\b", normalized_prompt.lower()))
             if lower_tokens.intersection(desktop_keywords):
-                if lower_tokens.intersection({"youtube", "youtub", "yotube"}):
+                if lower_tokens.intersection({"activate", "activaite", "activte", "actvate"}):
+                    msg = "Did you mean activate AVI?"
+                elif lower_tokens.intersection({"youtube", "youtub", "yotube"}):
                     msg = "What would you like me to search for on YouTube?"
                 else:
                     msg = (
@@ -961,8 +990,7 @@ class AssistantOrchestrator:
             )
         else:
             return OrchestratorResult(
-                text="I don't have any recent search results to open. "
-                "Try asking me to find videos first.",
+                text="I don't have a recent result to open.",
                 metrics=ResponseMetrics(total_duration_ms=(time.perf_counter() - t0) * 1000.0),
                 context=context,
             )

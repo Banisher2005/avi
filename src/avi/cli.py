@@ -6,7 +6,7 @@ import sys
 from typing import Sequence
 
 from avi import __version__
-from avi.config import Config
+from avi.config import DEFAULT_MODEL, Config
 from avi.core.router import Router
 from avi.core.session import InteractiveSession
 from avi.execution import CommandRequest
@@ -57,7 +57,7 @@ Shell Quoting Tip:
         "--model",
         type=str,
         default=None,
-        help="Model name to use (default: qwen2.5:1.5b)",
+        help=f"Model name to use (default: {DEFAULT_MODEL})",
     )
     parser.add_argument(
         "--host",
@@ -249,7 +249,7 @@ def run_cli(argv: Sequence[str] | None = None) -> int:
             return run_gateway(args_list[1:])
         elif first == "hotkey":
             return run_hotkey(args_list[1:])
-        elif first == "activate":
+        elif first in ("activate", "activaite", "activte", "actvate", "activat"):
             return run_ui(args_list[1:], is_activate=True)
         elif first == "ui":
             return run_ui(args_list[1:])

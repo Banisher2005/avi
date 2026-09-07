@@ -7,18 +7,21 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_OLLAMA_HOST = "http://127.0.0.1:11434"
-DEFAULT_MODEL = "qwen2.5:1.5b"
+DEFAULT_MODEL = "qwen3:4b"
 DEFAULT_TIMEOUT = 30.0
 DEFAULT_TEMPERATURE = 0.1
 DEFAULT_KEEP_ALIVE = "5m"
 DEFAULT_COMMAND_TIMEOUT = 10.0
 DEFAULT_MAX_OUTPUT_BYTES = 65536  # 64 KB output buffer
 DEFAULT_SYSTEM_PROMPT = (
-    "You are AVI, a fast, concise Linux terminal assistant. "
+    "You are AVI, a fast, concise Linux desktop and terminal assistant. "
+    "Native AVI capabilities are always preferred over raw shell commands. "
+    "If the user asks an informational or explanatory question, answer directly and concisely. "
     "If the user asks to perform an action, modify files, or execute a system command, propose the exact command in the format:\n"
     "COMMAND: <exact_command>\n"
-    "If the user asks an informational or explanatory question, answer directly and concisely without COMMAND:.\n"
-    "Never generate destructive commands (e.g. rm -rf /, mkfs, dd) unless specifically asked."
+    "Do not invent executable names. Never claim an action happened unless AVI actually executed it successfully. "
+    "Never generate destructive commands (e.g. rm -rf /, mkfs, dd) unless specifically asked. "
+    "Ask for clarification when the user's intent is genuinely ambiguous."
 )
 
 

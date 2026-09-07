@@ -178,6 +178,7 @@ class AssistantIntentType(str, Enum):
     OPEN_FILE = "OPEN_FILE"
     OPEN_DIR = "OPEN_DIR"
     OPEN_APP = "OPEN_APP"
+    ACTIVATE = "ACTIVATE"
     SCREENSHOT = "SCREENSHOT"
     VOLUME_SET = "VOLUME_SET"
     VOLUME_GET = "VOLUME_GET"
@@ -206,15 +207,43 @@ class DetectedIntent:
 _AMBIGUOUS_DEICTIC_PATTERNS = {
     "open it": (
         "open",
-        "What would you like me to open? You can specify an application name, file path, directory, or website URL.",
+        "I don't have a recent result to open. Please specify an application name, file path, directory, or website URL.",
     ),
     "open this": (
         "open",
-        "What would you like me to open? You can specify an application name, file path, directory, or website URL.",
+        "I don't have a recent result to open. Please specify an application name, file path, directory, or website URL.",
     ),
     "open that": (
         "open",
-        "What would you like me to open? You can specify an application name, file path, directory, or website URL.",
+        "I don't have a recent result to open. Please specify an application name, file path, directory, or website URL.",
+    ),
+    "open that one": (
+        "open",
+        "I don't have a recent result to open. Please specify an application name, file path, directory, or website URL.",
+    ),
+    "play it": (
+        "open",
+        "I don't have a recent result to open. Please specify what you'd like to play or search for videos first.",
+    ),
+    "play that": (
+        "open",
+        "I don't have a recent result to open. Please specify what you'd like to play or search for videos first.",
+    ),
+    "watch it": (
+        "open",
+        "I don't have a recent result to open. Please specify what you'd like to watch or search for videos first.",
+    ),
+    "watch that": (
+        "open",
+        "I don't have a recent result to open. Please specify what you'd like to watch or search for videos first.",
+    ),
+    "use it": (
+        "open",
+        "I don't have a recent result to open. Please specify an application or search result.",
+    ),
+    "use the first one": (
+        "open",
+        "I don't have a recent result to open. Please search for videos or results first.",
     ),
     "launch it": (
         "open",
@@ -310,17 +339,96 @@ def parse_duration_seconds(amount_str: str, unit_str: str) -> float:
 
 
 _CANONICAL_DESKTOP_TARGETS = [
-    "increase volume",
-    "decrease volume",
-    "turn volume up",
-    "turn volume down",
-    "mute volume",
-    "unmute volume",
+    "activate",
+    "activate avi",
     "take a screenshot",
+    "take screenshot",
+    "screenshot",
+    "capture screen",
+    "increase volume",
+    "turn volume up",
+    "volume up",
+    "raise volume",
+    "louder",
+    "decrease volume",
+    "turn volume down",
+    "volume down",
+    "lower volume",
+    "softer",
+    "quieter",
+    "mute volume",
+    "mute",
+    "unmute volume",
+    "unmute",
+    "restore sound",
+    "open downloads",
+    "downloads",
+    "open documents",
+    "documents",
+    "open pictures",
+    "pictures",
+    "open desktop",
+    "desktop",
     "pause music",
     "play music",
+    "next track",
+    "previous track",
+    "stop music",
     "search youtube",
 ]
+
+_BOUNDED_DESKTOP_INTENT_MAP = {
+    # Activation
+    "activate": (AssistantIntentType.ACTIVATE, {}),
+    "activate avi": (AssistantIntentType.ACTIVATE, {}),
+    # Screenshot
+    "take a screenshot": (AssistantIntentType.SCREENSHOT, {}),
+    "take screenshot": (AssistantIntentType.SCREENSHOT, {}),
+    "screenshot": (AssistantIntentType.SCREENSHOT, {}),
+    "capture screen": (AssistantIntentType.SCREENSHOT, {}),
+    # Volume up
+    "increase volume": (AssistantIntentType.VOLUME_SET, {"action": "raise", "delta": 5}),
+    "turn volume up": (AssistantIntentType.VOLUME_SET, {"action": "raise", "delta": 5}),
+    "volume up": (AssistantIntentType.VOLUME_SET, {"action": "raise", "delta": 5}),
+    "raise volume": (AssistantIntentType.VOLUME_SET, {"action": "raise", "delta": 5}),
+    "louder": (AssistantIntentType.VOLUME_SET, {"action": "raise", "delta": 5}),
+    # Volume down
+    "decrease volume": (AssistantIntentType.VOLUME_SET, {"action": "lower", "delta": 5}),
+    "turn volume down": (AssistantIntentType.VOLUME_SET, {"action": "lower", "delta": 5}),
+    "volume down": (AssistantIntentType.VOLUME_SET, {"action": "lower", "delta": 5}),
+    "lower volume": (AssistantIntentType.VOLUME_SET, {"action": "lower", "delta": 5}),
+    "softer": (AssistantIntentType.VOLUME_SET, {"action": "lower", "delta": 5}),
+    "quieter": (AssistantIntentType.VOLUME_SET, {"action": "lower", "delta": 5}),
+    # Mute / Unmute
+    "mute volume": (AssistantIntentType.VOLUME_SET, {"action": "mute"}),
+    "mute": (AssistantIntentType.VOLUME_SET, {"action": "mute"}),
+    "unmute volume": (AssistantIntentType.VOLUME_SET, {"action": "unmute"}),
+    "unmute": (AssistantIntentType.VOLUME_SET, {"action": "unmute"}),
+    "restore sound": (AssistantIntentType.VOLUME_SET, {"action": "unmute"}),
+    # Folders
+    "open downloads": (AssistantIntentType.OPEN_DIR, {"folder": "Downloads"}),
+    "downloads": (AssistantIntentType.OPEN_DIR, {"folder": "Downloads"}),
+    "open documents": (AssistantIntentType.OPEN_DIR, {"folder": "Documents"}),
+    "documents": (AssistantIntentType.OPEN_DIR, {"folder": "Documents"}),
+    "open pictures": (AssistantIntentType.OPEN_DIR, {"folder": "Pictures"}),
+    "pictures": (AssistantIntentType.OPEN_DIR, {"folder": "Pictures"}),
+    "open desktop": (AssistantIntentType.OPEN_DIR, {"folder": "Desktop"}),
+    "desktop": (AssistantIntentType.OPEN_DIR, {"folder": "Desktop"}),
+    # Media
+    "pause music": (AssistantIntentType.MEDIA_CONTROL, {"action": "pause"}),
+    "play music": (AssistantIntentType.MEDIA_CONTROL, {"action": "play"}),
+    "next track": (AssistantIntentType.MEDIA_CONTROL, {"action": "next"}),
+    "previous track": (AssistantIntentType.MEDIA_CONTROL, {"action": "previous"}),
+    "stop music": (AssistantIntentType.MEDIA_CONTROL, {"action": "stop"}),
+    # YouTube Search
+    "search youtube": (
+        AssistantIntentType.CLARIFICATION,
+        {
+            "clarification_type": "youtube_search",
+            "message": "What would you like me to search for on YouTube?",
+        },
+    ),
+}
 
 
 def _is_recommendation_request(prompt: str) -> bool:
@@ -494,38 +602,98 @@ def _normalize_phrase_for_fuzzy(p: str) -> str:
     return " ".join(s.split())
 
 
+def resolve_fuzzy_desktop_intent(prompt: str) -> DetectedIntent | None:
+    """Bounded typo normalization for known AVI native intents only.
+
+    CRITICAL SECURITY RULE:
+    Strictly bounded to known desktop capabilities and actions. Never matches arbitrary shell commands.
+    High confidence (>= 0.80 ratio or exact token match) resolves directly to the native intent.
+    Moderate confidence (>= 0.65 ratio) resolves to clarification asking what the user meant.
+    Low confidence (< 0.65 ratio) returns None.
+    """
+    clean = _normalize_phrase_for_fuzzy(prompt)
+    if not clean or len(clean) < 3:
+        return None
+
+    best_ratio = 0.0
+    best_entry: tuple[str, AssistantIntentType, dict[str, Any]] | None = None
+
+    for target_phrase, (intent_type, extra) in _BOUNDED_DESKTOP_INTENT_MAP.items():
+        norm_target = _normalize_phrase_for_fuzzy(target_phrase)
+        if clean == norm_target:
+            best_ratio = 1.0
+            best_entry = (target_phrase, intent_type, extra)
+            break
+
+        ratio = difflib.SequenceMatcher(None, clean, norm_target).ratio()
+
+        clean_tokens = clean.split()
+        target_tokens = norm_target.split()
+        if len(clean_tokens) == len(target_tokens) and len(clean_tokens) >= 1:
+            token_ratios = [
+                difflib.SequenceMatcher(None, ct, tt).ratio()
+                for ct, tt in zip(clean_tokens, target_tokens)
+            ]
+            avg_token_ratio = sum(token_ratios) / len(token_ratios)
+            ratio = max(ratio, avg_token_ratio)
+
+        if ratio > best_ratio:
+            best_ratio = ratio
+            best_entry = (target_phrase, intent_type, extra)
+
+    if best_ratio >= 0.80 and best_entry is not None:
+        target_phrase, intent_type, extra = best_entry
+        target_val = ""
+        if intent_type == AssistantIntentType.OPEN_DIR and "folder" in extra:
+            folder_path = resolve_desktop_folder(extra["folder"])
+            target_val = str(folder_path) if folder_path else ""
+        return DetectedIntent(
+            intent_type=intent_type,
+            raw_prompt=prompt,
+            target=target_val,
+            extra=dict(extra),
+        )
+    elif best_ratio >= 0.65 and best_entry is not None:
+        target_phrase, _, _ = best_entry
+        if target_phrase in ("activate", "activate avi"):
+            msg = "Did you mean activate AVI?"
+        else:
+            msg = f"Did you mean '{target_phrase}'?"
+        return DetectedIntent(
+            intent_type=AssistantIntentType.CLARIFICATION,
+            raw_prompt=prompt,
+            target=target_phrase,
+            extra={
+                "clarification_type": "typo",
+                "message": msg,
+                "suggested": target_phrase,
+            },
+        )
+
+    return None
+
+
 def find_desktop_typo(prompt: str) -> str | None:
     """Detect obvious typos or near-matches for supported native desktop commands."""
     clean = _normalize_phrase_for_fuzzy(prompt)
     if not clean or len(clean) < 3:
         return None
 
-    phrase_map = {_normalize_phrase_for_fuzzy(p): p for p in _CANONICAL_DESKTOP_TARGETS}
-
-    # 1. Whole phrase difflib close match
-    matches = difflib.get_close_matches(clean, list(phrase_map.keys()), n=1, cutoff=0.65)
+    matches = difflib.get_close_matches(clean, _CANONICAL_DESKTOP_TARGETS, n=1, cutoff=0.65)
     if matches:
-        return phrase_map[matches[0]]
+        return matches[0]
 
-    # 2. Token-by-token comparison for equal token counts (e.g. 'increse vol', 'turn volme up')
     tokens = clean.split()
-    for norm_p, orig in phrase_map.items():
-        v_tokens = norm_p.split()
-        if len(tokens) == len(v_tokens):
-            matched = True
-            for t_in, t_target in zip(tokens, v_tokens):
-                if t_in == t_target:
-                    continue
-                if len(t_in) >= 3 and t_target.startswith(t_in):
-                    continue
-                if len(t_target) >= 3 and t_in.startswith(t_target):
-                    continue
-                if difflib.SequenceMatcher(None, t_in, t_target).ratio() >= 0.70:
-                    continue
-                matched = False
-                break
-            if matched:
-                return orig
+    for target in _CANONICAL_DESKTOP_TARGETS:
+        target_clean = _normalize_phrase_for_fuzzy(target)
+        target_tokens = target_clean.split()
+        if len(tokens) == len(target_tokens) and len(tokens) > 1:
+            token_ratios = [
+                difflib.SequenceMatcher(None, ct, tt).ratio()
+                for ct, tt in zip(tokens, target_tokens)
+            ]
+            if sum(token_ratios) / len(token_ratios) >= 0.70:
+                return target
 
     return None
 
@@ -549,7 +717,7 @@ def detect_assistant_intent(prompt: str, last_turn: Any | None = None) -> Detect
         )
         if has_results:
             m_deictic = re.match(
-                r"^(?:please\s+|can\s+you\s+|could\s+you\s+)?(?:open|play|watch)\s+(?:it|that|that\s+one|that\s+video|the\s+video|the\s+best\s+one|the\s+first\s+one|the\s+1st\s+one|the\s+second\s+one|the\s+2nd\s+one|the\s+third\s+one|the\s+3rd\s+one|result\s+[1-5]|[1-5])$",
+                r"^(?:please\s+|can\s+you\s+|could\s+you\s+)?(?:open|play|watch|use)\s+(?:it|that|that\s+one|that\s+video|the\s+video|the\s+best\s+one|the\s+first\s+one|the\s+1st\s+one|the\s+second\s+one|the\s+2nd\s+one|the\s+third\s+one|the\s+3rd\s+one|result\s+[1-5]|[1-5])$",
                 lower,
             )
             if m_deictic or lower in (
@@ -560,7 +728,11 @@ def detect_assistant_intent(prompt: str, last_turn: Any | None = None) -> Detect
                 "open the best one",
                 "open the first one",
                 "play it",
+                "play that",
                 "watch it",
+                "watch that",
+                "use it",
+                "use the first one",
             ):
                 idx = 0
                 if any(w in lower for w in ("second", "2nd", " 2")):
@@ -666,6 +838,10 @@ def detect_assistant_intent(prompt: str, last_turn: Any | None = None) -> Detect
             target=lower,
             extra={"clarification_type": kind, "message": msg},
         )
+
+    # 2.5 Activation intent
+    if lower in ("activate", "activate avi", "launch avi", "open avi"):
+        return DetectedIntent(intent_type=AssistantIntentType.ACTIVATE, raw_prompt=prompt)
 
     # 3. Greetings
     if lower in (
@@ -1034,17 +1210,44 @@ def detect_assistant_intent(prompt: str, last_turn: Any | None = None) -> Detect
             extra={"action": action},
         )
 
-    # 18. Obvious near-match / typo of supported native desktop commands
+    # 18. Bare desktop folders (e.g. "downloads", "documents", "desktop", "pictures")
+    folder_alias = resolve_desktop_folder(s)
+    if folder_alias is not None:
+        return DetectedIntent(
+            intent_type=AssistantIntentType.OPEN_DIR,
+            raw_prompt=prompt,
+            target=str(folder_alias),
+        )
+
+    # 19. Bare application commands (e.g. "chrome", "brave", "firefox", "spotify", "antigravity")
+    from avi.apps.resolver import DEFAULT_ALIASES, ApplicationResolver
+
+    if lower in DEFAULT_ALIASES or ApplicationResolver().is_known_app(s):
+        return DetectedIntent(
+            intent_type=AssistantIntentType.OPEN_APP,
+            raw_prompt=prompt,
+            target=s,
+        )
+
+    # 20. Obvious near-match / typo of supported native desktop commands
     typo_suggestion = find_desktop_typo(s)
     if typo_suggestion:
+        msg = f"Did you mean '{typo_suggestion}'?"
+        if typo_suggestion in ("activate", "activate avi"):
+            msg = "Did you mean activate AVI?"
         return DetectedIntent(
             intent_type=AssistantIntentType.CLARIFICATION,
             raw_prompt=prompt,
             extra={
                 "clarification_type": "typo",
-                "message": f"Did you mean '{typo_suggestion}'?",
+                "message": msg,
                 "suggested": typo_suggestion,
             },
         )
+
+    # 21. Bounded typo normalization / fuzzy intent matching for native desktop commands
+    fuzzy_intent = resolve_fuzzy_desktop_intent(s)
+    if fuzzy_intent is not None:
+        return fuzzy_intent
 
     return DetectedIntent(intent_type=AssistantIntentType.UNKNOWN, raw_prompt=prompt)

@@ -61,7 +61,7 @@ class OllamaProvider(BaseProvider):
     def __init__(
         self,
         host: str = "http://127.0.0.1:11434",
-        model: str = "qwen2.5:1.5b",
+        model: str = "qwen3:4b",
         timeout: float = 30.0,
         temperature: float = 0.1,
         keep_alive: str = "5m",
@@ -284,7 +284,7 @@ class OllamaProvider(BaseProvider):
     ) -> ProviderResponse:
         """Generate a complete response with timing metrics and context."""
         chunks = list(
-            self.generate(prompt=prompt, system_prompt=system_prompt, context=context, stream=False)
+            self.generate(prompt=prompt, system_prompt=system_prompt, context=context, stream=True)
         )
         return ProviderResponse(
             text="".join(chunks),
