@@ -539,7 +539,7 @@ class TestOverlayRedesign:
 
         win = AviWindow(mock_app, mock_router, mock_config)
         win.window.set_decorated.assert_called_with(False)
-        win.window.set_default_size.assert_called_with(680, -1)
+        win.window.set_default_size.assert_called_with(720, -1)
         win.window.add_css_class.assert_any_call("avi-overlay-window")
         assert win.close_button is not None
         assert win.voice_button is not None
@@ -1093,7 +1093,7 @@ class TestCliCommandPalette:
         assert hasattr(win, "prompt_entry")
         assert hasattr(win, "esc_hint")
         assert hasattr(win, "close_button")
-        win.window.set_default_size.assert_called_with(680, -1)
+        win.window.set_default_size.assert_called_with(720, -1)
 
     def test_cli_execution_lines_and_glyphs(self, mock_gtk):
         from avi.ui.window import AviWindow
@@ -1199,4 +1199,60 @@ class TestCliCommandPalette:
         win._on_key_pressed(MagicMock(), gdk.KEY_Down, 0, 0)
         win.prompt_entry.set_text.assert_called_with("take a screenshot")
         assert win._history_index == 1
+
+
+class TestTrueBlackPalette:
+    """Tests for Phase 14.3 True Black palette colors, dimensions, and error handling."""
+
+    @pytest.fixture
+    def mock_gtk(self, monkeypatch):
+        mock_gtk = MagicMock()
+        mock_gdk = MagicMock()
+        mock_glib = MagicMock()
+        mock_pango = MagicMock()
+        mock_glib.idle_add = lambda fn, *args: fn(*args)
+        mock_glib.timeout_add = MagicMock(return_value=999)
+        mock_glib.source_remove = MagicMock()
+
+        import avi.ui.window as wmod
+
+        monkeypatch.setattr(wmod, "Gtk", mock_gtk)
+        monkeypatch.setattr(wmod, "Gdk", mock_gdk)
+        monkeypatch.setattr(wmod, "GLib", mock_glib)
+        monkeypatch.setattr(wmod, "Pango", mock_pango)
+        monkeypatch.setattr(wmod, "_GTK_AVAILABLE", True)
+        return mock_gtk, mock_gdk, mock_glib, mock_pango
+
+    def test_css_true_black_tokens(self):
+        from avi.ui.window import CSS_STYLE
+
+        css = CSS_STYLE.decode("utf-8")
+        # Backgrounds
+        assert "#050505" in css  # window background
+        assert "#080808" in css  # command bar
+        assert "#0D0D0D" in css  # execution transcript area
+        assert "#151515" in css  # hover / selected row
+        # Borders
+        assert "#242424" in css  # subtle border
+        assert "#303030" in css  # strong border
+        # Typography & Accents
+        assert "#F2F2F2" in css  # primary text & glyphs
+        assert "#A0A0A0" in css  # secondary text / working
+        assert "#666666" in css  # muted text / keycap hints
+        assert "#FF6B6B" in css  # error red
+
+    def test_error_formatting_timeout_and_fallback(self):
+        from avi.ui.window import format_user_friendly_error
+
+        assert format_user_friendly_error("Connection timed out after 30s") == "AVI took too long to respond."
+        assert format_user_friendly_error("Request timed out") == "AVI took too long to respond."
+        assert format_user_friendly_error("Unknown system failure occurred line 99 Traceback: foo") == "I couldn't determine a safe action for that request."
+
+    def test_palette_dimensions(self, mock_gtk):
+        from avi.ui.window import AviWindow
+
+        win = AviWindow(MagicMock(), MagicMock(), MagicMock())
+        win.window.set_default_size.assert_called_with(720, -1)
+        win.scroll_window.set_max_content_height.assert_called_with(520)
+
 

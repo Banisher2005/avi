@@ -147,3 +147,76 @@ class TestAssistantOrchestrator:
         assert res.is_blocked is True
         assert "Blocked:" in res.text
         assert res.safety_assessment.level == RiskLevel.BLOCK
+
+    def test_greeting_instant_bypass_variants(self):
+        """Verify repeated-character greetings and casual hellos bypass LLM instantly."""
+        greeting_inputs = [
+            "hi",
+            "hii",
+            "hiiiiii",
+            "hello",
+            "hellooo",
+            "hey",
+            "heyyy",
+            "yo",
+            "yooo",
+            "good morning",
+            "good afternoon",
+            "what's up",
+        ]
+        with patch.object(self.router, "route") as mock_route, patch.object(
+            self.provider, "generate_full"
+        ) as mock_gen:
+            for g in greeting_inputs:
+                res = self.orchestrator.handle(g)
+                assert res.text == "Hello! How can I help?"
+                assert res.metrics is not None
+                assert res.metrics.routing_duration_ms is not None
+                assert res.metrics.routing_duration_ms < 50.0
+                assert res.metrics.llm_duration_ms is None
+
+            # Neither router nor provider should have been touched for greetings
+            mock_route.assert_not_called()
+            mock_gen.assert_not_called()
+
+    def test_native_command_bypasses_llm(self):
+        """Deterministic desktop commands must bypass LLM execution completely."""
+        with patch.object(self.router, "route") as mock_route, patch.object(
+            self.provider, "generate_full"
+        ) as mock_gen, patch.object(
+            self.orchestrator.capabilities, "execute"
+        ) as mock_cap_exec:
+            mock_cap_exec.return_value = MagicMock(
+                success=True, error=None, data={"path": "/tmp/test.png", "current_volume": 55}
+            )
+
+            # 1. Volume
+            self.orchestrator.handle("increase volume", auto_execute_actions=True)
+
+            # 2. Screenshot
+            self.orchestrator.handle("take a screenshot", auto_execute_actions=True)
+
+            # 3. Open app
+            self.mock_resolver.resolve.return_value = ApplicationResolution(
+                requested_name="chrome",
+                canonical_name="Google Chrome",
+                executable="/usr/bin/google-chrome",
+                desktop_entry=None,
+                platform="Linux",
+                installed=True,
+                confidence=0.95,
+            )
+            self.mock_resolver.launch.return_value = (True, "Opening Google Chrome.")
+            self.orchestrator.handle("open chrome", auto_execute_actions=True)
+
+            mock_route.assert_not_called()
+            mock_gen.assert_not_called()
+
+    def test_ambiguous_or_general_query_invokes_llm(self):
+        """General questions or ambiguous requests must invoke the LLM provider."""
+        with patch.object(self.provider, "generate_full", wraps=self.provider.generate_full) as mock_gen:
+            res = self.orchestrator.handle("explain how quantum computing works")
+            assert mock_gen.called
+            assert res.metrics is not None
+            assert res.metrics.llm_duration_ms is not None
+

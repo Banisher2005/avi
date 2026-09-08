@@ -66,6 +66,10 @@ def format_user_friendly_error(err: Exception | str, prompt: str = "") -> str:
     logger.warning("UI error occurred for prompt %r: %s", prompt, err_str, exc_info=True)
 
     lower = err_str.lower()
+    if "timeout" in lower or "timed out" in lower:
+        return "AVI took too long to respond."
+    if "safe action" in lower or "unsafe" in lower:
+        return "I couldn't determine a safe action for that request."
     if "screenshot" in lower or "screen" in lower:
         return "I couldn't take the screenshot. Please make sure your display session is active."
     if "volume" in lower or "audio" in lower:
@@ -87,30 +91,30 @@ def format_user_friendly_error(err: Exception | str, prompt: str = "") -> str:
         for kw in ("Traceback", "Exception", "RuntimeError", "AttributeError", "line ")
     ):
         return err_str
-    return "I ran into a problem while processing that request. Please try again."
+    return "I couldn't determine a safe action for that request."
 
 
 CSS_STYLE = b"""
-/* Antigravity CLI-inspired Dark Developer Command Palette */
+/* Antigravity CLI True Black Developer Command Palette */
 window.avi-palette-window, window.avi-overlay-window, window.avi-main-window {
-    background-color: #11111b;
-    color: #cdd6f4;
-    border: 1px solid #313244;
-    border-radius: 10px;
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7);
+    background-color: #050505;
+    color: #F2F2F2;
+    border: 1px solid #242424;
+    border-radius: 8px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.9);
     font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", "Source Code Pro", monospace, sans-serif;
 }
 
 /* Primary Command Bar */
 .avi-command-bar {
-    background-color: #181825;
+    background-color: #080808;
     padding: 10px 14px;
-    border-top-left-radius: 10px;
-    border-top-right-radius: 10px;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
 }
 
 .avi-prompt-glyph {
-    color: #89b4fa;
+    color: #F2F2F2;
     font-size: 16px;
     font-weight: 800;
     margin-right: 4px;
@@ -122,7 +126,7 @@ entry.avi-command-input {
     border: none;
     box-shadow: none;
     outline: none;
-    color: #cdd6f4;
+    color: #F2F2F2;
     font-size: 14px;
     font-family: "JetBrains Mono", "Fira Code", monospace, sans-serif;
     padding: 2px 4px;
@@ -136,9 +140,9 @@ entry.avi-command-input:focus {
 }
 
 .avi-keycap-hint {
-    background-color: #1e1e2e;
-    color: #6c7086;
-    border: 1px solid #313244;
+    background-color: #141414;
+    color: #666666;
+    border: 1px solid #242424;
     border-radius: 4px;
     padding: 1px 6px;
     font-size: 11px;
@@ -148,7 +152,7 @@ entry.avi-command-input:focus {
 .avi-palette-close {
     background: transparent;
     border: none;
-    color: #6c7086;
+    color: #666666;
     padding: 2px 6px;
     font-size: 14px;
     font-weight: bold;
@@ -156,14 +160,14 @@ entry.avi-command-input:focus {
 }
 
 .avi-palette-close:hover {
-    background-color: #313244;
-    color: #f38ba8;
+    background-color: #1a1a1a;
+    color: #FF6B6B;
 }
 
 /* Transcript & Execution Output Lines */
 .avi-execution-log, .avi-conversation-area, .avi-dynamic-results {
-    background-color: #11111b;
-    border-top: 1px solid #28293d;
+    background-color: #0D0D0D;
+    border-top: 1px solid #242424;
     padding: 8px 14px 12px 14px;
 }
 
@@ -173,7 +177,7 @@ entry.avi-command-input:focus {
 }
 
 .avi-glyph-cmd {
-    color: #89b4fa;
+    color: #F2F2F2;
     font-weight: 800;
     font-size: 13px;
     margin-right: 6px;
@@ -181,14 +185,14 @@ entry.avi-command-input:focus {
 }
 
 .avi-glyph-work {
-    color: #fab387;
+    color: #A0A0A0;
     font-size: 13px;
     margin-right: 6px;
     font-family: monospace;
 }
 
 .avi-glyph-ok {
-    color: #a6e3a1;
+    color: #4EBA6F;
     font-weight: 800;
     font-size: 13px;
     margin-right: 6px;
@@ -196,7 +200,7 @@ entry.avi-command-input:focus {
 }
 
 .avi-glyph-err {
-    color: #f38ba8;
+    color: #FF6B6B;
     font-weight: 800;
     font-size: 13px;
     margin-right: 6px;
@@ -204,34 +208,34 @@ entry.avi-command-input:focus {
 }
 
 .avi-cli-text-cmd {
-    color: #cdd6f4;
+    color: #F2F2F2;
     font-weight: 600;
     font-size: 13px;
     font-family: monospace;
 }
 
 .avi-cli-text-work {
-    color: #a6adc8;
+    color: #A0A0A0;
     font-size: 13px;
     font-family: monospace;
 }
 
 .avi-cli-text-ok {
-    color: #cdd6f4;
+    color: #F2F2F2;
     font-size: 13px;
     font-family: monospace;
 }
 
 .avi-cli-text-err {
-    color: #f38ba8;
+    color: #FF6B6B;
     font-size: 13px;
     font-family: monospace;
 }
 
 .avi-cli-action-btn, .avi-action-btn {
-    background-color: #1e1e2e;
-    color: #89b4fa;
-    border: 1px solid #313244;
+    background-color: #141414;
+    color: #F2F2F2;
+    border: 1px solid #242424;
     border-radius: 4px;
     padding: 1px 8px;
     font-size: 11px;
@@ -239,8 +243,8 @@ entry.avi-command-input:focus {
 }
 
 .avi-cli-action-btn:hover, .avi-action-btn:hover {
-    background-color: #313244;
-    color: #a6e3a1;
+    background-color: #242424;
+    color: #FFFFFF;
 }
 
 /* Interactive Result Rows (YouTube / Search) */
@@ -250,8 +254,8 @@ entry.avi-command-input:focus {
 }
 
 .avi-result-row, .avi-best-match-card, .avi-result-card {
-    background-color: #181825;
-    border: 1px solid #28293d;
+    background-color: #080808;
+    border: 1px solid #242424;
     border-radius: 6px;
     margin: 2px 0;
     padding: 6px 10px;
@@ -259,17 +263,17 @@ entry.avi-command-input:focus {
 }
 
 .avi-result-row:hover, .avi-result-row-selected, .avi-result-card:hover {
-    background-color: #262738;
-    border-color: #89b4fa;
+    background-color: #151515;
+    border-color: #303030;
 }
 
 .avi-row-thumb {
-    background-color: #11111b;
-    border: 1px solid #313244;
+    background-color: #0D0D0D;
+    border: 1px solid #242424;
     border-radius: 4px;
     padding: 3px 6px;
     min-width: 28px;
-    color: #89b4fa;
+    color: #A0A0A0;
     font-size: 11px;
     font-weight: bold;
     font-family: monospace;
@@ -278,19 +282,19 @@ entry.avi-command-input:focus {
 .avi-row-title, .avi-result-title {
     font-size: 13px;
     font-weight: 600;
-    color: #cdd6f4;
+    color: #F2F2F2;
 }
 
 .avi-row-meta, .avi-result-meta {
     font-size: 11px;
-    color: #6c7086;
+    color: #666666;
     font-family: monospace;
 }
 
 .avi-row-open-btn, .avi-play-btn {
-    background-color: #1e1e2e;
-    color: #89b4fa;
-    border: 1px solid #313244;
+    background-color: #141414;
+    color: #F2F2F2;
+    border: 1px solid #242424;
     border-radius: 4px;
     padding: 2px 10px;
     font-size: 11px;
@@ -299,14 +303,14 @@ entry.avi-command-input:focus {
 }
 
 .avi-row-open-btn:hover, .avi-play-btn:hover {
-    background-color: #89b4fa;
-    color: #11111b;
+    background-color: #242424;
+    color: #FFFFFF;
 }
 
 /* Confirmation Box */
 .avi-confirm-card {
-    background-color: #181825;
-    border: 1px solid #fab387;
+    background-color: #0D0D0D;
+    border: 1px solid #303030;
     border-radius: 6px;
     padding: 8px 12px;
 }
@@ -314,14 +318,14 @@ entry.avi-command-input:focus {
 .avi-confirm-header {
     font-size: 12px;
     font-weight: bold;
-    color: #fab387;
+    color: #A0A0A0;
     font-family: monospace;
 }
 
 .avi-command-box {
-    background-color: #11111b;
-    color: #a6e3a1;
-    border: 1px solid #313244;
+    background-color: #050505;
+    color: #F2F2F2;
+    border: 1px solid #242424;
     border-radius: 4px;
     padding: 4px 8px;
     font-family: monospace;
@@ -334,7 +338,7 @@ entry.avi-command-input:focus {
     border: none;
     box-shadow: none;
     outline: none;
-    color: #cdd6f4;
+    color: #F2F2F2;
 }
 .avi-bubble-user {
     background: transparent;
@@ -348,28 +352,28 @@ entry.avi-command-input:focus {
     background: transparent;
 }
 .avi-brand-badge {
-    color: #89b4fa;
+    color: #F2F2F2;
     font-weight: 800;
 }
 .avi-user-text {
-    color: #cdd6f4;
+    color: #F2F2F2;
 }
 .avi-assistant-text {
-    color: #cdd6f4;
+    color: #F2F2F2;
 }
 .avi-bubble-error {
-    background-color: #2a1f28;
-    color: #f38ba8;
-    border: 1px solid #f38ba8;
+    background-color: #150808;
+    color: #FF6B6B;
+    border: 1px solid #FF6B6B;
     border-radius: 6px;
     padding: 6px 10px;
 }
 .avi-hint-label, .avi-status-label {
-    color: #6c7086;
+    color: #666666;
     font-size: 11px;
 }
 .avi-provider-label {
-    color: #45475a;
+    color: #444444;
     font-family: monospace;
     font-size: 10px;
 }
@@ -418,7 +422,7 @@ class AviWindow:
         self.window.set_title("⚡ AVI Assistant")
         self.window.set_decorated(False)
         self.window.set_resizable(True)
-        self.window.set_default_size(680, -1)
+        self.window.set_default_size(720, -1)
         self.window.add_css_class("avi-overlay-window")
         self.window.add_css_class("avi-palette-window")
         self.window.add_css_class("avi-main-window")
@@ -500,7 +504,7 @@ class AviWindow:
         self.scroll_window.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         self.scroll_window.set_vexpand(True)
         self.scroll_window.set_propagate_natural_height(True)
-        self.scroll_window.set_max_content_height(420)
+        self.scroll_window.set_max_content_height(520)
         self.scroll_window.set_visible(False)
 
         self.conversation_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -1177,6 +1181,16 @@ class AviWindow:
         status_text, is_llm = self._get_loading_status(cleaned_text)
         self._set_status(status_text, spinning=True, is_llm=is_llm)
         self._show_working_line(status_text)
+
+        if is_llm:
+
+            def _check_still_thinking() -> bool:
+                if self._is_busy and self._current_working_widget is not None:
+                    self._show_working_line("Still thinking…")
+                    self._set_status("Still thinking…", spinning=True, is_llm=True)
+                return False
+
+            GLib.timeout_add(4000, _check_still_thinking)
 
         self._worker_thread = threading.Thread(
             target=self._run_query,

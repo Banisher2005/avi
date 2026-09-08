@@ -9,8 +9,11 @@ Central coordination layer for:
 - Safe shell execution fallback through SafetyEngine
 """
 
+import logging
 import time
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from avi.actions.system import OpenAppAction, OpenDirAction, OpenFileAction, OpenUrlAction
 from avi.actions.timer import TimerAction
@@ -148,13 +151,17 @@ class AssistantOrchestrator:
 
         # ── Step 1: Detect native assistant intent ───────────────────────
         intent = detect_assistant_intent(normalized_prompt, last_turn=self.history.last_turn)
+        routing_duration_ms = (time.perf_counter() - t0) * 1000.0
         result: OrchestratorResult | None = None
 
         # A. Conversational greetings
         if intent.intent_type == AssistantIntentType.GREETING:
             result = OrchestratorResult(
                 text="Hello! How can I help?",
-                metrics=ResponseMetrics(total_duration_ms=(time.perf_counter() - t0) * 1000.0),
+                metrics=ResponseMetrics(
+                    total_duration_ms=routing_duration_ms,
+                    routing_duration_ms=routing_duration_ms,
+                ),
                 context=context,
             )
 
@@ -719,7 +726,11 @@ class AssistantOrchestrator:
 
         # ── Step 3: Fallback to Router (Deterministic Fast-Path, Tools, LLM) ──
         if result is None:
+            t_route = time.perf_counter()
             resp = self.router.route_full(prompt, context=context)
+            llm_duration_ms = (time.perf_counter() - t_route) * 1000.0
+            if resp.metrics is not None and resp.metrics.llm_duration_ms is None:
+                resp.metrics.llm_duration_ms = llm_duration_ms
 
             # Check if the router returned a proposed shell command
             proposal = self.router.parse_command_proposal(resp.text)
@@ -776,6 +787,44 @@ class AssistantOrchestrator:
             search_results=result.search_results,
             selected_result=result.selected_result,
         )
+
+        # Developer/debug timing instrumentation
+        total_ms = (time.perf_counter() - t0) * 1000.0
+        if result.metrics:
+            result.metrics.total_duration_ms = total_ms
+            if result.metrics.routing_duration_ms is None:
+                result.metrics.routing_duration_ms = routing_duration_ms
+        else:
+            result.metrics = ResponseMetrics(
+                total_duration_ms=total_ms,
+                routing_duration_ms=routing_duration_ms,
+            )
+
+        if intent.intent_type == AssistantIntentType.GREETING:
+            logger.debug("[AVI] route=greeting routing=%.1fms total=%.1fms", routing_duration_ms, total_ms)
+        elif result.metrics and result.metrics.llm_duration_ms is not None:
+            logger.debug("[AVI] route=llm llm=%.1fms total=%.1fms", result.metrics.llm_duration_ms, total_ms)
+        elif intent.intent_type != AssistantIntentType.UNKNOWN:
+            route_name = intent.intent_type.value.lower()
+            cap_ms = getattr(result.metrics, "capability_duration_ms", None)
+            if cap_ms is not None:
+                logger.debug(
+                    "[AVI] route=%s capability=%.1fms total=%.1fms",
+                    route_name,
+                    cap_ms,
+                    total_ms,
+                )
+            else:
+                logger.debug(
+                    "[AVI] route=%s routing=%.1fms total=%.1fms",
+                    route_name,
+                    routing_duration_ms,
+                    total_ms,
+                )
+        else:
+            llm_ms = getattr(result.metrics, "eval_duration_ms", None) or (total_ms - routing_duration_ms)
+            logger.debug("[AVI] route=llm llm=%.1fms total=%.1fms", llm_ms, total_ms)
+
         return result
 
     # ------------------------------------------------------------------

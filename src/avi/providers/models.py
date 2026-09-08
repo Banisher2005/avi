@@ -142,6 +142,8 @@ class ResponseMetrics:
     capability_duration_ms: float | None = None
     retrieval_duration_ms: float | None = None
     time_to_first_token_ms: float | None = None
+    routing_duration_ms: float | None = None
+    llm_duration_ms: float | None = None
 
 
 @dataclass

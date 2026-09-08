@@ -200,8 +200,36 @@ Versions follow [Semantic Versioning](https://semver.org/).
   - `Escape`: Deselects active search row if highlighted; clears prompt if text exists; dismisses overlay if idle.
   - `Ctrl+L`: Focuses prompt entry and selects all text.
   - Retained transient action auto-dismissal (~1.8s for volume, app launch, screenshots).
-- **Test Suite Expansion (`tests/unit/test_ui.py`)**:
-  - Added unit test suite `TestCliCommandPalette` covering command bar construction, execution lines and glyphs (`❯`, `◌`, `✓`, `!`), compact search rows, and arrow navigation for search results and prompt history.
+#### Phase 14.3 — AVI Black Antigravity Palette + Instant Response Optimization
+- **True Black Antigravity CLI Styling System (`src/avi/ui/window.py`)**:
+  - Replaced Catppuccin / purple colors with a pure True Black design language:
+    - Base window background: `#050505`
+    - Primary command bar surface: `#080808`
+    - Secondary surface / execution transcript: `#0D0D0D`
+    - Hover / selected row background: `#151515`
+    - Subtle structural border: `#242424`
+    - Strong structural border: `#303030`
+    - High-contrast text & glyphs: `#F2F2F2`
+    - Secondary metadata / working indicator: `#A0A0A0`
+    - Muted keycaps & hints: `#666666`
+    - High-contrast error state: `#FF6B6B`
+  - Compact floating dimensions: default width set to 720px, max scrolled content height set to 520px.
+  - Interactive pill buttons updated to `#141414` surface, `#242424` border, and `#F2F2F2` text.
+- **Deterministic Greeting Recognition & Instant Response Bypass**:
+  - Implemented regex greeting detection in `detect_assistant_intent()` handling arbitrary repeated letters (`hi`, `hii`, `hiiiiii`, `hello`, `hellooo`, `hey`, `heyyy`, `yo`, `yooo`, `good morning`, `what's up`, etc.).
+  - Greeting queries instantly return in `<100ms` without dispatching to local LLM or triggering model warmup.
+  - Eliminated 10–15 second Ollama/qwen3:4b CPU evaluation latencies for common conversation openers.
+- **Deterministic Fast Path Routing & Latency Instrumentation**:
+  - Ensured native command bypass across CLI and GUI for volume adjustments, screenshots, application launching, and YouTube navigation.
+  - Added latency profiling fields (`routing_duration_ms` and `llm_duration_ms`) to `ResponseMetrics`.
+  - Added developer debug logging tracking route decision, capability timing, and total execution latency (`[AVI] route=greeting routing=1.5ms total=2.2ms`, `[AVI] route=llm llm=4210ms total=4235ms`).
+- **Responsive UI Working States & Timeout Recovery**:
+  - Live transition to `◌ Still thinking...` when an LLM query exceeds 4 seconds.
+  - Friendly error handling for timeouts (`! AVI took too long to respond.`) and unexecutable queries (`! I couldn't determine a safe action for that request.`).
+- **Test Suite Expansion (`tests/unit/test_ui.py`, `tests/unit/test_orchestrator.py`)**:
+  - Added `TestTrueBlackPalette` asserting True Black CSS color tokens, 720x520 geometry, and error formatting.
+  - Added tests asserting instant greeting bypass, native command execution without provider calls, ambiguous query routing to LLM, and latency metric population.
+
 
 
 ---

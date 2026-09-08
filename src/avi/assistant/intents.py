@@ -165,6 +165,25 @@ _URL_DOMAIN_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Deterministic greeting recognition (supports repeated characters: hiiiiii, hellooo, heyyy, etc.)
+_GREETING_RE = re.compile(
+    r"^(?:"
+    r"h+[i!]+[ye]*|"               # hi, hii, hiiiiii, hie, hi!
+    r"h+e+y+|"                    # hey, heyy, heyyy
+    r"h+e+l+l*o+|"                # helo, hello, helloo, hellooooo
+    r"y+o+|"                      # yo, yoo, yooo
+    r"h+o+w+d+y+|"                # howdy
+    r"w+a+s+s+u+p+|"              # wassup
+    r"s+u+p+|"                    # sup
+    r"h+i+y+a+|"                  # hiya
+    r"greetings|"                 # greetings
+    r"good\s+(?:morning|afternoon|evening|day|night)|"
+    r"what'?s\s+up"
+    r")"
+    r"(?:\s+(?:avi|there|assistant|bot|friend|everyone))?$",
+    re.IGNORECASE,
+)
+
 # Common websites that can be referenced by name
 _POPULAR_WEBSITES = {
     "youtube": "https://www.youtube.com",
@@ -918,8 +937,8 @@ def detect_assistant_intent(prompt: str, last_turn: Any | None = None) -> Detect
     ):
         return DetectedIntent(intent_type=AssistantIntentType.ACTIVATE, raw_prompt=prompt)
 
-    # 3. Greetings
-    if lower in (
+    # 3. Greetings (fast deterministic recognition)
+    if _GREETING_RE.match(lower) or lower in (
         "hi",
         "hello",
         "hey",
@@ -929,6 +948,8 @@ def detect_assistant_intent(prompt: str, last_turn: Any | None = None) -> Detect
         "good afternoon",
         "good evening",
         "yo",
+        "sup",
+        "hiya",
     ):
         return DetectedIntent(intent_type=AssistantIntentType.GREETING, raw_prompt=prompt)
 
