@@ -32,11 +32,13 @@ from avi.assistant.synthesizer import (
 )
 from avi.config import Config
 from avi.core.router import Router
+from avi.memory.manager import MemoryManager
 from avi.orchestrator.models import ConversationHistory, OrchestratorResult
 from avi.providers.models import ProviderCapabilities, ResponseMetrics
 from avi.providers.registry import select_provider
 from avi.retrieval.youtube import validate_youtube_url
 from avi.safety.engine import SafetyEngine
+from avi.storage.database import Database
 from avi.tools.registry import ToolRegistry, create_default_registry
 
 
@@ -54,12 +56,16 @@ class AssistantOrchestrator:
         capabilities: Any | None = None,
         planner: Any | None = None,
         executor: Any | None = None,
+        database: Database | None = None,
+        memory: MemoryManager | None = None,
     ) -> None:
         self.config = config
         self.tools = tools or create_default_registry()
         self.safety = safety or SafetyEngine()
         self.app_resolver = app_resolver or ApplicationResolver()
         self.history = history or ConversationHistory()
+        self.db = database or Database()
+        self.memory = memory or MemoryManager(database=self.db)
         self.router = router or Router(
             config=config,
             tools=self.tools,
@@ -76,6 +82,7 @@ class AssistantOrchestrator:
         self.executor: AgentExecutor = executor or AgentExecutor(
             registry=self.capabilities,
             safety_engine=self.safety,
+            database=self.db,
         )
 
     def is_assistant_request(self, prompt: str) -> bool:
@@ -247,6 +254,21 @@ class AssistantOrchestrator:
                 context=context,
             )
 
+        # H2. Conversational / Explicit Memory Command
+        elif intent.intent_type == AssistantIntentType.MEMORY:
+            t_mem = time.perf_counter()
+            mem_text = self.memory.handle_memory_command(normalized_prompt)
+            mem_dur = (time.perf_counter() - t_mem) * 1000.0
+            result = OrchestratorResult(
+                text=mem_text,
+                metrics=ResponseMetrics(
+                    total_duration_ms=(time.perf_counter() - t0) * 1000.0,
+                    routing_duration_ms=routing_duration_ms,
+                    memory_duration_ms=mem_dur,
+                ),
+                context=context,
+            )
+
         # I. Native Tool: Memory / RAM Process Usage
         elif intent.intent_type == AssistantIntentType.RAM_USAGE:
             tool = self.tools.get("system.processes")
@@ -347,7 +369,10 @@ class AssistantOrchestrator:
 
         # N. Native Action: Open URL
         elif intent.intent_type == AssistantIntentType.OPEN_URL:
-            action = OpenUrlAction(url=intent.target)
+            browser = intent.extra.get("browser")
+            if not browser:
+                browser = self.memory.get_preferred_browser()
+            action = OpenUrlAction(url=intent.target, browser=browser)
             if auto_execute_actions:
                 act_res = action.execute()
                 result = OrchestratorResult(
@@ -357,8 +382,9 @@ class AssistantOrchestrator:
                     context=context,
                 )
             else:
+                browser_str = f" in {browser.title()}" if browser else ""
                 result = OrchestratorResult(
-                    text=f"Ready to open URL: {intent.target}",
+                    text=f"Ready to open URL: {intent.target}{browser_str}",
                     action=action,
                     context=context,
                 )
@@ -383,7 +409,14 @@ class AssistantOrchestrator:
 
         # P. Native Action: Open Directory
         elif intent.intent_type == AssistantIntentType.OPEN_DIR:
-            action = OpenDirAction(path=intent.target)
+            from pathlib import Path
+            target_path = intent.target
+            p = Path(target_path).expanduser()
+            if not p.exists():
+                pref = self.memory.get_preferred_folder(target_path)
+                if pref:
+                    target_path = pref
+            action = OpenDirAction(path=target_path)
             if auto_execute_actions:
                 act_res = action.execute()
                 result = OrchestratorResult(
@@ -394,7 +427,7 @@ class AssistantOrchestrator:
                 )
             else:
                 result = OrchestratorResult(
-                    text=f"Ready to open directory: {intent.target}",
+                    text=f"Ready to open directory: {target_path}",
                     action=action,
                     context=context,
                 )
@@ -643,7 +676,10 @@ class AssistantOrchestrator:
                             else None
                         ),
                         metrics=ResponseMetrics(
-                            total_duration_ms=(time.perf_counter() - t0) * 1000.0
+                            total_duration_ms=(time.perf_counter() - t0) * 1000.0,
+                            planning_duration_ms=plan_res.planning_duration_ms,
+                            action_duration_ms=plan_res.action_duration_ms,
+                            verification_duration_ms=plan_res.verification_duration_ms,
                         ),
                         context=context,
                     )
@@ -679,7 +715,10 @@ class AssistantOrchestrator:
                                 requires_confirmation=plan_res.confirmation_required,
                                 capability_result=last_cap_res,
                                 metrics=ResponseMetrics(
-                                    total_duration_ms=(time.perf_counter() - t0) * 1000.0
+                                    total_duration_ms=(time.perf_counter() - t0) * 1000.0,
+                                    planning_duration_ms=plan_res.planning_duration_ms,
+                                    action_duration_ms=plan_res.action_duration_ms,
+                                    verification_duration_ms=plan_res.verification_duration_ms,
                                 ),
                                 context=context,
                             )

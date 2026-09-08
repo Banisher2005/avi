@@ -487,10 +487,13 @@ class TerminalSkill(BaseSkill):
         cmd = parameters.get("command", "").strip()
         if not cmd:
             return SkillResult(success=False, action=action, error="Empty command.")
+        import shlex
+
         try:
+            tokens = shlex.split(cmd)
             res = subprocess.run(
-                cmd,
-                shell=True,
+                tokens,
+                shell=False,
                 capture_output=True,
                 text=True,
                 timeout=15.0,

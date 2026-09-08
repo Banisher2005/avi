@@ -39,15 +39,16 @@ class OpenAppAction(BaseAction):
 
 
 class OpenUrlAction(BaseAction):
-    """Open an HTTP or HTTPS web address in the user's default browser."""
+    """Open an HTTP or HTTPS web address in the user's default browser or a specified browser."""
 
     name = "assistant.open_url"
     category = ActionCategory.EXTERNAL_ACTION
     requires_confirmation = False
 
-    def __init__(self, url: str) -> None:
+    def __init__(self, url: str, browser: str | None = None) -> None:
         self.raw_url = url.strip()
         self.url = self._normalize_url(self.raw_url)
+        self.browser = browser.strip() if browser else None
 
     def _normalize_url(self, raw: str) -> str:
         """Ensure URL has a valid web protocol scheme."""
@@ -67,6 +68,22 @@ class OpenUrlAction(BaseAction):
             )
 
         try:
+            if self.browser:
+                resolver = ApplicationResolver()
+                res = resolver.resolve(self.browser)
+                if res.installed and res.executable:
+                    subprocess.Popen(
+                        [res.executable, self.url],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        start_new_session=True,
+                    )
+                    return ActionResult(
+                        success=True,
+                        message=f"Opening {self.url} in {res.canonical_name}.",
+                        data={"url": self.url, "browser": res.canonical_name},
+                    )
+
             # Try webbrowser first
             opened = webbrowser.open(self.url)
             if not opened:

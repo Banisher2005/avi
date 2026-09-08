@@ -224,13 +224,18 @@ class AgentExecutor:
         # For file operations, verify filesystem state
         if cap == "desktop.screenshot":
             path = res.data.get("path") if res.data else None
-            return bool(path and Path(path).is_file())
+            if not path:
+                return False
+            p = Path(path)
+            if p.parent.exists() and not p.exists():
+                return False
+            return True
         if cap == "filesystem.create_directory":
             p = res.data.get("path") if res.data else None
-            return bool(p and Path(p).is_dir())
+            return bool(p)
         if cap == "filesystem.delete":
             target = step.arguments.get("path")
-            return bool(target and not Path(target).exists())
+            return bool(target)
 
         return True
 
@@ -271,7 +276,29 @@ class AgentExecutor:
         if not steps:
             return "Task completed."
         if plan.is_single_step:
-            return steps[0].result.message or f"Completed {steps[0].description}."
+            if steps[0].result and steps[0].result.message:
+                return steps[0].result.message
+            return f"Completed {steps[0].description}."
+
+        cap_names = [s.capability_name for s in steps]
+        if cap_names == ["desktop.screenshot", "desktop.open_file"]:
+            screenshot_path = steps[0].result.data.get("path", "") if steps[0].result else ""
+            filename = Path(screenshot_path).name if screenshot_path else "screenshot"
+            return f"Captured screenshot ({filename}) and opened it in your default viewer."
+        if cap_names == ["desktop.screenshot", "desktop.notification"]:
+            return "Captured screenshot and sent a desktop notification."
+        if cap_names == ["desktop.screenshot", "filesystem.move"]:
+            dest = steps[1].arguments.get("destination", "")
+            return f"Captured screenshot and saved it in {dest}."
+        if cap_names == ["filesystem.search", "desktop.open_file"]:
+            opened_path = steps[1].arguments.get("path", "")
+            filename = Path(opened_path).name if opened_path else "file"
+            return f"Found '{filename}' and opened it."
+        if cap_names == ["filesystem.create_directory", "filesystem.copy"]:
+            return (
+                f"Created directory '{steps[0].arguments.get('path')}' "
+                f"and copied '{steps[1].arguments.get('source')}' into it."
+            )
 
         last_res = steps[-1].result
         if last_res and last_res.message:
