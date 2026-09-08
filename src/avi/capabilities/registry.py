@@ -63,6 +63,10 @@ class CapabilityRegistry:
             return self._capabilities[canonical]
         return None
 
+    def get_capability(self, name: str) -> BaseCapability | None:
+        """Alias for get() to retrieve capability by name or alias."""
+        return self.get(name)
+
     def list_capabilities(self) -> list[str]:
         """Return names of all registered primary capabilities."""
         return sorted(self._capabilities.keys())
@@ -74,6 +78,71 @@ class CapabilityRegistry:
     def get_schemas(self) -> list[dict[str, Any]]:
         """Return metadata schemas for all registered capabilities."""
         return [c.to_metadata() for c in self._capabilities.values()]
+
+    def get_model_catalog(self, enabled_only: bool = True) -> list[dict[str, Any]]:
+        """Return a compact, model-facing catalog of registered capabilities."""
+        catalog = []
+        for cap in self._capabilities.values():
+            if enabled_only and not getattr(cap, "enabled", True):
+                continue
+            catalog.append(cap.to_metadata())
+        return catalog
+
+    def search_capabilities(self, query: str) -> list[BaseCapability]:
+        """Search capabilities by query across name, aliases, description, and tags."""
+        q = query.strip().lower()
+        if not q:
+            return self.get_all()
+
+        results: list[BaseCapability] = []
+        seen: set[str] = set()
+
+        for cap in self._capabilities.values():
+            # Check primary name
+            score = 0
+            if q == cap.name.lower():
+                score += 10
+            elif q in cap.name.lower():
+                score += 5
+
+            # Check description
+            if q in cap.description.lower():
+                score += 3
+
+            # Check tags
+            for tag in getattr(cap, "tags", ()):
+                if q == tag.lower():
+                    score += 4
+                elif q in tag.lower():
+                    score += 2
+
+            # Check aliases
+            for alias, target in self._aliases.items():
+                if target == cap.name:
+                    if q == alias.lower():
+                        score += 5
+                    elif q in alias.lower():
+                        score += 2
+
+            if score > 0 and cap.name not in seen:
+                seen.add(cap.name)
+                results.append(cap)
+
+        return results
+
+    def set_capability_enabled(self, name: str, enabled: bool) -> bool:
+        """Enable or disable a capability by name or alias."""
+        cap = self.get(name)
+        if cap is not None:
+            cap.enabled = enabled
+            return True
+        return False
+
+    def capability_count(self, enabled_only: bool = False) -> int:
+        """Return count of registered capabilities."""
+        if enabled_only:
+            return sum(1 for c in self._capabilities.values() if getattr(c, "enabled", True))
+        return len(self._capabilities)
 
     def execute(self, name: str, **kwargs: Any) -> CapabilityResult:
         """Execute capability by name with arguments."""
@@ -163,6 +232,7 @@ def create_default_capability_registry(
     tool_reg = tools or create_default_registry()
     for tool in tool_reg.list_tools():
         adapter = ToolCapabilityAdapter(tool)
+        adapter.tags = ("tool", "system", "read_only")
         # Register under original name (e.g. system.disk_usage) and aliases
         aliases = []
         if tool.name == "system.disk_usage":
@@ -171,44 +241,90 @@ def create_default_capability_registry(
 
     # 2. Desktop Capabilities
     app_resolver = resolver or ApplicationResolver()
-    registry.register(ScreenshotCapability(), aliases=["screenshot", "take_screenshot"])
-    registry.register(NotificationCapability(), aliases=["notification", "notify"])
+    
+    shot_cap = ScreenshotCapability()
+    shot_cap.tags = ("desktop", "screen", "capture", "image")
+    registry.register(shot_cap, aliases=["screenshot", "take_screenshot"])
+
+    notify_cap = NotificationCapability()
+    notify_cap.tags = ("desktop", "notification", "alert")
+    registry.register(notify_cap, aliases=["notification", "notify"])
+
+    vol_get = VolumeGetCapability()
+    vol_get.tags = ("desktop", "audio", "volume", "sound")
     registry.register(
-        VolumeGetCapability(),
+        vol_get,
         aliases=["volume.get", "desktop.volume.get", "get_volume"],
     )
+
+    vol_set = VolumeSetCapability()
+    vol_set.tags = ("desktop", "audio", "volume", "sound")
     registry.register(
-        VolumeSetCapability(),
+        vol_set,
         aliases=["volume.set", "desktop.volume.set", "set_volume"],
     )
+
+    media_cap = MediaControlCapability()
+    media_cap.tags = ("desktop", "media", "playback", "audio", "video")
     registry.register(
-        MediaControlCapability(),
+        media_cap,
         aliases=["desktop.media.control", "desktop.media", "media", "media_control"],
     )
-    registry.register(LaunchAppCapability(app_resolver), aliases=["app.launch", "open_app"])
+
+    launch_cap = LaunchAppCapability(app_resolver)
+    launch_cap.tags = ("desktop", "app", "application", "launch")
+    registry.register(launch_cap, aliases=["app.launch", "open_app"])
+
+    url_cap = OpenUrlCapability()
+    url_cap.tags = ("desktop", "browser", "web", "url")
     registry.register(
-        OpenUrlCapability(),
+        url_cap,
         aliases=["open_url", "desktop.open_url", "desktop.url.open"],
     )
-    registry.register(OpenFileCapability(), aliases=["open_file"])
-    registry.register(OpenDirectoryCapability(), aliases=["open_directory", "open_folder"])
+
+    file_cap = OpenFileCapability()
+    file_cap.tags = ("desktop", "filesystem", "file", "open")
+    registry.register(file_cap, aliases=["open_file"])
+
+    dir_cap = OpenDirectoryCapability()
+    dir_cap.tags = ("desktop", "filesystem", "directory", "folder")
+    registry.register(dir_cap, aliases=["open_directory", "open_folder"])
 
     # 3. Web Capabilities
     url_opener = registry.get("desktop.open_url")
+    yt_search = YouTubeSearchCapability(url_capability=url_opener)
+    yt_search.tags = ("web", "youtube", "search", "video")
     registry.register(
-        YouTubeSearchCapability(url_capability=url_opener),
+        yt_search,
         aliases=["youtube.search", "youtube_search"],
     )
+
+    yt_results = YouTubeSearchResultsCapability()
+    yt_results.tags = ("web", "youtube", "search", "video")
     registry.register(
-        YouTubeSearchResultsCapability(),
+        yt_results,
         aliases=["youtube.search_results", "youtube_search_results", "youtube.retrieve"],
     )
 
     # 4. Filesystem Capabilities
-    registry.register(FilesystemSearchCapability(), aliases=["file_search", "find_file"])
-    registry.register(CreateDirectoryCapability(), aliases=["mkdir", "create_dir"])
-    registry.register(CopyFileCapability(), aliases=["copy_file", "cp"])
-    registry.register(MoveFileCapability(), aliases=["move_file", "mv"])
-    registry.register(DeleteFileCapability(), aliases=["delete_file", "rm"])
+    fs_search = FilesystemSearchCapability()
+    fs_search.tags = ("filesystem", "search", "find", "file")
+    registry.register(fs_search, aliases=["file_search", "find_file"])
+
+    fs_mkdir = CreateDirectoryCapability()
+    fs_mkdir.tags = ("filesystem", "directory", "mkdir", "create")
+    registry.register(fs_mkdir, aliases=["mkdir", "create_dir"])
+
+    fs_cp = CopyFileCapability()
+    fs_cp.tags = ("filesystem", "file", "copy")
+    registry.register(fs_cp, aliases=["copy_file", "cp"])
+
+    fs_mv = MoveFileCapability()
+    fs_mv.tags = ("filesystem", "file", "move")
+    registry.register(fs_mv, aliases=["move_file", "mv"])
+
+    fs_rm = DeleteFileCapability()
+    fs_rm.tags = ("filesystem", "file", "delete", "destructive")
+    registry.register(fs_rm, aliases=["delete_file", "rm"])
 
     return registry

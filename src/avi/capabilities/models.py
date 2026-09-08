@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, Sequence
 
 from avi.actions.base import BaseAction
 from avi.safety.models import ActionCategory
@@ -70,6 +70,8 @@ class BaseCapability(ABC):
     risk_category: ActionCategory = ActionCategory.READ_ONLY
     data_classification: DataClassification = DataClassification.LOCAL_ONLY
     requires_confirmation: bool = False
+    tags: Sequence[str] = ()
+    enabled: bool = True
 
     @abstractmethod
     def execute(self, **kwargs: Any) -> CapabilityResult:
@@ -85,6 +87,8 @@ class BaseCapability(ABC):
             "risk_category": self.risk_category.value,
             "data_classification": self.data_classification.value,
             "requires_confirmation": self.requires_confirmation,
+            "tags": list(getattr(self, "tags", ())),
+            "enabled": getattr(self, "enabled", True),
         }
 
 
