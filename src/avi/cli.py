@@ -263,6 +263,12 @@ def run_ui(args: Sequence[str] | None = None, is_activate: bool = False) -> int:
         action="store_true",
         help="Quit running background AVI overlay daemon",
     )
+    parser.add_argument(
+        "--_daemon-inner",
+        action="store_true",
+        dest="daemon_inner",
+        help=argparse.SUPPRESS,  # internal: marks this process IS the GTK daemon
+    )
     opts = parser.parse_args(args)
 
     from avi.orchestrator import AssistantOrchestrator
@@ -276,15 +282,8 @@ def run_ui(args: Sequence[str] | None = None, is_activate: bool = False) -> int:
     config = Config.load(**overrides)
     router = Router(config)
     orchestrator = AssistantOrchestrator(config=config, router=router)
-    allow_fallback = (
-        opts.use_system_python
-        or is_activate
-        or opts.toggle
-        or opts.background
-        or opts.hide
-        or opts.show
-        or opts.quit
-    )
+    # Always allow automatic fallback to system Python if PyGObject is not in current venv
+    allow_fallback = True
     toggle_mode = opts.toggle or is_activate
     return AviApp(
         router,
@@ -294,6 +293,8 @@ def run_ui(args: Sequence[str] | None = None, is_activate: bool = False) -> int:
         toggle=toggle_mode,
         show=opts.show,
         hide=opts.hide,
+        quit_flag=opts.quit,
+        daemon_inner=opts.daemon_inner,
     ).run(allow_system_fallback=allow_fallback)
 
 

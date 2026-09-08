@@ -369,12 +369,14 @@ class AviWindow:
         config: Any,
         orchestrator: Any | None = None,
         max_history: int = 40,
+        visible: bool = True,
     ) -> None:
         self.app = app
         self.router = router
         self.config = config
         self.orchestrator = orchestrator
         self.max_history = max_history
+        self._initially_visible = visible
 
         self._history_widgets: list[Any] = []
         self._is_busy = False
@@ -417,7 +419,7 @@ class AviWindow:
         self.close_button = Gtk.Button(label="×")
         self.close_button.add_css_class("avi-close-btn")
         self.close_button.set_tooltip_text("Close overlay (Esc)")
-        self.close_button.connect("clicked", lambda _b: self.hide_overlay())
+        self.close_button.connect("clicked", lambda _b: self.window.close())
         header_box.append(self.close_button)
 
         root_box.append(header_box)
@@ -507,18 +509,45 @@ class AviWindow:
         key_ctrl.connect("key-pressed", self._on_key_pressed)
         self.window.add_controller(key_ctrl)
 
-        # Initial presentation and focus
-        self.window.present()
-        self.prompt_entry.grab_focus()
+        # Initial presentation and focus if initially visible
+        if getattr(self, "_initially_visible", True):
+            self.window.present()
+            self.prompt_entry.grab_focus()
 
     def show_overlay(self, select_all: bool = True, clear_input: bool = False) -> None:
-        """Present and focus the overlay window."""
+        """Present and focus the overlay window.
+
+        On Wayland, compositors block focus stealing by default.  We work around
+        this by supplying a synthetic startup-ID token so the compositor grants
+        the raise request.
+        """
         self._cancel_auto_dismiss()
         if clear_input:
             self.prompt_entry.set_text("")
         if hasattr(self, "window") and self.window:
             self.window.set_visible(True)
+            # Wayland focus-bypass: set a fresh startup-notification token so
+            # the compositor permits the raise.  This is a no-op on X11.
+            try:
+                import time as _time
+
+                token = f"avi-overlay-{int(_time.time() * 1000)}"
+                self.window.set_startup_id(token)
+            except Exception:
+                pass
             self.window.present()
+            # X11 fallback: use xdotool to force window to front if present() was
+            # insufficient (e.g. compiz / mutter focus-on-click policy).
+            try:
+                win_id = self.window.get_native().get_xid() if hasattr(self.window.get_native(), "get_xid") else None
+                if win_id:
+                    subprocess.Popen(
+                        ["xdotool", "windowactivate", "--sync", str(win_id)],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+            except Exception:
+                pass
         if hasattr(self, "prompt_entry") and self.prompt_entry:
             self.prompt_entry.grab_focus()
             if select_all and not clear_input:

@@ -163,6 +163,21 @@ Versions follow [Semantic Versioning](https://semver.org/).
 - **Test Suite Expansion**:
   - Added unit tests covering frameless overlay layout, header, controls, show/hide/toggle, auto-dismiss scheduling and cancellation, daemon flags, and session state preservation across dismissals (969 passing tests, 2 skipped).
 
+#### Phase 14.1 — Fix Real Desktop Activation & Daemon Lifecycle Hardening
+- **Non-blocking Daemon Process Model (`src/avi/ui/app.py`)**:
+  - Replaced synchronous `subprocess.run()` fallback with non-blocking `subprocess.Popen(..., start_new_session=True)` for `avi ui --background`, preventing terminal hanging and ensuring immediate return to prompt (~500ms).
+  - Internal flag `--_daemon-inner` isolates the resident GTK event loop process from CLI client invocations.
+- **Robust D-Bus IPC Command Routing (`src/avi/ui/app.py`)**:
+  - Fixed `_send_ipc()` formatting for `org.gtk.Application.CommandLine`: parameters (`objectpath`, `args`, `platform_data`) are passed as distinct positional GVariant arguments rather than an invalid single composite tuple, fixing parameter parsing failures (`Error parsing parameter 1 of type 'o'`).
+  - Added auto-daemon start on `avi ui --show`, `avi ui --toggle`, and `avi activate`: if daemon is not running, it is automatically launched in background before dispatching the show/toggle command.
+  - Added `avi ui --quit` handler for clean shutdown of resident daemon and session D-Bus unregistration.
+- **Wayland Focus-Stealing Bypass (`src/avi/ui/window.py`)**:
+  - Implemented synthetic `set_startup_id("avi-overlay-<timestamp>")` activation token on Wayland to bypass compositor focus-stealing prevention when summoning overlay from another app or terminal.
+  - Maintained X11 `xdotool windowactivate` fallback for window raising.
+- **Integration Smoke Tests & Test Expansion (`tests/unit/test_ui.py`)**:
+  - Added unit tests for daemon state inspection, IPC dispatch format, non-blocking `_start_daemon` call, and new parameter handling.
+  - Added `TestDaemonLifecycleSmoke` integration test validating background daemon start, D-Bus registration, IPC `--show`, and clean `--quit` (984 passing tests, 2 skipped).
+
 ---
 
 ## [0.3.0] — 2026-09-06

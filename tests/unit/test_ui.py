@@ -5,6 +5,7 @@ behaviour is either mocked or skipped via pytest.importorskip when needed.
 """
 
 import os
+import subprocess
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -135,7 +136,14 @@ class TestCliUiSubcommand:
         """avi ui with no GTK4 installed returns 1 with helpful error."""
         from avi.cli import main
 
-        with patch("avi.ui.app._GTK_AVAILABLE", False):
+        mock_report = MagicMock()
+        mock_report.system_python_has_gtk4 = False
+        mock_report.diagnostic_message = "PyGObject (GTK4) is not installed."
+
+        with (
+            patch("avi.ui.app._GTK_AVAILABLE", False),
+            patch("avi.ui.app.diagnose_gtk_environment", return_value=mock_report),
+        ):
             code = main(["ui"])
 
         assert code == 1
@@ -711,3 +719,340 @@ print('SMOKE_OK')
         )
         assert proc.returncode == 0
         assert "SMOKE_OK" in proc.stdout
+
+
+# ============================================================
+# 7. Phase 14.1 — Daemon lifecycle & IPC routing unit tests
+# ============================================================
+
+
+class TestDaemonIpcHelpers:
+    """Unit tests for daemon detection and IPC helper functions in app.py."""
+
+    def test_daemon_is_running_no_gdbus(self):
+        """_daemon_is_running returns False when gdbus is not found."""
+        from avi.ui.app import _daemon_is_running
+
+        with patch("avi.ui.app.shutil.which", return_value=None):
+            assert _daemon_is_running() is False
+
+    def test_daemon_is_running_name_not_in_output(self):
+        """_daemon_is_running returns False when app is not registered."""
+        from avi.ui.app import _daemon_is_running
+
+        with (
+            patch("avi.ui.app.shutil.which", return_value="/usr/bin/gdbus"),
+            patch("avi.ui.app.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(stdout="some.other.name", returncode=0)
+            assert _daemon_is_running() is False
+
+    def test_daemon_is_running_name_found(self):
+        """_daemon_is_running returns True when app D-Bus name is present."""
+        from avi.ui.app import _daemon_is_running
+
+        with (
+            patch("avi.ui.app.shutil.which", return_value="/usr/bin/gdbus"),
+            patch("avi.ui.app.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(
+                stdout="'io.github.banisher2005.avi'", returncode=0
+            )
+            assert _daemon_is_running() is True
+
+    def test_send_ipc_no_gdbus(self, capsys):
+        """_send_ipc returns 1 with error when gdbus is not found."""
+        from avi.ui.app import _send_ipc
+
+        with patch("avi.ui.app.shutil.which", return_value=None):
+            code = _send_ipc("--show")
+        assert code == 1
+        captured = capsys.readouterr()
+        assert "gdbus" in captured.err
+
+    def test_send_ipc_calls_gdbus(self):
+        """_send_ipc invokes gdbus with the right app-id and flag."""
+        from avi.ui.app import _send_ipc
+
+        with (
+            patch("avi.ui.app.shutil.which", return_value="/usr/bin/gdbus"),
+            patch("avi.ui.app.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0)
+            code = _send_ipc("--show")
+        assert code == 0
+        args = mock_run.call_args[0][0]
+        assert "io.github.banisher2005.avi" in args
+        assert "org.gtk.Application.CommandLine" in args
+
+    def test_start_daemon_uses_popen(self):
+        """_start_daemon uses Popen with start_new_session=True (non-blocking)."""
+        from avi.ui.app import _start_daemon
+
+        with patch("avi.ui.app.subprocess.Popen") as mock_popen:
+            _start_daemon("/usr/bin/python3", "/some/src", {})
+        mock_popen.assert_called_once()
+        _, kwargs = mock_popen.call_args
+        assert kwargs.get("start_new_session") is True
+        assert kwargs.get("stdin") == subprocess.DEVNULL
+
+
+class TestAviAppNewParams:
+    """Unit tests for new AviApp constructor parameters (quit_flag, daemon_inner)."""
+
+    def test_app_quit_flag_stored(self):
+        from avi.ui.app import AviApp
+
+        app = AviApp(MagicMock(), MagicMock(), quit_flag=True)
+        assert app.quit_flag is True
+
+    def test_app_daemon_inner_stored(self):
+        from avi.ui.app import AviApp
+
+        app = AviApp(MagicMock(), MagicMock(), daemon_inner=True)
+        assert app.daemon_inner is True
+
+    def test_app_quit_no_daemon_running(self, capsys):
+        """quit with no daemon running prints message and returns 0."""
+        from avi.ui.app import AviApp
+
+        with (
+            patch("avi.ui.app._GTK_AVAILABLE", False),
+            patch("avi.ui.app._daemon_is_running", return_value=False),
+            patch(
+                "avi.ui.app.diagnose_gtk_environment"
+            ) as mock_diag,
+        ):
+            report = MagicMock()
+            report.system_python_has_gtk4 = True
+            report.system_python_path = "/usr/bin/python3"
+            mock_diag.return_value = report
+            app = AviApp(MagicMock(), MagicMock(), quit_flag=True)
+            code = app.run(allow_system_fallback=True)
+        assert code == 0
+        captured = capsys.readouterr()
+        assert "not running" in captured.out
+
+    def test_app_quit_daemon_running_sends_ipc(self):
+        """quit with daemon running sends IPC --quit command."""
+        from avi.ui.app import AviApp
+
+        with (
+            patch("avi.ui.app._GTK_AVAILABLE", False),
+            patch("avi.ui.app._daemon_is_running", return_value=True),
+            patch("avi.ui.app._send_ipc", return_value=0) as mock_ipc,
+            patch(
+                "avi.ui.app.diagnose_gtk_environment"
+            ) as mock_diag,
+        ):
+            report = MagicMock()
+            report.system_python_has_gtk4 = True
+            report.system_python_path = "/usr/bin/python3"
+            mock_diag.return_value = report
+            app = AviApp(MagicMock(), MagicMock(), quit_flag=True)
+            code = app.run(allow_system_fallback=True)
+        assert code == 0
+        mock_ipc.assert_called_once_with("--quit")
+
+    def test_app_background_daemon_already_running(self, capsys):
+        """--background when daemon already running prints info and returns 0."""
+        from avi.ui.app import AviApp
+
+        with (
+            patch("avi.ui.app._GTK_AVAILABLE", False),
+            patch("avi.ui.app._daemon_is_running", return_value=True),
+            patch(
+                "avi.ui.app.diagnose_gtk_environment"
+            ) as mock_diag,
+        ):
+            report = MagicMock()
+            report.system_python_has_gtk4 = True
+            report.system_python_path = "/usr/bin/python3"
+            mock_diag.return_value = report
+            app = AviApp(MagicMock(), MagicMock(), background=True)
+            code = app.run(allow_system_fallback=True)
+        assert code == 0
+        captured = capsys.readouterr()
+        assert "already running" in captured.out
+
+    def test_app_background_starts_daemon(self, capsys):
+        """--background when daemon not running launches daemon via Popen."""
+        from avi.ui.app import AviApp
+
+        with (
+            patch("avi.ui.app._GTK_AVAILABLE", False),
+            patch("avi.ui.app._daemon_is_running", return_value=False),
+            patch("avi.ui.app._start_daemon") as mock_start,
+            patch(
+                "avi.ui.app.diagnose_gtk_environment"
+            ) as mock_diag,
+        ):
+            report = MagicMock()
+            report.system_python_has_gtk4 = True
+            report.system_python_path = "/usr/bin/python3"
+            mock_diag.return_value = report
+            app = AviApp(MagicMock(), MagicMock(), background=True)
+            code = app.run(allow_system_fallback=True)
+        assert code == 0
+        mock_start.assert_called_once()
+        captured = capsys.readouterr()
+        assert "started" in captured.out
+
+    def test_app_show_routes_to_ipc_if_running(self):
+        """--show when daemon running sends IPC --show."""
+        from avi.ui.app import AviApp
+
+        with (
+            patch("avi.ui.app._GTK_AVAILABLE", False),
+            patch("avi.ui.app._daemon_is_running", return_value=True),
+            patch("avi.ui.app._send_ipc", return_value=0) as mock_ipc,
+            patch(
+                "avi.ui.app.diagnose_gtk_environment"
+            ) as mock_diag,
+        ):
+            report = MagicMock()
+            report.system_python_has_gtk4 = True
+            report.system_python_path = "/usr/bin/python3"
+            mock_diag.return_value = report
+            app = AviApp(MagicMock(), MagicMock(), show=True)
+            code = app.run(allow_system_fallback=True)
+        assert code == 0
+        mock_ipc.assert_called_once_with("--show")
+
+    def test_app_show_starts_daemon_if_not_running(self):
+        """--show when daemon not running starts daemon then sends --show."""
+        from avi.ui.app import AviApp
+
+        call_count = {"n": 0}
+
+        def running_side_effect():
+            call_count["n"] += 1
+            # Return False first (before start), True after
+            return call_count["n"] > 1
+
+        with (
+            patch("avi.ui.app._GTK_AVAILABLE", False),
+            patch("avi.ui.app._daemon_is_running", side_effect=running_side_effect),
+            patch("avi.ui.app._start_daemon") as mock_start,
+            patch("avi.ui.app._send_ipc", return_value=0) as mock_ipc,
+            patch("avi.ui.app.time.sleep"),  # skip real sleep
+            patch(
+                "avi.ui.app.diagnose_gtk_environment"
+            ) as mock_diag,
+        ):
+            report = MagicMock()
+            report.system_python_has_gtk4 = True
+            report.system_python_path = "/usr/bin/python3"
+            mock_diag.return_value = report
+            app = AviApp(MagicMock(), MagicMock(), show=True)
+            code = app.run(allow_system_fallback=True)
+        assert code == 0
+        mock_start.assert_called_once()
+        mock_ipc.assert_called_once_with("--show")
+
+
+class TestDaemonLifecycleSmoke:
+    """Real process lifecycle smoke test for daemon start/show/quit flow."""
+
+    def test_daemon_lifecycle_background_show_quit(self):
+        """Integration smoke: start daemon in bg, send --show, send --quit."""
+        import shutil
+        import subprocess
+        import time
+
+        from avi.ui.detector import diagnose_gtk_environment
+
+        report = diagnose_gtk_environment()
+        if not (report.system_python_has_gtk4 and report.system_python_path):
+            pytest.skip("System Python with GTK4 not available")
+
+        if not shutil.which("gdbus"):
+            pytest.skip("gdbus not available")
+
+        src_path = str(
+            __import__("pathlib").Path(__file__).resolve().parent.parent.parent / "src"
+        )
+        env = dict(os.environ)
+        env["PYTHONPATH"] = src_path
+
+        # 1. Kill any leftover daemon
+        subprocess.run(
+            [report.system_python_path, "-m", "avi.cli", "ui", "--quit"],
+            env=env,
+            capture_output=True,
+            timeout=5,
+        )
+        time.sleep(0.5)
+
+        # 2. Start daemon via --background (must return promptly, not block)
+        t0 = time.monotonic()
+        bg_proc = subprocess.run(
+            [report.system_python_path, "-m", "avi.cli", "ui", "--background"],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        elapsed = time.monotonic() - t0
+        # The venv shim for --background should now use Popen and return quickly.
+        # Under system python, --background starts the daemon and returns 0.
+        assert bg_proc.returncode == 0, f"--background failed: {bg_proc.stderr}"
+        # It should not take a long time (not blocking)
+        assert elapsed < 8, f"--background blocked for {elapsed:.1f}s"
+
+        # 3. Wait for daemon to register on D-Bus (up to 5s)
+        registered = False
+        for _ in range(50):
+            time.sleep(0.1)
+            check = subprocess.run(
+                [
+                    "gdbus",
+                    "call",
+                    "--session",
+                    "--dest",
+                    "org.freedesktop.DBus",
+                    "--object-path",
+                    "/org/freedesktop/DBus",
+                    "--method",
+                    "org.freedesktop.DBus.ListNames",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+            if "io.github.banisher2005.avi" in check.stdout:
+                registered = True
+                break
+        assert registered, "AVI daemon did not register on D-Bus within 5s"
+
+        # 4. Send --quit via IPC
+        quit_proc = subprocess.run(
+            [report.system_python_path, "-m", "avi.cli", "ui", "--quit"],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert quit_proc.returncode == 0, f"--quit failed: {quit_proc.stderr}"
+
+        # 5. Verify daemon stopped
+        time.sleep(1)
+        check2 = subprocess.run(
+            [
+                "gdbus",
+                "call",
+                "--session",
+                "--dest",
+                "org.freedesktop.DBus",
+                "--object-path",
+                "/org/freedesktop/DBus",
+                "--method",
+                "org.freedesktop.DBus.ListNames",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        assert (
+            "io.github.banisher2005.avi" not in check2.stdout
+        ), "Daemon still running after --quit"
