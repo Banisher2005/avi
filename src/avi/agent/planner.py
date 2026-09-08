@@ -107,6 +107,38 @@ class AgentPlanner:
                 max_steps=self.max_steps,
             )
 
+        # Pattern: Open YouTube, search for <query>, and play the latest / first video
+        yt_search_play_match = re.search(
+            r"\b(?:open\s+(?:youtube|yt)[,\s]+)?(?:search(?:\s+for|\s+on\s+youtube\s+for)?\s+(.+?)(?:[,\s]+and|\s+and|\s+then|\s+to)?\s+(?:play|watch)\s+(?:the\s+)?(?:latest|first|top)?\s*(?:video|it|one)?)\b",
+            clean,
+            re.IGNORECASE,
+        )
+        if yt_search_play_match:
+            yt_query = yt_search_play_match.group(1).strip()
+            yt_query = re.sub(r"\s+(?:on\s+youtube|on\s+yt)$", "", yt_query, flags=re.IGNORECASE).strip()
+            if yt_query:
+                steps = [
+                    PlanStep(
+                        step_id=1,
+                        capability_name="web.youtube.search_results",
+                        arguments={"query": yt_query, "max_results": 5},
+                        description=f"Search YouTube for '{yt_query}'",
+                    ),
+                    PlanStep(
+                        step_id=2,
+                        capability_name="desktop.open_url",
+                        arguments={},
+                        description=f"Play top video for '{yt_query}'",
+                        pipe_from_step=1,
+                        pipe_arg_name="url",
+                    ),
+                ]
+                return Plan(
+                    user_goal=clean,
+                    steps=steps[: self.max_steps],
+                    max_steps=self.max_steps,
+                )
+
         # Pattern: Find newest <ext/file> in <dir> and open it
         newest_match = re.search(
             r"\b(?:find|search(?:\s+for)?)(?:\s+the)?\s+(?:newest|latest)\s+(\w+)(?:\s+(?:in|under)\s+([^\s]+))?\s+(?:and|then)\s+(?:open|view|show)\s+(?:it|file)\b",

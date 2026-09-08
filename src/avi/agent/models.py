@@ -92,6 +92,33 @@ class Plan:
 
 
 @dataclass
+class TaskState:
+    """Live state tracking for multi-step agent task execution."""
+
+    goal: str
+    status: str = "pending"  # pending, running, success, failed, partial_success
+    current_step_index: int = 0
+    completed_steps: list[PlanStep] = field(default_factory=list)
+    failed_steps: list[PlanStep] = field(default_factory=list)
+    pending_steps: list[PlanStep] = field(default_factory=list)
+    final_result: Any = None
+    retry_counts: dict[int, int] = field(default_factory=dict)
+    task_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "task_id": self.task_id,
+            "goal": self.goal,
+            "status": self.status,
+            "current_step_index": self.current_step_index,
+            "completed_steps": [s.to_dict() for s in self.completed_steps],
+            "failed_steps": [s.to_dict() for s in self.failed_steps],
+            "pending_steps": [s.to_dict() for s in self.pending_steps],
+            "final_result": self.final_result,
+        }
+
+
+@dataclass
 class PlanExecutionResult:
     """Consolidated outcome of executing an agent plan."""
 
@@ -104,6 +131,7 @@ class PlanExecutionResult:
     data: dict[str, Any] = field(default_factory=dict)
     confirmation_required: bool = False
     pending_step: PlanStep | None = None
+    task_state: TaskState | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -115,4 +143,6 @@ class PlanExecutionResult:
             "error": self.error,
             "data": self.data,
             "confirmation_required": self.confirmation_required,
+            "task_state": self.task_state.to_dict() if self.task_state else None,
         }
+
