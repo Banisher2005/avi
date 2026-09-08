@@ -132,6 +132,9 @@ class PlanExecutionResult:
     confirmation_required: bool = False
     pending_step: PlanStep | None = None
     task_state: TaskState | None = None
+    planning_duration_ms: float = 0.0
+    action_duration_ms: float = 0.0
+    verification_duration_ms: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -144,5 +147,8 @@ class PlanExecutionResult:
             "data": self.data,
             "confirmation_required": self.confirmation_required,
             "task_state": self.task_state.to_dict() if self.task_state else None,
+            "planning_duration_ms": self.planning_duration_ms,
+            "action_duration_ms": self.action_duration_ms,
+            "verification_duration_ms": self.verification_duration_ms,
         }
 

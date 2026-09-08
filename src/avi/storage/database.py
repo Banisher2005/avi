@@ -25,8 +25,9 @@ DEFAULT_DB_FILE = DEFAULT_DATA_DIR / "avi.db"
 
 # Patterns indicating potential passwords, auth tokens, or private secrets
 _SENSITIVE_PATTERNS = [
-    re.compile(r"\b(?:api[_-]?key|bearer|access[_-]?token|auth[_-]?token|private[_-]?key|password|passwd|secret)\s*[:=]\s*['\"]?[a-zA-Z0-9_\-\.]{8,}", re.IGNORECASE),
-    re.compile(r"\b(?:sk-[a-zA-Z0-9]{20,}|ghp_[a-zA-Z0-9]{20,}|gho_[a-zA-Z0-9]{20,}|glpat-[a-zA-Z0-9_\-]{20,})\b"),
+    re.compile(r"(?:\b[a-zA-Z0-9_]*(?:password|passwd|secret|api[_-]?key|token)\b)(?:\s*[:=]|\s+is)\s*['\"]?[a-zA-Z0-9_\-\.]{4,}", re.IGNORECASE),
+    re.compile(r"\b(?:password|passwd|secret)\s*[:=]\s*['\"]?[^\s'\"]+", re.IGNORECASE),
+    re.compile(r"\b(?:sk-[a-zA-Z0-9]{15,}|ghp_[a-zA-Z0-9]{15,}|gho_[a-zA-Z0-9]{15,}|glpat-[a-zA-Z0-9_\-]{15,})\b"),
     re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
 ]
 

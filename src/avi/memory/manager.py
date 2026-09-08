@@ -215,9 +215,13 @@ class MemoryManager:
         # 2. Recall memories
         rec_match = _RECALL_EXPLICIT_RE.match(clean)
         if rec_match:
-            q = rec_match.group(1).strip()
+            q = rec_match.group(1).strip().rstrip("?.!")
             mems = self.recall(q, limit=5)
             if not mems:
+                if "browser" in q.lower():
+                    pref_b = self.get_preferred_browser()
+                    if pref_b:
+                        return (True, f"Your preferred browser is {pref_b.title()}.")
                 return (True, f"I couldn't find any memories about '{q}'.")
             lines = [f"Here is what I recall about '{q}':"]
             for m in mems:
@@ -227,11 +231,19 @@ class MemoryManager:
         # 3. Forget memories
         fgt_match = _FORGET_EXPLICIT_RE.match(clean)
         if fgt_match:
-            target = fgt_match.group(1).strip()
+            target = fgt_match.group(1).strip().rstrip("?.!")
+            if target.lower() in ("everything", "all", "all memories", "all my memories"):
+                self.clear()
+                self.db.delete_preference("preferred_browser")
+                self.db.delete_preference("browser_preferred")
+                return (True, "Cleared all memories.")
             # If target looks like a memory id
             if target.startswith("mem_"):
                 if self.forget(target):
                     return (True, f"Memory {target} deleted.")
+            if "browser" in target.lower():
+                self.db.delete_preference("preferred_browser")
+                self.db.delete_preference("browser_preferred")
             count = self.forget_by_query(target)
             if count > 0:
                 return (True, f"I've forgotten {count} item{'s' if count != 1 else ''} related to '{target}'.")

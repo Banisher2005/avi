@@ -257,10 +257,10 @@ class AssistantOrchestrator:
         # H2. Conversational / Explicit Memory Command
         elif intent.intent_type == AssistantIntentType.MEMORY:
             t_mem = time.perf_counter()
-            mem_text = self.memory.handle_memory_command(normalized_prompt)
+            handled, mem_text = self.memory.handle_memory_command(normalized_prompt)
             mem_dur = (time.perf_counter() - t_mem) * 1000.0
             result = OrchestratorResult(
-                text=mem_text,
+                text=mem_text if handled else "I couldn't process that memory request.",
                 metrics=ResponseMetrics(
                     total_duration_ms=(time.perf_counter() - t0) * 1000.0,
                     routing_duration_ms=routing_duration_ms,

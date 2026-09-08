@@ -299,29 +299,43 @@ class ApplicationResolver:
                         )
 
         # C: Fuzzy match against known aliases and desktop entry keys
-        all_app_keys = list(self.aliases.keys()) + list(desktop_entries.keys())
+        all_app_keys: dict[str, str] = {}
+        for k in self.aliases:
+            all_app_keys[k] = k
+        for k, info in desktop_entries.items():
+            all_app_keys[k] = k
+            for part in k.split("-"):
+                if len(part) >= 3 and part not in all_app_keys:
+                    all_app_keys[part] = k
+            name_lower = info.get("name", "").lower()
+            if name_lower:
+                all_app_keys[name_lower] = k
+                for part in name_lower.split():
+                    if len(part) >= 3 and part not in all_app_keys:
+                        all_app_keys[part] = k
+
         import difflib
-        close = difflib.get_close_matches(normalized, all_app_keys, n=1, cutoff=0.72)
+        close = difflib.get_close_matches(normalized, all_app_keys.keys(), n=1, cutoff=0.68)
         if close:
-            fuzzy_target = close[0]
-            if fuzzy_target in self.aliases:
-                for cand in self.aliases[fuzzy_target]:
+            target_key = all_app_keys[close[0]]
+            if target_key in self.aliases:
+                for cand in self.aliases[target_key]:
                     found_which = shutil.which(cand)
                     if found_which:
                         return ApplicationResolution(
                             requested_name=query,
-                            canonical_name=fuzzy_target.replace("-", " ").title(),
+                            canonical_name=target_key.replace("-", " ").title(),
                             executable=found_which,
                             desktop_entry=None,
                             platform=current_platform,
                             installed=True,
                             confidence=0.8,
                         )
-            if fuzzy_target in desktop_entries:
-                info = desktop_entries[fuzzy_target]
+            if target_key in desktop_entries:
+                info = desktop_entries[target_key]
                 binary = info["exec"]
                 full_path = shutil.which(binary) or (
-                    binary if os.path.isabs(binary) and os.access(binary, os.X_OK) else None
+                    binary if os.path.isabs(binary) else None
                 )
                 if full_path:
                     return ApplicationResolution(

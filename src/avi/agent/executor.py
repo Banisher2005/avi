@@ -33,6 +33,8 @@ class AgentExecutor:
         completed_steps: list[PlanStep] = []
         failed_steps: list[PlanStep] = []
         step_outputs: dict[int, CapabilityResult] = {}
+        total_act_duration_ms = 0.0
+        total_ver_duration_ms = 0.0
 
         task_state = TaskState(
             goal=plan.user_goal,
@@ -40,15 +42,14 @@ class AgentExecutor:
             pending_steps=list(plan.steps),
         )
 
-        for idx, step in enumerate(plan.steps):
-            task_state.current_step_index = idx
-
-            # 1. Handle argument piping from earlier steps
-            if step.pipe_from_step is not None:
+        for step in plan.steps:
+            task_state.current_step_index = step.step_id
+            # 1. Pipe outputs if needed
+            if step.pipe_from_step and step.pipe_arg_name:
                 dep_step_id = step.pipe_from_step
                 dep_res = step_outputs.get(dep_step_id)
-                if dep_res is None or not dep_res.success:
-                    step.status = StepStatus.SKIPPED
+                if not dep_res or not dep_res.data:
+                    step.status = StepStatus.FAILED
                     failed_steps.append(step)
                     task_state.status = "failed"
                     task_state.failed_steps = failed_steps
@@ -57,18 +58,19 @@ class AgentExecutor:
                         status=ExecutionStatus.FAILED,
                         plan=plan,
                         completed_steps=completed_steps,
-                        error=f"Cannot execute step {step.step_id}: dependent step {dep_step_id} failed or was missing.",
-                        final_message=f"Stopped before '{step.description}' because previous step did not succeed.",
+                        error=f"Dependent step {dep_step_id} did not produce output data.",
+                        final_message="Failed to execute compound action due to missing intermediate output.",
                         task_state=task_state,
+                        action_duration_ms=total_act_duration_ms,
+                        verification_duration_ms=total_ver_duration_ms,
                     )
 
-                # Extract piped data (path, source, url)
-                if step.pipe_arg_name in ("path", "source"):
-                    piped_path = dep_res.data.get("path")
-                    if not piped_path and "matches" in dep_res.data:
-                        matches = dep_res.data.get("matches", [])
-                        if matches:
-                            piped_path = matches[0].get("path")
+                if step.pipe_arg_name in ("path", "file"):
+                    piped_path = dep_res.data.get("path") or dep_res.data.get("file")
+                    if not piped_path and "results" in dep_res.data:
+                        r_list = dep_res.data.get("results", [])
+                        if r_list and isinstance(r_list[0], dict):
+                            piped_path = r_list[0].get("path")
                     if not piped_path:
                         step.status = StepStatus.FAILED
                         failed_steps.append(step)
@@ -82,6 +84,8 @@ class AgentExecutor:
                             error=f"Dependent step {dep_step_id} produced no valid path for step {step.step_id}.",
                             final_message="Could not find any file to open.",
                             task_state=task_state,
+                            action_duration_ms=total_act_duration_ms,
+                            verification_duration_ms=total_ver_duration_ms,
                         )
                     step.arguments[step.pipe_arg_name] = piped_path
 
@@ -106,6 +110,7 @@ class AgentExecutor:
                 confirmed=confirmed,
             )
             dur_act_ms = (time.perf_counter() - t_act0) * 1000.0
+            total_act_duration_ms += dur_act_ms
             step.result = res
 
             # Log action if database is connected
@@ -140,36 +145,53 @@ class AgentExecutor:
                     final_message=res.message,
                     data=res.data,
                     task_state=task_state,
+                    action_duration_ms=total_act_duration_ms,
+                    verification_duration_ms=total_ver_duration_ms,
                 )
 
             # 3. Observe -> Verify step
+            t_ver0 = time.perf_counter()
             verified = self._verify_step(step, res)
+            total_ver_duration_ms += (time.perf_counter() - t_ver0) * 1000.0
             if not res.success or not verified:
                 # Single bounded retry recovery
                 retries = task_state.retry_counts.get(step.step_id, 0)
                 if retries < 1:
                     task_state.retry_counts[step.step_id] = retries + 1
+                    t_act_r = time.perf_counter()
                     retry_res = self.registry.execute_safe(
                         step.capability_name,
                         args=step.arguments,
                         safety_engine=self.safety_engine,
                         confirmed=confirmed,
                     )
+                    total_act_duration_ms += (time.perf_counter() - t_act_r) * 1000.0
                     step.result = retry_res
-                    if retry_res.success and self._verify_step(step, retry_res):
+                    t_ver_r = time.perf_counter()
+                    ver_retry = self._verify_step(step, retry_res)
+                    total_ver_duration_ms += (time.perf_counter() - t_ver_r) * 1000.0
+                    if retry_res.success and ver_retry:
                         res = retry_res
                     else:
                         step.status = StepStatus.FAILED
                         failed_steps.append(step)
                         task_state.status = "failed"
                         task_state.failed_steps = failed_steps
-                        return self._build_failure_result(plan, completed_steps, step, res, task_state)
+                        return self._build_failure_result(
+                            plan, completed_steps, step, res, task_state,
+                            action_duration_ms=total_act_duration_ms,
+                            verification_duration_ms=total_ver_duration_ms,
+                        )
                 else:
                     step.status = StepStatus.FAILED
                     failed_steps.append(step)
                     task_state.status = "failed"
                     task_state.failed_steps = failed_steps
-                    return self._build_failure_result(plan, completed_steps, step, res, task_state)
+                    return self._build_failure_result(
+                        plan, completed_steps, step, res, task_state,
+                        action_duration_ms=total_act_duration_ms,
+                        verification_duration_ms=total_ver_duration_ms,
+                    )
 
             step.status = StepStatus.SUCCESS
             completed_steps.append(step)
@@ -213,6 +235,8 @@ class AgentExecutor:
             final_message=final_msg,
             data=last_data,
             task_state=task_state,
+            action_duration_ms=total_act_duration_ms,
+            verification_duration_ms=total_ver_duration_ms,
         )
 
     def _verify_step(self, step: PlanStep, res: CapabilityResult) -> bool:
@@ -246,6 +270,8 @@ class AgentExecutor:
         step: PlanStep,
         res: CapabilityResult,
         task_state: TaskState,
+        action_duration_ms: float = 0.0,
+        verification_duration_ms: float = 0.0,
     ) -> PlanExecutionResult:
         if completed_steps:
             first_desc = completed_steps[0].description or completed_steps[0].capability_name
@@ -260,6 +286,8 @@ class AgentExecutor:
                 error=res.error or res.message,
                 data={"failed_step": step.step_id},
                 task_state=task_state,
+                action_duration_ms=action_duration_ms,
+                verification_duration_ms=verification_duration_ms,
             )
         return PlanExecutionResult(
             success=False,
@@ -270,6 +298,8 @@ class AgentExecutor:
             error=res.error or res.message,
             data={"failed_step": step.step_id},
             task_state=task_state,
+            action_duration_ms=action_duration_ms,
+            verification_duration_ms=verification_duration_ms,
         )
 
     def _synthesize_success_message(self, plan: Plan, steps: list[PlanStep]) -> str:

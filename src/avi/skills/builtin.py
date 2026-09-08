@@ -265,6 +265,30 @@ class FilesystemSkill(BaseSkill):
             except Exception as e:
                 return SkillResult(success=False, action=action, target=str(p), error=str(e))
 
+        if action == "copy":
+            src = parameters.get("source", "").strip()
+            dst = parameters.get("destination", "").strip()
+            if not src or not dst:
+                return SkillResult(success=False, action=action, error="Source and destination required.")
+            p_src = Path(src).expanduser().resolve()
+            p_dst = Path(dst).expanduser().resolve()
+            if not p_src.exists():
+                return SkillResult(success=False, action=action, error=f"Source does not exist: {p_src}")
+            try:
+                if p_src.is_dir():
+                    shutil.copytree(str(p_src), str(p_dst))
+                else:
+                    shutil.copy2(str(p_src), str(p_dst))
+                return SkillResult(
+                    success=True,
+                    action=action,
+                    target=str(p_dst),
+                    message=f"Copied '{p_src.name}' to {p_dst}.",
+                    data={"path": str(p_dst)},
+                )
+            except Exception as e:
+                return SkillResult(success=False, action=action, error=str(e))
+
         if action == "move":
             src = parameters.get("source", "").strip()
             dst = parameters.get("destination", "").strip()
@@ -373,7 +397,7 @@ class SystemControlsSkill(BaseSkill):
         from avi.capabilities.desktop.system_controls import VolumeGetCapability, VolumeSetCapability
 
         if action == "get_volume":
-            cap_res = VolumeGetCapability().execute({})
+            cap_res = VolumeGetCapability().execute()
             return SkillResult(
                 success=cap_res.success,
                 action=action,
@@ -386,12 +410,12 @@ class SystemControlsSkill(BaseSkill):
             sub_action = "mute" if action == "mute" else ("unmute" if action == "unmute" else "set")
             level = parameters.get("level")
             delta = parameters.get("delta")
-            payload = {"action": sub_action}
+            payload: dict[str, Any] = {"action": sub_action}
             if level is not None:
                 payload["level"] = level
             if delta is not None:
                 payload["delta"] = delta
-            cap_res = VolumeSetCapability().execute(payload)
+            cap_res = VolumeSetCapability().execute(**payload)
             return SkillResult(
                 success=cap_res.success,
                 action=action,
@@ -545,7 +569,7 @@ class MediaSkill(BaseSkill):
         from avi.capabilities.desktop.system_controls import MediaControlCapability
 
         sub_act = parameters.get("action", "play")
-        cap_res = MediaControlCapability().execute({"action": sub_act})
+        cap_res = MediaControlCapability().execute(action=sub_act)
         return SkillResult(
             success=cap_res.success,
             action=action,
