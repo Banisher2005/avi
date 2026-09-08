@@ -7,6 +7,36 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.5.0] — 2026-09-08
+
+### Added
+
+#### Phase 15 — AVI Memory & Agent Core
+- **Persistent Local SQLite Storage (`src/avi/storage/`)**:
+  - `Database` manager with WAL mode (`PRAGMA journal_mode = WAL`), automated schema initialization, and thread-safety.
+  - Granular stores: `preferences`, `memories`, `aliases`, `task_history`, and `action_history`.
+  - Sensitive credential screening (`screen_for_sensitive_data()`) refusing storage of passwords, API keys, private keys, or auth tokens.
+- **Explicit Transparent Memory Manager (`src/avi/memory/`)**:
+  - `MemoryManager` with `remember()`, `recall()`, `forget()`, and `clear()`.
+  - Preferred defaults management: `get_preferred_browser()`, `set_preferred_browser()`, `get_preferred_folder()`, `set_preferred_folder()`.
+  - Conversational memory command parser supporting natural language remember, recall, forget, and list requests.
+- **Web Destinations & Typo-Tolerant Resolution (`src/avi/apps/destinations.py`)**:
+  - Direct web destination mapping for services like ChatGPT, YouTube, Reddit, Gmail, Docs, Sheets, and Drive.
+  - Distinguishes web URLs from desktop `.desktop` applications (e.g., `"open chatgpt on chrome"`).
+  - Typo tolerance mapping misspellings (e.g. `"open caht gpt on chrome"`) to the correct web destinations.
+- **Modular Skills Architecture (`src/avi/skills/`)**:
+  - `BaseSkill`, `SkillAction`, `SkillResult`, and `SkillRegistry`.
+  - Built-in skills: `BrowserSkill`, `ApplicationSkill`, `FilesystemSkill`, `SystemControlsSkill`, `ScreenshotSkill`, `TerminalSkill` (with strict `shell=False` tokenization), and `MediaSkill`.
+- **Compound Planning & Observe-Act-Verify Loop (`src/avi/agent/`)**:
+  - `AgentPlanner` multi-step compound request planning with argument piping.
+  - `TaskState` live lifecycle tracking (`goal`, `status`, `current_step_index`, `completed_steps`, `failed_steps`, `pending_steps`, `final_result`).
+  - `AgentExecutor` Observe → Act → Verify execution loop with post-condition validation and single bounded retry recovery.
+- **Latency Telemetry & Fast-Path Invariants**:
+  - Added `memory_duration_ms`, `planning_duration_ms`, `action_duration_ms`, and `verification_duration_ms` to `ResponseMetrics`.
+  - Preserved sub-100ms deterministic fast paths for greetings, system tools, volume, media controls, and direct actions without LLM overhead.
+- **Comprehensive Unit Testing**:
+  - Added `test_storage.py`, `test_memory.py`, `test_natural_language_resolution.py`, `test_skills.py`, and `test_agent_core.py` (all 786 tests passing).
+
 ## [0.4.0] — 2026-09-06
 
 ### Added
