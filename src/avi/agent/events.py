@@ -21,7 +21,11 @@ class ProgressEventType(str, Enum):
     VERIFICATION_STARTED = "verification_started"
     VERIFICATION_COMPLETED = "verification_completed"
     REPLANNING = "replanning"
+    CONFIRMATION_REQUIRED = "confirmation_required"
+    PAUSED_FOR_CONFIRMATION = "paused_for_confirmation"
     TASK_COMPLETED = "task_completed"
+    TASK_FAILED = "task_failed"
+    TASK_CANCELLED = "task_cancelled"
 
 
 @dataclass

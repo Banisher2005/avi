@@ -352,6 +352,22 @@ def run_cli(argv: Sequence[str] | None = None) -> int:
             return 1
         if res.requires_confirmation and res.command_request is not None:
             _handle_cli_proposal(router, res.command_request)
+        elif res.requires_confirmation and res.plan is not None:
+            if sys.stdin.isatty():
+                sys.stdout.write(f"{res.text}\nProceed? [y/N]: ")
+                sys.stdout.flush()
+                choice = sys.stdin.readline().strip().lower()
+                if choice in ("y", "yes"):
+                    confirmed_res = orchestrator.handle(raw_prompt, auto_execute_actions=True, confirmed=True)
+                    if confirmed_res.text:
+                        sys.stdout.write(confirmed_res.text.rstrip("\n") + "\n")
+                        sys.stdout.flush()
+                else:
+                    sys.stdout.write("Operation cancelled.\n")
+                    sys.stdout.flush()
+            else:
+                sys.stdout.write(res.text.rstrip("\n") + "\n")
+                sys.stdout.flush()
         elif res.text:
             sys.stdout.write(res.text.rstrip("\n") + "\n")
             sys.stdout.flush()

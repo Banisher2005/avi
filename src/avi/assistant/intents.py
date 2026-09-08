@@ -621,7 +621,10 @@ def _extract_youtube_search_intent(prompt: str) -> DetectedIntent | None:
                 if raw_q.lower().startswith(pfx):
                     raw_q = raw_q[len(pfx) :].strip()
             prefix_matched = m_prefix.group(0).lower()
-            if not raw_q:
+            if re.match(r"^(?:and\s+)?(?:play|watch)\b", raw_q, re.IGNORECASE):
+                # Compound workflow request, e.g. "open youtube and play the latest video"
+                query = None
+            elif not raw_q:
                 # Explicit search request with no query -> clarification
                 if any(w in prefix_matched for w in ("search", "serch", "find", "look up")):
                     return DetectedIntent(
@@ -1174,7 +1177,7 @@ def detect_assistant_intent(prompt: str, last_turn: Any | None = None) -> Detect
 
     # 14. Open / Launch requests
     open_match = _OPEN_PREFIX_RE.match(s)
-    if open_match:
+    if open_match and not re.search(r"\b(?:and|then)\s+(?:play|watch)\b", open_match.group(1).lower()):
         target = open_match.group(1).strip()
         target_lower = target.lower()
 

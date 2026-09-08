@@ -234,3 +234,125 @@ def test_orchestrator_replan_event_on_failure(mock_registry, temp_db, memory_ret
     assert ctx.replan_count >= 1
     event_types = [ev.event_type for ev in events]
     assert ProgressEventType.REPLANNING in event_types
+
+
+def test_orchestrator_play_latest_vid():
+    planner = AgentPlanner()
+    plan = planner.create_plan("play the latest vid")
+    assert plan is not None
+    assert len(plan.steps) == 2
+    assert plan.steps[0].capability_name == "web.youtube.search_results"
+    assert plan.steps[1].capability_name == "desktop.open_url"
+    assert plan.steps[1].pipe_from_step == 1
+    assert plan.steps[1].pipe_arg_name == "url"
+
+
+def test_orchestrator_open_youtube_and_play():
+    planner = AgentPlanner()
+    plan = planner.create_plan("open youtube and play the latest video")
+    assert plan is not None
+    assert len(plan.steps) == 2
+    assert plan.steps[0].capability_name == "web.youtube.search_results"
+    assert plan.steps[1].capability_name == "desktop.open_url"
+
+
+def test_orchestrator_play_mkbhd_video():
+    planner = AgentPlanner()
+    plan = planner.create_plan("play the latest video by mkbhd")
+    assert plan is not None
+    assert len(plan.steps) == 2
+    assert plan.steps[0].arguments.get("query") == "mkbhd latest"
+    assert plan.steps[1].capability_name == "desktop.open_url"
+
+
+def test_orchestrator_find_newest_pdf_in_downloads():
+    planner = AgentPlanner()
+    plan = planner.create_plan("find the newest PDF in Downloads and open it")
+    assert plan is not None
+    assert len(plan.steps) == 2
+    assert plan.steps[0].capability_name == "filesystem.search"
+    assert plan.steps[0].arguments.get("path") == "~/Downloads"
+    assert plan.steps[0].arguments.get("extension") == "pdf"
+    assert plan.steps[1].capability_name == "desktop.open_file"
+    assert plan.steps[1].pipe_from_step == 1
+
+
+def test_orchestrator_screenshot_report_location(mock_registry, temp_db, memory_retriever):
+    orchestrator = AgentOrchestrator(
+        registry=mock_registry,
+        database=temp_db,
+        memory_retriever=memory_retriever,
+    )
+    ctx = orchestrator.run("take a screenshot and tell me where it was saved")
+    assert ctx.status == TaskStatus.COMPLETED
+    assert ctx.is_terminal()
+    assert "screen.png" in ctx.final_response
+    assert "saved it to" in ctx.final_response.lower()
+
+
+def test_orchestrator_step_timeout_bounded_execution():
+    """Verify that a slow or hanging capability step is cleanly bounded by step_timeout."""
+    import time
+    registry = MagicMock(spec=CapabilityRegistry)
+
+    def hanging_call(*args, **kwargs):
+        time.sleep(2.0)
+        return CapabilityResult(success=True, message="done")
+
+    registry.execute_safe.side_effect = hanging_call
+
+    executor = AgentExecutor(
+        registry=registry,
+        step_timeout=0.2,
+        verification_timeout=0.1,
+    )
+
+    plan = Plan(
+        user_goal="hanging step test",
+        steps=[
+            PlanStep(step_id=1, capability_name="slow.action", arguments={})
+        ],
+    )
+
+    t0 = time.perf_counter()
+    res = executor.execute_plan(plan)
+    elapsed = time.perf_counter() - t0
+
+    assert elapsed < 1.0  # Proves execution did not hang for 2.0s
+    assert res.success is False
+    assert "timed out" in (res.error or "").lower()
+
+
+def test_orchestrator_terminal_state_guarantee(mock_registry, temp_db, memory_retriever):
+    events = []
+    dispatcher = EventDispatcher()
+    dispatcher.subscribe(lambda ev: events.append(ev))
+
+    orchestrator = AgentOrchestrator(
+        registry=mock_registry,
+        database=temp_db,
+        memory_retriever=memory_retriever,
+        event_dispatcher=dispatcher,
+    )
+
+    # Empty prompt
+    ctx_empty = orchestrator.run("")
+    assert ctx_empty.is_terminal()
+
+    # Successful prompt
+    ctx_succ = orchestrator.run("take a screenshot and open it")
+    assert ctx_succ.is_terminal()
+    assert ctx_succ.status == TaskStatus.COMPLETED
+
+    # Unhandled prompt
+    ctx_unhandled = orchestrator.run("xyzzy unhandled random prompt")
+    assert ctx_unhandled.is_terminal()
+
+    # Verify that terminal event matches final status
+    term_events = [ev for ev in events if ev.event_type in (
+        ProgressEventType.TASK_COMPLETED,
+        ProgressEventType.TASK_FAILED,
+        ProgressEventType.PAUSED_FOR_CONFIRMATION,
+    )]
+    assert len(term_events) >= 2
+

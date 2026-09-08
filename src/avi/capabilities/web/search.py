@@ -161,7 +161,7 @@ class YouTubeSearchResultsCapability(BaseCapability):
             )
 
         clean_query = str(query).strip().strip("\"'")
-        limit = kwargs.get("limit", 10)
+        limit = kwargs.get("limit") or kwargs.get("max_results", 10)
         try:
             limit_int = int(limit)
         except (ValueError, TypeError):

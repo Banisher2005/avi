@@ -130,6 +130,9 @@ class AssistantOrchestrator:
         if self.planner.create_plan(normalized_prompt) is not None:
             return True
 
+        if hasattr(self, "agent_orchestrator") and self.agent_orchestrator.can_handle(normalized_prompt):
+            return True
+
         # 5. Desktop domain boundary: prevent desktop action terms from falling through to shell generator
         desktop_keywords = {
             "volume",
@@ -149,6 +152,15 @@ class AssistantOrchestrator:
             "activaite",
             "activte",
             "actvate",
+            "video",
+            "vid",
+            "vids",
+            "videos",
+            "play",
+            "media",
+            "music",
+            "song",
+            "track",
         }
         lower_tokens = set(re.findall(r"\b\w+\b", normalized_prompt.lower()))
         if lower_tokens.intersection(desktop_keywords):
@@ -161,6 +173,7 @@ class AssistantOrchestrator:
         prompt: str,
         context: Any | None = None,
         auto_execute_actions: bool = True,
+        confirmed: bool = False,
     ) -> OrchestratorResult:
         """Process user input through the assistant hierarchy."""
         t0 = time.perf_counter()
@@ -735,8 +748,8 @@ class AssistantOrchestrator:
                                 context=context,
                             )
                     else:
-                        agent_ctx = self.agent_orchestrator.run(normalized_prompt, confirmed=False)
-                        if agent_ctx.steps:
+                        agent_ctx = self.agent_orchestrator.run(normalized_prompt, confirmed=confirmed)
+                        if agent_ctx.steps or (agent_ctx.final_response and agent_ctx.final_response != "I couldn't find a matching action or plan for that request."):
                             from avi.agent.context import TaskStatus
                             req_confirm = agent_ctx.status == TaskStatus.PAUSED_FOR_CONFIRMATION
                             result = OrchestratorResult(
@@ -769,6 +782,15 @@ class AssistantOrchestrator:
                 "activaite",
                 "activte",
                 "actvate",
+                "video",
+                "vid",
+                "vids",
+                "videos",
+                "play",
+                "media",
+                "music",
+                "song",
+                "track",
             }
             lower_tokens = set(re.findall(r"\b\w+\b", normalized_prompt.lower()))
             if lower_tokens.intersection(desktop_keywords):
@@ -776,6 +798,8 @@ class AssistantOrchestrator:
                     msg = "Did you mean activate AVI?"
                 elif lower_tokens.intersection({"youtube", "youtub", "yotube"}):
                     msg = "What would you like me to search for on YouTube?"
+                elif lower_tokens.intersection({"video", "vid", "vids", "videos", "play"}):
+                    msg = "What video would you like me to play?"
                 else:
                     msg = (
                         "Could you clarify your desktop request? For volume, you can say "

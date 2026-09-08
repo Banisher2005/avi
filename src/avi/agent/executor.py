@@ -21,12 +21,35 @@ class AgentExecutor:
         database: Any | None = None,
         loop_guard: Any | None = None,
         event_dispatcher: Any | None = None,
+        step_timeout: float = 12.0,
+        verification_timeout: float = 4.0,
     ) -> None:
         self.registry = registry
         self.safety_engine = safety_engine
         self.database = database
         self.loop_guard = loop_guard
         self.event_dispatcher = event_dispatcher
+        self.step_timeout = step_timeout
+        self.verification_timeout = verification_timeout
+
+    def _run_with_timeout(
+        self,
+        func: Any,
+        args: tuple[Any, ...] = (),
+        kwargs: dict[str, Any] | None = None,
+        timeout: float = 12.0,
+    ) -> Any:
+        """Execute a callable with a hard bounded timeout, preventing infinite blocking."""
+        import concurrent.futures
+        kwargs = kwargs or {}
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        try:
+            future = executor.submit(func, *args, **kwargs)
+            return future.result(timeout=timeout)
+        except concurrent.futures.TimeoutError:
+            raise TimeoutError(f"Operation timed out after {timeout:.1f}s")
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
 
     def execute_plan(
         self,
@@ -101,8 +124,23 @@ class AgentExecutor:
                             piped_url = r_list[0].get("url")
                         elif r_list and hasattr(r_list[0], "url"):
                             piped_url = r_list[0].url
-                    if piped_url:
-                        step.arguments["url"] = piped_url
+                    if not piped_url:
+                        step.status = StepStatus.FAILED
+                        failed_steps.append(step)
+                        task_state.status = "failed"
+                        task_state.failed_steps = failed_steps
+                        return PlanExecutionResult(
+                            success=False,
+                            status=ExecutionStatus.FAILED,
+                            plan=plan,
+                            completed_steps=completed_steps,
+                            error=f"Dependent step {dep_step_id} produced no valid URL for step {step.step_id}.",
+                            final_message="Could not find any video link to open.",
+                            task_state=task_state,
+                            action_duration_ms=total_act_duration_ms,
+                            verification_duration_ms=total_ver_duration_ms,
+                        )
+                    step.arguments["url"] = piped_url
 
             # 2. Loop guard check
             if self.loop_guard:
@@ -151,12 +189,31 @@ class AgentExecutor:
             # 3. Check safety / confirmation
             step.status = StepStatus.RUNNING
             t_act0 = time.perf_counter()
-            res = self.registry.execute_safe(
-                step.capability_name,
-                args=step.arguments,
-                safety_engine=self.safety_engine,
-                confirmed=confirmed,
-            )
+            try:
+                res = self._run_with_timeout(
+                    self.registry.execute_safe,
+                    args=(step.capability_name,),
+                    kwargs={
+                        "args": step.arguments,
+                        "safety_engine": self.safety_engine,
+                        "confirmed": confirmed,
+                    },
+                    timeout=self.step_timeout,
+                )
+            except TimeoutError as te:
+                res = CapabilityResult(
+                    success=False,
+                    status=ExecutionStatus.FAILED,
+                    error=str(te),
+                    message=f"Step execution timed out after {self.step_timeout:.1f}s",
+                )
+            except Exception as exc:
+                res = CapabilityResult(
+                    success=False,
+                    status=ExecutionStatus.FAILED,
+                    error=str(exc),
+                    message=f"Step execution error: {exc}",
+                )
             dur_act_ms = (time.perf_counter() - t_act0) * 1000.0
             total_act_duration_ms += dur_act_ms
             step.result = res
@@ -183,6 +240,18 @@ class AgentExecutor:
             if res.status == ExecutionStatus.CONFIRMATION_REQUIRED:
                 step.status = StepStatus.CONFIRMATION_REQUIRED
                 task_state.status = "confirmation_required"
+                if self.event_dispatcher:
+                    from avi.agent.events import ProgressEvent, ProgressEventType
+                    self.event_dispatcher.emit(
+                        ProgressEvent(
+                            event_type=ProgressEventType.CONFIRMATION_REQUIRED,
+                            task_id=task_state.task_id,
+                            step_index=step.step_id,
+                            capability_name=step.capability_name,
+                            message=res.message or "Confirmation required before proceeding.",
+                            data={"pending_step": step.to_dict() if hasattr(step, "to_dict") else {}},
+                        )
+                    )
                 return PlanExecutionResult(
                     success=False,
                     status=ExecutionStatus.CONFIRMATION_REQUIRED,
@@ -211,7 +280,14 @@ class AgentExecutor:
                     )
                 )
 
-            verified = self._verify_step(step, res)
+            try:
+                verified = self._run_with_timeout(
+                    self._verify_step,
+                    args=(step, res),
+                    timeout=self.verification_timeout,
+                )
+            except Exception:
+                verified = False
             total_ver_duration_ms += (time.perf_counter() - t_ver0) * 1000.0
 
             if self.event_dispatcher:
@@ -228,21 +304,41 @@ class AgentExecutor:
                 )
 
             if not res.success or not verified:
-                # Single bounded retry recovery
+                # Single bounded retry recovery (skip retry if execution timed out)
+                is_timeout = "timed out" in (res.error or "").lower()
                 retries = task_state.retry_counts.get(step.step_id, 0)
-                if retries < 1:
+                if retries < 1 and not is_timeout:
                     task_state.retry_counts[step.step_id] = retries + 1
                     t_act_r = time.perf_counter()
-                    retry_res = self.registry.execute_safe(
-                        step.capability_name,
-                        args=step.arguments,
-                        safety_engine=self.safety_engine,
-                        confirmed=confirmed,
-                    )
+                    try:
+                        retry_res = self._run_with_timeout(
+                            self.registry.execute_safe,
+                            args=(step.capability_name,),
+                            kwargs={
+                                "args": step.arguments,
+                                "safety_engine": self.safety_engine,
+                                "confirmed": confirmed,
+                            },
+                            timeout=self.step_timeout,
+                        )
+                    except Exception as te:
+                        retry_res = CapabilityResult(
+                            success=False,
+                            status=ExecutionStatus.FAILED,
+                            error=str(te),
+                            message=f"Retry step execution failed: {te}",
+                        )
                     total_act_duration_ms += (time.perf_counter() - t_act_r) * 1000.0
                     step.result = retry_res
                     t_ver_r = time.perf_counter()
-                    ver_retry = self._verify_step(step, retry_res)
+                    try:
+                        ver_retry = self._run_with_timeout(
+                            self._verify_step,
+                            args=(step, retry_res),
+                            timeout=self.verification_timeout,
+                        )
+                    except Exception:
+                        ver_retry = False
                     total_ver_duration_ms += (time.perf_counter() - t_ver_r) * 1000.0
                     if retry_res.success and ver_retry:
                         res = retry_res
@@ -414,6 +510,10 @@ class AgentExecutor:
         if not steps:
             return "Task completed."
         if plan.is_single_step:
+            if steps[0].capability_name == "desktop.screenshot":
+                path = steps[0].result.data.get("path", "") if steps[0].result and steps[0].result.data else ""
+                if any(term in plan.user_goal.lower() for term in ("where", "tell me", "location", "path", "saved")):
+                    return f"Captured screenshot and saved it to {path}."
             if steps[0].result and steps[0].result.message:
                 return steps[0].result.message
             return f"Completed {steps[0].description}."
@@ -428,6 +528,15 @@ class AgentExecutor:
         if cap_names == ["desktop.screenshot", "filesystem.move"]:
             dest = steps[1].arguments.get("destination", "")
             return f"Captured screenshot and saved it in {dest}."
+        if cap_names == ["web.youtube.search_results", "desktop.open_url"]:
+            video_title = ""
+            if steps[0].result and steps[0].result.data:
+                results = steps[0].result.data.get("results", [])
+                if results and isinstance(results[0], dict):
+                    video_title = results[0].get("title", "")
+            if video_title:
+                return f"Playing '{video_title}' on YouTube."
+            return "Playing requested video on YouTube."
         if cap_names == ["filesystem.search", "desktop.open_file"]:
             opened_path = steps[1].arguments.get("path", "")
             filename = Path(opened_path).name if opened_path else "file"

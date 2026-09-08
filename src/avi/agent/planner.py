@@ -6,6 +6,25 @@ from typing import Any
 from avi.agent.models import Plan, PlanStep
 
 
+def _normalize_search_dir(dir_name: str | None) -> str:
+    """Expand conversational directory names to standard user home directory paths."""
+    if not dir_name:
+        return "~/Downloads"
+    d = dir_name.strip()
+    d_lower = d.lower()
+    if d_lower == "downloads":
+        return "~/Downloads"
+    if d_lower in ("documents", "docs"):
+        return "~/Documents"
+    if d_lower == "desktop":
+        return "~/Desktop"
+    if d_lower in ("pictures", "photos"):
+        return "~/Pictures"
+    if d_lower in ("videos", "vids"):
+        return "~/Videos"
+    return d
+
+
 class AgentPlanner:
     """Deterministic and bounded plan synthesizer for assistant capabilities."""
 
@@ -107,6 +126,72 @@ class AgentPlanner:
                 max_steps=self.max_steps,
             )
 
+        # Pattern: Take screenshot and report save location
+        if re.search(
+            r"\b(?:take|capture|grab)(?:\s+a)?\s+screenshot\s+(?:and|then)?\s*(?:tell|show|report|let)\s+(?:me\s+)?where\s+(?:it\s+(?:is|was)\s+saved|to\s+save)\b",
+            lower,
+        ) or re.search(
+            r"\b(?:take|capture)(?:\s+a)?\s+screenshot\s+(?:and\s+)?(?:tell|show)\s+me\s+the\s+(?:location|path|file)\b",
+            lower,
+        ):
+            steps = [
+                PlanStep(
+                    step_id=1,
+                    capability_name="desktop.screenshot",
+                    arguments={},
+                    description="Take desktop screenshot and report save location",
+                )
+            ]
+            return Plan(
+                user_goal=clean,
+                steps=steps[: self.max_steps],
+                max_steps=self.max_steps,
+            )
+
+        # Pattern: Play latest video on YouTube
+        # Handles:
+        # - "play the latest vid"
+        # - "play the latest video"
+        # - "open youtube and play the latest video"
+        # - "open youtube and play the latest mkbhd video"
+        # - "play the latest video by mkbhd"
+        # - "play video by mkbhd"
+        # - "open youtube and play mkbhd"
+        yt_play_match = re.match(
+            r"^(?:(?:open|launch)\s+(?:youtube|yt)\s+(?:and\s+)?)?play\s+(?:the\s+)?(?:latest|newest|recent|top)?\s*(?:vid|video|track|song)?(?:\s+(?:by|from|of|on\s+youtube\s+by)\s+(.+?))?(?:\s+on\s+(?:youtube|yt))?$",
+            clean,
+            re.IGNORECASE,
+        )
+        if yt_play_match:
+            creator_or_query = yt_play_match.group(1)
+            is_yt_req = bool(
+                re.search(r"\b(?:latest|newest|recent|vid|video|youtube|yt)\b", lower)
+                or creator_or_query
+            )
+            if is_yt_req:
+                yt_query = f"{creator_or_query.strip()} latest" if creator_or_query else "trending videos"
+                steps = [
+                    PlanStep(
+                        step_id=1,
+                        capability_name="web.youtube.search_results",
+                        arguments={"query": yt_query, "limit": 5},
+                        description=f"Search YouTube for '{yt_query}'",
+                    ),
+                    PlanStep(
+                        step_id=2,
+                        capability_name="desktop.open_url",
+                        arguments={},
+                        description=f"Play top video for '{yt_query}'",
+                        pipe_from_step=1,
+                        pipe_arg_name="url",
+                    ),
+                ]
+                return Plan(
+                    user_goal=clean,
+                    steps=steps[: self.max_steps],
+                    max_steps=self.max_steps,
+                )
+
         # Pattern: Open YouTube, search for <query>, and play the latest / first video
         yt_search_play_match = re.search(
             r"\b(?:open\s+(?:youtube|yt)[,\s]+)?(?:search(?:\s+for|\s+on\s+youtube\s+for)?\s+(.+?)(?:[,\s]+and|\s+and|\s+then|\s+to)?\s+(?:play|watch)\s+(?:the\s+)?(?:latest|first|top)?\s*(?:video|it|one)?)\b",
@@ -121,7 +206,7 @@ class AgentPlanner:
                     PlanStep(
                         step_id=1,
                         capability_name="web.youtube.search_results",
-                        arguments={"query": yt_query, "max_results": 5},
+                        arguments={"query": yt_query, "limit": 5},
                         description=f"Search YouTube for '{yt_query}'",
                     ),
                     PlanStep(
@@ -146,8 +231,8 @@ class AgentPlanner:
             re.IGNORECASE,
         )
         if newest_match:
-            ext = newest_match.group(1).lstrip(".")
-            search_path = newest_match.group(2) or "~"
+            ext = newest_match.group(1).lstrip(".").lower()
+            search_path = _normalize_search_dir(newest_match.group(2))
             steps = [
                 PlanStep(
                     step_id=1,
@@ -211,8 +296,8 @@ class AgentPlanner:
             re.IGNORECASE,
         )
         if find_newest and not re.search(r"\b(?:and|then)\b", lower):
-            ext = find_newest.group(1).lstrip(".")
-            search_path = find_newest.group(2) or "~/Downloads"
+            ext = find_newest.group(1).lstrip(".").lower()
+            search_path = _normalize_search_dir(find_newest.group(2))
             steps = [
                 PlanStep(
                     step_id=1,

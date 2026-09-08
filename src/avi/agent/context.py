@@ -84,7 +84,18 @@ class OrchestrationContext:
 
     def is_terminal(self) -> bool:
         """Check if task is in a terminal state."""
-        return self.status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED)
+        return self.status in (
+            TaskStatus.COMPLETED,
+            TaskStatus.FAILED,
+            TaskStatus.CANCELLED,
+            TaskStatus.PAUSED_FOR_CONFIRMATION,
+        )
+
+    def record_error(self, message: str) -> None:
+        """Record an error message in context history."""
+        clean_msg = message.strip()
+        if clean_msg and clean_msg not in self.error_details:
+            self.error_details.append(clean_msg)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize complete context to dictionary for observability and logging."""

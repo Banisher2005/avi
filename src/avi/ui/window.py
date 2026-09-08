@@ -414,6 +414,11 @@ class AviWindow:
         self._selected_row_index: int = -1
         self._current_working_widget: Any | None = None
 
+        if self.orchestrator and hasattr(self.orchestrator, "agent_orchestrator"):
+            ag_events = getattr(self.orchestrator.agent_orchestrator, "events", None)
+            if ag_events and hasattr(ag_events, "subscribe"):
+                ag_events.subscribe(self._on_agent_progress_event)
+
         self._build_window()
 
     def _build_window(self) -> None:
@@ -1150,7 +1155,27 @@ class AviWindow:
         ):
             return ("Working…", False)
 
+        if self.orchestrator and hasattr(self.orchestrator, "is_assistant_request"):
+            try:
+                if self.orchestrator.is_assistant_request(prompt):
+                    return ("Working…", False)
+            except Exception:
+                pass
+
         return ("Thinking…", True)
+
+    def _on_agent_progress_event(self, event: Any) -> None:
+        """Handle real-time progress events from the agent orchestrator."""
+        def _update():
+            if not self._is_busy:
+                return False
+            msg = getattr(event, "message", "")
+            if msg:
+                self._show_working_line(msg)
+                self._set_status(msg, spinning=True, is_llm=False)
+            return False
+
+        GLib.idle_add(_update)
 
     def _on_prompt_submit(self, entry: "Gtk.Entry") -> None:
         """Handle prompt submission from Enter key or Send button."""
