@@ -178,6 +178,32 @@ Versions follow [Semantic Versioning](https://semver.org/).
   - Added unit tests for daemon state inspection, IPC dispatch format, non-blocking `_start_daemon` call, and new parameter handling.
   - Added `TestDaemonLifecycleSmoke` integration test validating background daemon start, D-Bus registration, IPC `--show`, and clean `--quit` (984 passing tests, 2 skipped).
 
+#### Phase 14.2 — AVI CLI-Inspired Desktop Command Palette
+- **Antigravity CLI-Inspired Command Palette (`src/avi/ui/window.py`)**:
+  - Replaced chatbot conversation aesthetic with a compact, developer-focused desktop command palette (width 680px, floating centered on Wayland and X11).
+  - Designed primary command bar featuring prominent `❯` prompt glyph (`.avi-prompt-glyph`), borderless monospace entry (`.avi-command-input`), inline activity spinner, subtle `esc` keycap badge, and subtle `×` close button.
+  - Eliminated giant send/mic buttons, avatars, bubble frames, and traditional window decorations while retaining hidden compatibility widgets.
+- **CLI Execution Transcript & Glyph System**:
+  - Replaced conversational message bubbles with compact monospace CLI execution lines:
+    - `❯ {command}`: User command prompt line (`.avi-glyph-cmd`).
+    - `◌ {status}`: Live inline working indicator (`.avi-glyph-work`) showing task progress (`◌ Searching YouTube...`, `◌ Capturing screenshot...`) and automatically cleared upon result completion.
+    - `✓ {result}`: Success/result line (`.avi-glyph-ok`) with optional compact action pill (`[Open Screenshot]`).
+    - `! {error}`: Error line (`.avi-glyph-err`).
+- **Information-Dense Compact Result Rows**:
+  - Replaced oversized card widgets with compact interactive result rows for YouTube search:
+    - Top/best match row with `[ ▶ ]` badge, title, channel, duration, and `[Play]` button.
+    - Secondary rows with `[ 01 ]`, `[ 02 ]`... badges and `[Open]` buttons.
+    - ScrolledWindow natural height propagation (`set_propagate_natural_height(True)`) for seamless expanding container.
+- **Keyboard-First Navigation & History Recall**:
+  - `Enter`: Submits prompt when entry has text; activates highlighted search result row when entry is empty.
+  - `Up` / `Down`: Navigates search result rows when results are visible; navigates command prompt history (`_prompt_history`) when entry is focused.
+  - `Escape`: Deselects active search row if highlighted; clears prompt if text exists; dismisses overlay if idle.
+  - `Ctrl+L`: Focuses prompt entry and selects all text.
+  - Retained transient action auto-dismissal (~1.8s for volume, app launch, screenshots).
+- **Test Suite Expansion (`tests/unit/test_ui.py`)**:
+  - Added unit test suite `TestCliCommandPalette` covering command bar construction, execution lines and glyphs (`❯`, `◌`, `✓`, `!`), compact search rows, and arrow navigation for search results and prompt history.
+
+
 ---
 
 ## [0.3.0] — 2026-09-06

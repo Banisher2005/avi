@@ -91,270 +91,287 @@ def format_user_friendly_error(err: Exception | str, prompt: str = "") -> str:
 
 
 CSS_STYLE = b"""
-window.avi-overlay-window, window.avi-main-window {
-    background-color: #1e1e2e;
+/* Antigravity CLI-inspired Dark Developer Command Palette */
+window.avi-palette-window, window.avi-overlay-window, window.avi-main-window {
+    background-color: #11111b;
     color: #cdd6f4;
-    border: 1px solid #45475a;
-    border-radius: 14px;
+    border: 1px solid #313244;
+    border-radius: 10px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7);
+    font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", "Source Code Pro", monospace, sans-serif;
 }
 
-headerbar {
+/* Primary Command Bar */
+.avi-command-bar {
     background-color: #181825;
-    color: #cdd6f4;
-    border-bottom: 1px solid #313244;
-    min-height: 38px;
-    padding: 0 6px;
+    padding: 10px 14px;
+    border-top-left-radius: 10px;
+    border-top-right-radius: 10px;
 }
 
-.avi-overlay-header {
-    background-color: #181825;
-    padding: 8px 12px 4px 12px;
-    border-top-left-radius: 14px;
-    border-top-right-radius: 14px;
-}
-
-.avi-brand-badge {
-    font-weight: 800;
-    font-size: 13px;
+.avi-prompt-glyph {
     color: #89b4fa;
-    letter-spacing: 0.5px;
+    font-size: 16px;
+    font-weight: 800;
+    margin-right: 4px;
+    font-family: monospace;
 }
 
-.avi-close-btn {
-    background: transparent;
-    color: #6c7086;
+entry.avi-command-input {
+    background-color: transparent;
     border: none;
-    border-radius: 6px;
-    padding: 2px 8px;
-    font-size: 15px;
-    font-weight: bold;
+    box-shadow: none;
+    outline: none;
+    color: #cdd6f4;
+    font-size: 14px;
+    font-family: "JetBrains Mono", "Fira Code", monospace, sans-serif;
+    padding: 2px 4px;
+    min-height: 28px;
 }
 
-.avi-close-btn:hover {
+entry.avi-command-input:focus {
+    outline: none;
+    border: none;
+    box-shadow: none;
+}
+
+.avi-keycap-hint {
+    background-color: #1e1e2e;
+    color: #6c7086;
+    border: 1px solid #313244;
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: 11px;
+    font-family: monospace;
+}
+
+.avi-palette-close {
+    background: transparent;
+    border: none;
+    color: #6c7086;
+    padding: 2px 6px;
+    font-size: 14px;
+    font-weight: bold;
+    border-radius: 4px;
+}
+
+.avi-palette-close:hover {
     background-color: #313244;
     color: #f38ba8;
 }
 
-.avi-input-box {
-    background-color: #181825;
-    padding: 4px 12px 8px 12px;
+/* Transcript & Execution Output Lines */
+.avi-execution-log, .avi-conversation-area, .avi-dynamic-results {
+    background-color: #11111b;
+    border-top: 1px solid #28293d;
+    padding: 8px 14px 12px 14px;
 }
 
-.avi-header-title {
-    font-weight: bold;
-    font-size: 13px;
+.avi-cli-line {
+    padding: 2px 0;
+    font-family: "JetBrains Mono", "Fira Code", monospace, sans-serif;
+}
+
+.avi-glyph-cmd {
     color: #89b4fa;
-}
-
-.avi-header-box {
-    background-color: #181825;
-    border-bottom: 1px solid #313244;
-    padding: 10px 14px;
-}
-
-.avi-prompt-entry {
-    background-color: #1e1e2e;
-    color: #cdd6f4;
-    border: 1px solid #45475a;
-    border-radius: 10px;
-    padding: 10px 14px;
-    font-size: 14px;
-}
-
-.avi-prompt-entry:focus {
-    border-color: #89b4fa;
-}
-
-.avi-controls-row {
-    background-color: #181825;
-    border-top: 1px solid #2b2c3c;
-    padding: 6px 12px 8px 12px;
-}
-
-.avi-status-label {
-    color: #a6adc8;
-    font-size: 11px;
-}
-
-.avi-voice-btn {
-    background-color: #313244;
-    color: #cdd6f4;
-    border-radius: 6px;
-    padding: 4px 10px;
+    font-weight: 800;
     font-size: 13px;
-    border: none;
+    margin-right: 6px;
+    font-family: monospace;
 }
 
-.avi-voice-btn:hover {
-    background-color: #45475a;
+.avi-glyph-work {
+    color: #fab387;
+    font-size: 13px;
+    margin-right: 6px;
+    font-family: monospace;
+}
+
+.avi-glyph-ok {
+    color: #a6e3a1;
+    font-weight: 800;
+    font-size: 13px;
+    margin-right: 6px;
+    font-family: monospace;
+}
+
+.avi-glyph-err {
+    color: #f38ba8;
+    font-weight: 800;
+    font-size: 13px;
+    margin-right: 6px;
+    font-family: monospace;
+}
+
+.avi-cli-text-cmd {
+    color: #cdd6f4;
+    font-weight: 600;
+    font-size: 13px;
+    font-family: monospace;
+}
+
+.avi-cli-text-work {
+    color: #a6adc8;
+    font-size: 13px;
+    font-family: monospace;
+}
+
+.avi-cli-text-ok {
+    color: #cdd6f4;
+    font-size: 13px;
+    font-family: monospace;
+}
+
+.avi-cli-text-err {
+    color: #f38ba8;
+    font-size: 13px;
+    font-family: monospace;
+}
+
+.avi-cli-action-btn, .avi-action-btn {
+    background-color: #1e1e2e;
+    color: #89b4fa;
+    border: 1px solid #313244;
+    border-radius: 4px;
+    padding: 1px 8px;
+    font-size: 11px;
+    font-family: monospace;
+}
+
+.avi-cli-action-btn:hover, .avi-action-btn:hover {
+    background-color: #313244;
     color: #a6e3a1;
 }
 
-.avi-enter-btn, .avi-send-btn {
+/* Interactive Result Rows (YouTube / Search) */
+.avi-results-list {
+    background: transparent;
+    padding: 2px 0;
+}
+
+.avi-result-row, .avi-best-match-card, .avi-result-card {
+    background-color: #181825;
+    border: 1px solid #28293d;
+    border-radius: 6px;
+    margin: 2px 0;
+    padding: 6px 10px;
+    transition: background-color 0.1s ease;
+}
+
+.avi-result-row:hover, .avi-result-row-selected, .avi-result-card:hover {
+    background-color: #262738;
+    border-color: #89b4fa;
+}
+
+.avi-row-thumb {
+    background-color: #11111b;
+    border: 1px solid #313244;
+    border-radius: 4px;
+    padding: 3px 6px;
+    min-width: 28px;
+    color: #89b4fa;
+    font-size: 11px;
+    font-weight: bold;
+    font-family: monospace;
+}
+
+.avi-row-title, .avi-result-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #cdd6f4;
+}
+
+.avi-row-meta, .avi-result-meta {
+    font-size: 11px;
+    color: #6c7086;
+    font-family: monospace;
+}
+
+.avi-row-open-btn, .avi-play-btn {
+    background-color: #1e1e2e;
+    color: #89b4fa;
+    border: 1px solid #313244;
+    border-radius: 4px;
+    padding: 2px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: monospace;
+}
+
+.avi-row-open-btn:hover, .avi-play-btn:hover {
     background-color: #89b4fa;
     color: #11111b;
-    font-weight: bold;
+}
+
+/* Confirmation Box */
+.avi-confirm-card {
+    background-color: #181825;
+    border: 1px solid #fab387;
     border-radius: 6px;
-    padding: 4px 12px;
-    font-size: 12px;
-    border: none;
-}
-
-.avi-enter-btn:hover, .avi-send-btn:hover {
-    background-color: #b4befe;
-}
-
-.avi-dynamic-results, .avi-conversation-area {
-    background-color: #1e1e2e;
-    padding: 8px 12px 12px 12px;
-}
-
-.avi-bubble-user {
-    background-color: #313244;
-    color: #cdd6f4;
-    border-radius: 12px 12px 2px 12px;
-    padding: 8px 14px;
-}
-
-.avi-user-text {
-    font-size: 14px;
-    color: #cdd6f4;
-}
-
-.avi-bubble-assistant {
-    background-color: #252636;
-    color: #cdd6f4;
-    border-radius: 12px 12px 12px 2px;
-    border: 1px solid #313244;
-    padding: 10px 14px;
-}
-
-.avi-assistant-text {
-    font-size: 14px;
-    color: #cdd6f4;
-}
-
-.avi-bubble-error {
-    background-color: #2a1f28;
-    color: #f38ba8;
-    border: 1px solid #f38ba8;
-    border-radius: 8px;
     padding: 8px 12px;
 }
 
-.avi-confirm-card {
-    background-color: #262330;
-    border: 1px solid #fab387;
-    border-radius: 10px;
-    padding: 12px 14px;
-}
-
 .avi-confirm-header {
-    font-size: 13px;
+    font-size: 12px;
     font-weight: bold;
     color: #fab387;
+    font-family: monospace;
 }
 
 .avi-command-box {
     background-color: #11111b;
     color: #a6e3a1;
+    border: 1px solid #313244;
+    border-radius: 4px;
+    padding: 4px 8px;
     font-family: monospace;
     font-size: 12px;
+}
+
+/* Compatibility classes */
+.avi-prompt-entry {
+    background-color: transparent;
+    border: none;
+    box-shadow: none;
+    outline: none;
+    color: #cdd6f4;
+}
+.avi-bubble-user {
+    background: transparent;
+    padding: 0;
+}
+.avi-bubble-assistant {
+    background: transparent;
+    padding: 0;
+}
+.avi-status-bar {
+    background: transparent;
+}
+.avi-brand-badge {
+    color: #89b4fa;
+    font-weight: 800;
+}
+.avi-user-text {
+    color: #cdd6f4;
+}
+.avi-assistant-text {
+    color: #cdd6f4;
+}
+.avi-bubble-error {
+    background-color: #2a1f28;
+    color: #f38ba8;
+    border: 1px solid #f38ba8;
     border-radius: 6px;
     padding: 6px 10px;
 }
-
-.avi-path-text {
-    font-family: monospace;
-    font-size: 12px;
-    color: #89b4fa;
-}
-
-.avi-action-btn {
-    background-color: #313244;
-    color: #cdd6f4;
-    border-radius: 6px;
-    padding: 4px 10px;
-    font-size: 12px;
-}
-
-.avi-action-btn:hover {
-    background-color: #45475a;
-}
-
-.avi-status-bar {
-    background-color: #181825;
-    border-top: 1px solid #313244;
-    padding: 6px 14px;
+.avi-hint-label, .avi-status-label {
     color: #6c7086;
     font-size: 11px;
 }
-
-.avi-hint-label {
-    color: #6c7086;
-    font-size: 11px;
-}
-
 .avi-provider-label {
     color: #45475a;
     font-family: monospace;
     font-size: 10px;
-}
-
-.avi-result-card {
-    background-color: #1e1e2e;
-    border: 1px solid #313244;
-    border-radius: 8px;
-    padding: 6px 10px;
-}
-
-.avi-result-card:hover {
-    background-color: #252636;
-}
-
-.avi-result-num {
-    color: #6c7086;
-    font-size: 11px;
-    font-family: monospace;
-    min-width: 16px;
-}
-
-.avi-result-title {
-    font-size: 13px;
-    color: #cdd6f4;
-    font-weight: bold;
-}
-
-.avi-result-meta {
-    font-size: 11px;
-    color: #6c7086;
-}
-
-.avi-best-match-card {
-    background-color: #26273a;
-    border: 1px solid #89b4fa;
-    border-radius: 8px;
-    padding: 10px 12px;
-}
-
-.avi-best-match-tag {
-    color: #89b4fa;
-    font-size: 11px;
-    font-weight: bold;
-}
-
-.avi-play-btn {
-    background-color: #a6e3a1;
-    color: #11111b;
-    font-weight: bold;
-    border-radius: 6px;
-    padding: 4px 12px;
-    font-size: 12px;
-    border: none;
-}
-
-.avi-play-btn:hover {
-    background-color: #94e2d5;
 }
 """
 
@@ -387,49 +404,40 @@ class AviWindow:
         self._worker_thread: threading.Thread | None = None
         self._auto_dismiss_tag: int | None = None
 
+        self._prompt_history: list[str] = []
+        self._history_index: int = -1
+        self._current_search_rows: list[dict[str, Any]] = []
+        self._selected_row_index: int = -1
+        self._current_working_widget: Any | None = None
+
         self._build_window()
 
     def _build_window(self) -> None:
-        """Build the compact, frameless GTK4 overlay window layout."""
+        """Build the compact, frameless GTK4 overlay command palette layout."""
         self.window = Gtk.ApplicationWindow(application=self.app)
         self.window.set_title("⚡ AVI Assistant")
         self.window.set_decorated(False)
         self.window.set_resizable(True)
-        self.window.set_default_size(620, -1)
+        self.window.set_default_size(680, -1)
         self.window.add_css_class("avi-overlay-window")
+        self.window.add_css_class("avi-palette-window")
         self.window.add_css_class("avi-main-window")
 
         # Root vertical container
         root_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.window.set_child(root_box)
 
-        # ── Overlay Header Bar ──────────────────────────────────────────
-        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        header_box.add_css_class("avi-overlay-header")
+        # ── Primary Command Bar (Antigravity CLI Style) ───────────────────
+        command_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        command_bar.add_css_class("avi-command-bar")
 
-        brand_label = Gtk.Label(label="✦ AVI")
-        brand_label.add_css_class("avi-brand-badge")
-        brand_label.set_halign(Gtk.Align.START)
-        header_box.append(brand_label)
-
-        header_spacer = Gtk.Box()
-        header_spacer.set_hexpand(True)
-        header_box.append(header_spacer)
-
-        self.close_button = Gtk.Button(label="×")
-        self.close_button.add_css_class("avi-close-btn")
-        self.close_button.set_tooltip_text("Close overlay (Esc)")
-        self.close_button.connect("clicked", lambda _b: self.window.close())
-        header_box.append(self.close_button)
-
-        root_box.append(header_box)
-
-        # ── Central Prompt Input ────────────────────────────────────────
-        input_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        input_box.add_css_class("avi-header-box")
-        input_box.add_css_class("avi-input-box")
+        self.prompt_glyph = Gtk.Label(label="❯")
+        self.prompt_glyph.add_css_class("avi-prompt-glyph")
+        self.prompt_glyph.set_valign(Gtk.Align.CENTER)
+        command_bar.append(self.prompt_glyph)
 
         self.prompt_entry = Gtk.Entry()
+        self.prompt_entry.add_css_class("avi-command-input")
         self.prompt_entry.add_css_class("avi-prompt-entry")
         self.prompt_entry.set_placeholder_text("Ask AVI anything...")
         self.prompt_entry.set_tooltip_text("Enter your request for AVI (or press 🎙 to speak)")
@@ -437,29 +445,47 @@ class AviWindow:
         self.prompt_entry.set_activates_default(False)
         self.prompt_entry.connect("activate", self._on_prompt_submit)
         self.prompt_entry.connect("changed", self._on_prompt_changed)
-        input_box.append(self.prompt_entry)
-
-        root_box.append(input_box)
-
-        # ── Controls & Status Row ───────────────────────────────────────
-        controls_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        controls_box.add_css_class("avi-status-bar")
-        controls_box.add_css_class("avi-controls-row")
+        command_bar.append(self.prompt_entry)
 
         self.spinner = Gtk.Spinner()
-        self.spinner.set_size_request(16, 16)
+        self.spinner.set_size_request(14, 14)
+        self.spinner.set_valign(Gtk.Align.CENTER)
         self.spinner.set_visible(False)
-        controls_box.append(self.spinner)
+        command_bar.append(self.spinner)
 
         self.status_label = Gtk.Label(label="Ready  ·  Esc to close")
         self.status_label.add_css_class("avi-hint-label")
         self.status_label.add_css_class("avi-status-label")
-        self.status_label.set_xalign(0.0)
-        controls_box.append(self.status_label)
+        self.status_label.set_valign(Gtk.Align.CENTER)
+        self.status_label.set_visible(False)
+        command_bar.append(self.status_label)
 
-        controls_spacer = Gtk.Box()
-        controls_spacer.set_hexpand(True)
-        controls_box.append(controls_spacer)
+        self.esc_hint = Gtk.Label(label="esc")
+        self.esc_hint.add_css_class("avi-keycap-hint")
+        self.esc_hint.set_valign(Gtk.Align.CENTER)
+        command_bar.append(self.esc_hint)
+
+        self.close_button = Gtk.Button(label="×")
+        self.close_button.add_css_class("avi-palette-close")
+        self.close_button.add_css_class("avi-close-btn")
+        self.close_button.set_tooltip_text("Close overlay (Esc)")
+        self.close_button.set_valign(Gtk.Align.CENTER)
+        self.close_button.connect("clicked", lambda _b: self.hide_overlay())
+        command_bar.append(self.close_button)
+
+        root_box.append(command_bar)
+
+        # ── Compatibility hidden widgets ─────────────────────────────────
+        self.voice_button = Gtk.Button(label="🎙")
+        self.voice_button.add_css_class("avi-voice-btn")
+        self.voice_button.set_visible(False)
+        self.voice_button.connect("clicked", self._on_voice_clicked)
+
+        self.send_button = Gtk.Button(label="⏎ Enter")
+        self.send_button.add_css_class("avi-send-btn")
+        self.send_button.add_css_class("avi-enter-btn")
+        self.send_button.set_visible(False)
+        self.send_button.connect("clicked", lambda _b: self._on_prompt_submit(self.prompt_entry))
 
         provider_text = (
             f"{getattr(self.config, 'provider', 'local')} / "
@@ -467,39 +493,20 @@ class AviWindow:
         )
         self.provider_label = Gtk.Label(label=provider_text)
         self.provider_label.add_css_class("avi-provider-label")
-        self.provider_label.set_margin_end(6)
         self.provider_label.set_visible(False)
-        controls_box.append(self.provider_label)
-
-        self.voice_button = Gtk.Button(label="🎙")
-        self.voice_button.add_css_class("avi-voice-btn")
-        self.voice_button.set_tooltip_text("Voice input (Press to speak · Super+Shift+A)")
-        self.voice_button.connect("clicked", self._on_voice_clicked)
-        controls_box.append(self.voice_button)
-
-        self.send_button = Gtk.Button(label="⏎ Enter")
-        self.send_button.add_css_class("avi-send-btn")
-        self.send_button.add_css_class("avi-enter-btn")
-        self.send_button.set_tooltip_text("Execute request")
-        self.send_button.connect("clicked", lambda _b: self._on_prompt_submit(self.prompt_entry))
-        controls_box.append(self.send_button)
-
-        root_box.append(controls_box)
 
         # ── Dynamic Result Container (ScrolledWindow) ───────────────────
         self.scroll_window = Gtk.ScrolledWindow()
         self.scroll_window.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         self.scroll_window.set_vexpand(True)
-        self.scroll_window.set_max_content_height(400)
+        self.scroll_window.set_propagate_natural_height(True)
+        self.scroll_window.set_max_content_height(420)
         self.scroll_window.set_visible(False)
 
-        self.conversation_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.conversation_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.conversation_box.add_css_class("avi-execution-log")
         self.conversation_box.add_css_class("avi-conversation-area")
         self.conversation_box.add_css_class("avi-dynamic-results")
-        self.conversation_box.set_margin_start(12)
-        self.conversation_box.set_margin_end(12)
-        self.conversation_box.set_margin_top(6)
-        self.conversation_box.set_margin_bottom(10)
         self.scroll_window.set_child(self.conversation_box)
 
         root_box.append(self.scroll_window)
@@ -617,25 +624,68 @@ class AviWindow:
         if adj:
             GLib.idle_add(lambda: adj.set_value(adj.get_upper() - adj.get_page_size()))
 
-    def _add_user_message(self, text: str) -> Any:
-        """Add a user message bubble (right-aligned)."""
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
-        row.set_halign(Gtk.Align.END)
+    def _show_working_line(self, status_text: str) -> None:
+        """Show an inline working indicator line: ◌ {status_text}."""
+        self._clear_working_line()
 
-        bubble = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        bubble.add_css_class("avi-bubble-user")
-        bubble.set_margin_top(4)
-        bubble.set_margin_bottom(4)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row.add_css_class("avi-cli-line")
+        row.set_halign(Gtk.Align.START)
+        row.set_hexpand(True)
+
+        glyph = Gtk.Label(label="◌")
+        glyph.add_css_class("avi-glyph-work")
+        glyph.set_valign(Gtk.Align.START)
+        row.append(glyph)
+
+        clean_text = status_text.strip()
+        label = Gtk.Label(label=clean_text)
+        label.set_wrap(True)
+        label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        label.set_xalign(0.0)
+        label.add_css_class("avi-cli-text-work")
+        row.append(label)
+
+        self._current_working_widget = row
+        self._append_message_widget(row)
+
+    def _clear_working_line(self) -> None:
+        """Remove the active working indicator line widget if present."""
+        if self._current_working_widget is not None:
+            try:
+                self.conversation_box.remove(self._current_working_widget)
+                if self._current_working_widget in self._history_widgets:
+                    self._history_widgets.remove(self._current_working_widget)
+            except Exception:
+                pass
+            self._current_working_widget = None
+
+    def _add_user_message(self, text: str) -> Any:
+        """Add a user command execution line: ❯ {text}."""
+        self._clear_working_line()
+        self._current_search_rows = []
+        self._selected_row_index = -1
+
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row.add_css_class("avi-cli-line")
+        row.add_css_class("avi-bubble-user")
+        row.set_halign(Gtk.Align.START)
+        row.set_hexpand(True)
+
+        glyph = Gtk.Label(label="❯")
+        glyph.add_css_class("avi-glyph-cmd")
+        glyph.set_valign(Gtk.Align.START)
+        row.append(glyph)
 
         label = Gtk.Label(label=text)
         label.set_wrap(True)
         label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
         label.set_selectable(True)
-        label.set_xalign(1.0)
+        label.set_xalign(0.0)
+        label.add_css_class("avi-cli-text-cmd")
         label.add_css_class("avi-user-text")
-        bubble.append(label)
+        row.append(label)
 
-        row.append(bubble)
         self._append_message_widget(row)
         return row
 
@@ -644,40 +694,50 @@ class AviWindow:
         text: str,
         action_path: str | None = None,
     ) -> Any:
-        """Add an assistant bubble with conversational response and optional action buttons."""
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        """Add an assistant result execution line: ✓ {text} with optional action button."""
+        self._clear_working_line()
+
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row.add_css_class("avi-cli-line")
+        row.add_css_class("avi-bubble-assistant")
         row.set_halign(Gtk.Align.START)
         row.set_hexpand(True)
 
-        bubble = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        bubble.add_css_class("avi-bubble-assistant")
-        bubble.set_margin_top(4)
-        bubble.set_margin_bottom(4)
-        bubble.set_hexpand(True)
+        glyph = Gtk.Label(label="✓")
+        glyph.add_css_class("avi-glyph-ok")
+        glyph.set_valign(Gtk.Align.START)
+        row.append(glyph)
 
-        label = Gtk.Label(label=text)
+        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        content_box.set_hexpand(True)
+
+        clean_text = text.strip()
+        if clean_text.startswith("✓"):
+            clean_text = clean_text.lstrip("✓").strip()
+
+        label = Gtk.Label(label=clean_text)
         label.set_wrap(True)
         label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
         label.set_selectable(True)
         label.set_xalign(0.0)
+        label.add_css_class("avi-cli-text-ok")
         label.add_css_class("avi-assistant-text")
-        bubble.append(label)
+        content_box.append(label)
 
-        # If an action path was provided, add path and Open action button
         if action_path:
-            btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-            btn_box.set_margin_top(4)
+            btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            btn_box.set_margin_top(2)
 
-            open_btn = Gtk.Button(
-                label="Open Screenshot" if action_path.endswith(".png") else "Open File"
-            )
+            btn_lbl = "Open Screenshot" if action_path.endswith(".png") else "Open File"
+            open_btn = Gtk.Button(label=btn_lbl)
+            open_btn.add_css_class("avi-cli-action-btn")
             open_btn.add_css_class("avi-action-btn")
             open_btn.connect("clicked", lambda _b: self._open_local_path(action_path))
             btn_box.append(open_btn)
 
-            bubble.append(btn_box)
+            content_box.append(btn_box)
 
-        row.append(bubble)
+        row.append(content_box)
         self._append_message_widget(row)
         return row
 
@@ -687,7 +747,7 @@ class AviWindow:
         action_path: str | None = None,
         auto_dismiss: bool = False,
     ) -> None:
-        """Display an assistant response message card."""
+        """Display an assistant response CLI line."""
         self._add_assistant_message(text, action_path=action_path)
         if auto_dismiss:
             self._set_status("✓ Done  ·  Auto-closing in 2s", spinning=False)
@@ -695,42 +755,61 @@ class AviWindow:
         else:
             self._set_status("Ready  ·  Esc to close", spinning=False)
 
+    def _update_row_selection(self, new_index: int) -> None:
+        """Update active keyboard selection highlight on search result rows."""
+        self._selected_row_index = new_index
+        for i, item in enumerate(self._current_search_rows):
+            w = item.get("widget")
+            if w is not None:
+                if i == new_index:
+                    w.add_css_class("avi-result-row-selected")
+                else:
+                    w.remove_css_class("avi-result-row-selected")
+
     def _add_search_results_widget(
         self,
         search_results: list,
         selected_result: Any | None = None,
     ) -> None:
-        """Render compact interactive cards for YouTube search results."""
+        """Render compact, information-dense interactive rows for YouTube search results."""
+        self._clear_working_line()
         if not search_results:
             return
 
-        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        outer.set_margin_start(8)
-        outer.set_margin_end(8)
-        outer.set_margin_bottom(6)
+        self._current_search_rows = []
+        self._selected_row_index = -1
+
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        outer.add_css_class("avi-results-list")
+        outer.set_margin_start(4)
+        outer.set_margin_end(4)
+        outer.set_margin_top(4)
+        outer.set_margin_bottom(4)
         outer.set_hexpand(True)
 
         other_results = []
         if selected_result is not None:
-            # Render Featured Best Match card
-            best_card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+            # ── Top / Best match row ────────────────────────────────────
+            best_card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+            best_card.add_css_class("avi-result-row")
             best_card.add_css_class("avi-best-match-card")
-            best_card.set_margin_bottom(4)
             best_card.set_hexpand(True)
+
+            badge = Gtk.Label(label="[ ▶ ]")
+            badge.add_css_class("avi-row-thumb")
+            badge.add_css_class("avi-best-match-tag")
+            badge.set_valign(Gtk.Align.CENTER)
+            best_card.append(badge)
 
             meta = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
             meta.set_hexpand(True)
             meta.set_valign(Gtk.Align.CENTER)
 
-            tag_lbl = Gtk.Label(label="🎯 Best match")
-            tag_lbl.set_xalign(0.0)
-            tag_lbl.add_css_class("avi-best-match-tag")
-            meta.append(tag_lbl)
-
             title_lbl = Gtk.Label(label=getattr(selected_result, "title", "Best match"))
             title_lbl.set_wrap(True)
             title_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
             title_lbl.set_xalign(0.0)
+            title_lbl.add_css_class("avi-row-title")
             title_lbl.add_css_class("avi-result-title")
             meta.append(title_lbl)
 
@@ -738,12 +817,13 @@ class AviWindow:
             channel = getattr(selected_result, "channel", None)
             duration = getattr(selected_result, "duration", None)
             if channel:
-                sub_parts.append(f"Channel: {channel}")
+                sub_parts.append(channel)
             if duration:
-                sub_parts.append(f"Duration: {duration}")
+                sub_parts.append(duration)
             if sub_parts:
                 sub_lbl = Gtk.Label(label="  ·  ".join(sub_parts))
                 sub_lbl.set_xalign(0.0)
+                sub_lbl.add_css_class("avi-row-meta")
                 sub_lbl.add_css_class("avi-result-meta")
                 meta.append(sub_lbl)
 
@@ -752,13 +832,14 @@ class AviWindow:
             url = getattr(selected_result, "url", None)
             if url:
                 play_btn = Gtk.Button(label="Play")
+                play_btn.add_css_class("avi-row-open-btn")
                 play_btn.add_css_class("avi-play-btn")
+                play_btn.add_css_class("avi-action-btn")
                 play_btn.set_valign(Gtk.Align.CENTER)
-                play_btn.connect(
-                    "clicked",
-                    lambda _b, _url=url: self._open_local_path(_url),
-                )
+                _act = lambda _u=url: self._open_local_path(_u)
+                play_btn.connect("clicked", lambda _b, _fn=_act: _fn())
                 best_card.append(play_btn)
+                self._current_search_rows.append({"widget": best_card, "action": _act})
 
             outer.append(best_card)
 
@@ -776,17 +857,17 @@ class AviWindow:
         start_idx = 2 if selected_result is not None else 1
         for i, result in enumerate(other_results[:4], start_idx):
             card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+            card.add_css_class("avi-result-row")
             card.add_css_class("avi-result-card")
-            card.set_margin_bottom(2)
             card.set_hexpand(True)
 
-            # Left: number badge
-            num_lbl = Gtk.Label(label=str(i))
+            num_str = f"[{i:02d}]"
+            num_lbl = Gtk.Label(label=num_str)
+            num_lbl.add_css_class("avi-row-thumb")
             num_lbl.add_css_class("avi-result-num")
             num_lbl.set_valign(Gtk.Align.CENTER)
             card.append(num_lbl)
 
-            # Center: metadata
             meta = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
             meta.set_hexpand(True)
             meta.set_valign(Gtk.Align.CENTER)
@@ -795,6 +876,7 @@ class AviWindow:
             title_lbl.set_wrap(True)
             title_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
             title_lbl.set_xalign(0.0)
+            title_lbl.add_css_class("avi-row-title")
             title_lbl.add_css_class("avi-result-title")
             meta.append(title_lbl)
 
@@ -808,22 +890,22 @@ class AviWindow:
             if sub_parts:
                 sub_lbl = Gtk.Label(label="  ·  ".join(sub_parts))
                 sub_lbl.set_xalign(0.0)
+                sub_lbl.add_css_class("avi-row-meta")
                 sub_lbl.add_css_class("avi-result-meta")
                 meta.append(sub_lbl)
 
             card.append(meta)
 
-            # Right: Open button
             url = getattr(result, "url", None)
             if url:
                 open_btn = Gtk.Button(label="Open")
+                open_btn.add_css_class("avi-row-open-btn")
                 open_btn.add_css_class("avi-action-btn")
                 open_btn.set_valign(Gtk.Align.CENTER)
-                open_btn.connect(
-                    "clicked",
-                    lambda _b, _url=url: self._open_local_path(_url),
-                )
+                _act = lambda _u=url: self._open_local_path(_u)
+                open_btn.connect("clicked", lambda _b, _fn=_act: _fn())
                 card.append(open_btn)
+                self._current_search_rows.append({"widget": card, "action": _act})
 
             outer.append(card)
 
@@ -831,30 +913,36 @@ class AviWindow:
         self._set_status("Ready  ·  Esc to close", spinning=False, is_llm=False)
 
     def _show_error(self, message: str) -> None:
-        """Display an error card in the conversation."""
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        """Display an error line in CLI style: ! {message}."""
+        self._clear_working_line()
+
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row.add_css_class("avi-cli-line")
+        row.add_css_class("avi-bubble-error")
         row.set_halign(Gtk.Align.START)
         row.set_hexpand(True)
 
-        bubble = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        bubble.add_css_class("avi-bubble-error")
-        bubble.set_margin_top(4)
-        bubble.set_margin_bottom(4)
-        bubble.set_hexpand(True)
+        glyph = Gtk.Label(label="!")
+        glyph.add_css_class("avi-glyph-err")
+        glyph.set_valign(Gtk.Align.START)
+        row.append(glyph)
 
-        lbl = Gtk.Label(label=f"⚠ {message}")
+        clean_msg = message.lstrip("⚠").lstrip("!").strip()
+        lbl = Gtk.Label(label=clean_msg)
         lbl.set_wrap(True)
         lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
         lbl.set_selectable(True)
         lbl.set_xalign(0.0)
-        bubble.append(lbl)
+        lbl.add_css_class("avi-cli-text-err")
+        row.append(lbl)
 
-        row.append(bubble)
         self._append_message_widget(row)
         self._set_status("Ready  ·  Esc to close", spinning=False)
 
     def _show_confirmation(self, proposal: Any, explanation: str) -> None:
         """Display an inline confirmation card."""
+        self._clear_working_line()
+
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         row.set_halign(Gtk.Align.START)
         row.set_hexpand(True)
@@ -913,26 +1001,29 @@ class AviWindow:
     # -----------------------------------------------------------------------
 
     def _start_stream_response(self) -> None:
-        """Create a new streaming assistant bubble."""
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        """Create a new streaming assistant CLI line."""
+        self._clear_working_line()
+
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row.add_css_class("avi-cli-line")
+        row.add_css_class("avi-bubble-assistant")
         row.set_halign(Gtk.Align.START)
         row.set_hexpand(True)
 
-        bubble = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        bubble.add_css_class("avi-bubble-assistant")
-        bubble.set_margin_top(4)
-        bubble.set_margin_bottom(4)
-        bubble.set_hexpand(True)
+        glyph = Gtk.Label(label="✓")
+        glyph.add_css_class("avi-glyph-ok")
+        glyph.set_valign(Gtk.Align.START)
+        row.append(glyph)
 
         label = Gtk.Label(label="")
         label.set_wrap(True)
         label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
         label.set_selectable(True)
         label.set_xalign(0.0)
+        label.add_css_class("avi-cli-text-ok")
         label.add_css_class("avi-assistant-text")
-        bubble.append(label)
+        row.append(label)
 
-        row.append(bubble)
         self._append_message_widget(row)
 
         self._current_stream_box = row
@@ -940,7 +1031,7 @@ class AviWindow:
         self._current_stream_text = ""
 
     def _append_stream_chunk(self, chunk: str) -> None:
-        """Append a streamed token/chunk to the current assistant bubble."""
+        """Append a streamed token/chunk to the current assistant line."""
         if self._current_stream_label is not None:
             self._current_stream_text += chunk
             self._current_stream_label.set_text(self._current_stream_text)
@@ -1071,6 +1162,11 @@ class AviWindow:
         if not cleaned_text:
             return
 
+        # Record prompt into history
+        if not self._prompt_history or self._prompt_history[-1] != cleaned_text:
+            self._prompt_history.append(cleaned_text)
+        self._history_index = len(self._prompt_history)
+
         # Double-submission guard: synchronously mark busy and disable Send button
         self._is_busy = True
         self.send_button.set_sensitive(False)
@@ -1080,6 +1176,7 @@ class AviWindow:
 
         status_text, is_llm = self._get_loading_status(cleaned_text)
         self._set_status(status_text, spinning=True, is_llm=is_llm)
+        self._show_working_line(status_text)
 
         self._worker_thread = threading.Thread(
             target=self._run_query,
@@ -1095,7 +1192,7 @@ class AviWindow:
         keycode: int,
         state: "Gdk.ModifierType",
     ) -> bool:
-        """Handle keyboard shortcuts: Escape, Ctrl+L, Ctrl+Q, y/n confirmation."""
+        """Handle keyboard shortcuts: Escape, Ctrl+L, Ctrl+Q, Up/Down, Enter."""
         self._cancel_auto_dismiss()
         is_ctrl = bool(state & Gdk.ModifierType.CONTROL_MASK)
 
@@ -1111,17 +1208,6 @@ class AviWindow:
             self.prompt_entry.select_region(0, -1)
             return True
 
-        # Escape -> Cancel pending state or close window
-        if keyval == Gdk.KEY_Escape:
-            if self._pending_confirmation:
-                self._handle_confirm_cancel()
-                return True
-            if self.prompt_entry.get_text():
-                self.prompt_entry.set_text("")
-                return True
-            self.window.close()
-            return True
-
         # Pending confirmation keyboard shortcuts
         if self._pending_confirmation:
             if keyval in (Gdk.KEY_y, Gdk.KEY_Y):
@@ -1131,7 +1217,74 @@ class AviWindow:
                 self._handle_confirm_cancel()
                 return True
 
-        return False
+        # Escape -> Cancel pending / deselect / clear / hide
+        if keyval == Gdk.KEY_Escape:
+            if self._pending_confirmation:
+                self._handle_confirm_cancel()
+                return True
+            if self._selected_row_index >= 0:
+                self._update_row_selection(-1)
+                self.prompt_entry.grab_focus()
+                return True
+            if self.prompt_entry.get_text():
+                self.prompt_entry.set_text("")
+                return True
+            self.hide_overlay()
+            if hasattr(self, "window") and self.window:
+                self.window.close()
+            return True
+
+        # Enter on selected row when prompt is empty
+        if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+            if not self.prompt_entry.get_text().strip() and self._selected_row_index >= 0:
+                if 0 <= self._selected_row_index < len(self._current_search_rows):
+                    action = self._current_search_rows[self._selected_row_index].get("action")
+                    if callable(action):
+                        action()
+                        return True
+
+        # Up / Down Navigation
+        if keyval in (Gdk.KEY_Down, Gdk.KEY_KP_Down):
+            # If search result rows exist, navigate rows
+            if self._current_search_rows:
+                new_idx = min(self._selected_row_index + 1, len(self._current_search_rows) - 1)
+                self._update_row_selection(new_idx)
+                return True
+            # Otherwise navigate prompt history forward
+            if self._prompt_history:
+                if self._history_index < len(self._prompt_history) - 1:
+                    self._history_index += 1
+                    self.prompt_entry.set_text(self._prompt_history[self._history_index])
+                    self.prompt_entry.set_position(-1)
+                elif self._history_index == len(self._prompt_history) - 1:
+                    self._history_index = len(self._prompt_history)
+                    self.prompt_entry.set_text("")
+                return True
+
+        if keyval in (Gdk.KEY_Up, Gdk.KEY_KP_Up):
+            # If search result rows exist and a row is selected
+            if self._current_search_rows and self._selected_row_index > 0:
+                self._update_row_selection(self._selected_row_index - 1)
+                return True
+            elif self._current_search_rows and self._selected_row_index == 0:
+                self._update_row_selection(-1)
+                self.prompt_entry.grab_focus()
+                return True
+            # Otherwise navigate prompt history backward
+            if self._prompt_history:
+                if self._history_index > 0:
+                    self._history_index -= 1
+                    self.prompt_entry.set_text(self._prompt_history[self._history_index])
+                    self.prompt_entry.set_position(-1)
+                elif self._history_index == -1 and len(self._prompt_history) > 0:
+                    self._history_index = len(self._prompt_history) - 1
+                    self.prompt_entry.set_text(self._prompt_history[self._history_index])
+                    self.prompt_entry.set_position(-1)
+                elif self._history_index == len(self._prompt_history) and len(self._prompt_history) > 0:
+                    self._history_index = len(self._prompt_history) - 1
+                    self.prompt_entry.set_text(self._prompt_history[self._history_index])
+                    self.prompt_entry.set_position(-1)
+                return True
 
     def _handle_confirm_cancel(self) -> None:
         """User rejected execution of a confirmed-level command."""

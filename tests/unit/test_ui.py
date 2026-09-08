@@ -539,7 +539,7 @@ class TestOverlayRedesign:
 
         win = AviWindow(mock_app, mock_router, mock_config)
         win.window.set_decorated.assert_called_with(False)
-        win.window.set_default_size.assert_called_with(620, -1)
+        win.window.set_default_size.assert_called_with(680, -1)
         win.window.add_css_class.assert_any_call("avi-overlay-window")
         assert win.close_button is not None
         assert win.voice_button is not None
@@ -1056,3 +1056,147 @@ class TestDaemonLifecycleSmoke:
         assert (
             "io.github.banisher2005.avi" not in check2.stdout
         ), "Daemon still running after --quit"
+
+
+# ============================================================
+# 8. Phase 14.2 CLI Command Palette Tests
+# ============================================================
+
+
+class TestCliCommandPalette:
+    """Unit tests for Phase 14.2 CLI-style developer command palette UI/UX."""
+
+    @pytest.fixture
+    def mock_gtk(self, monkeypatch):
+        mock_gtk = MagicMock()
+        mock_gdk = MagicMock()
+        mock_glib = MagicMock()
+        mock_pango = MagicMock()
+        mock_glib.idle_add = lambda fn, *args: fn(*args)
+        mock_glib.timeout_add = MagicMock(return_value=999)
+        mock_glib.source_remove = MagicMock()
+
+        import avi.ui.window as wmod
+
+        monkeypatch.setattr(wmod, "Gtk", mock_gtk)
+        monkeypatch.setattr(wmod, "Gdk", mock_gdk)
+        monkeypatch.setattr(wmod, "GLib", mock_glib)
+        monkeypatch.setattr(wmod, "Pango", mock_pango)
+        monkeypatch.setattr(wmod, "_GTK_AVAILABLE", True)
+        return mock_gtk, mock_gdk, mock_glib, mock_pango
+
+    def test_command_bar_construction(self, mock_gtk):
+        from avi.ui.window import AviWindow
+
+        win = AviWindow(MagicMock(), MagicMock(), MagicMock())
+        assert hasattr(win, "prompt_glyph")
+        assert hasattr(win, "prompt_entry")
+        assert hasattr(win, "esc_hint")
+        assert hasattr(win, "close_button")
+        win.window.set_default_size.assert_called_with(680, -1)
+
+    def test_cli_execution_lines_and_glyphs(self, mock_gtk):
+        from avi.ui.window import AviWindow
+
+        win = AviWindow(MagicMock(), MagicMock(), MagicMock())
+        gtk_mock = mock_gtk[0]
+
+        # 1. User message -> ❯ glyph
+        win._add_user_message("open youtube mkbhd")
+        assert len(win._history_widgets) == 1
+        assert "❯" in [call.kwargs.get("label") for call in gtk_mock.Label.call_args_list]
+
+        # 2. Working line -> ◌ glyph
+        win._show_working_line("Searching YouTube…")
+        assert win._current_working_widget is not None
+        assert "◌" in [call.kwargs.get("label") for call in gtk_mock.Label.call_args_list]
+
+        # 3. Assistant response -> ✓ glyph, clears working line
+        win._add_assistant_message("Found 5 results")
+        assert win._current_working_widget is None
+        assert "✓" in [call.kwargs.get("label") for call in gtk_mock.Label.call_args_list]
+
+        # 4. Error line -> ! glyph
+        win._show_error("Could not reach service")
+        assert "!" in [call.kwargs.get("label") for call in gtk_mock.Label.call_args_list]
+
+    def test_compact_result_rows_rendering(self, mock_gtk):
+        from avi.ui.window import AviWindow
+        from avi.retrieval.models import SearchResult
+
+        win = AviWindow(MagicMock(), MagicMock(), MagicMock())
+        gtk_mock = mock_gtk[0]
+
+        r1 = SearchResult(id="1", title="Video 1", url="https://youtube.com/v1", channel="Chan 1", source="youtube")
+        r2 = SearchResult(id="2", title="Video 2", url="https://youtube.com/v2", channel="Chan 2", source="youtube")
+
+        win._add_search_results_widget([r1, r2], selected_result=r1)
+        labels = [call.kwargs.get("label") for call in gtk_mock.Label.call_args_list]
+        assert "[ ▶ ]" in labels
+        assert "[02]" in labels
+        assert len(win._current_search_rows) == 2
+
+    def test_arrow_navigation_search_results(self, mock_gtk):
+        from avi.ui.window import AviWindow
+        from avi.retrieval.models import SearchResult
+
+        win = AviWindow(MagicMock(), MagicMock(), MagicMock())
+        gdk = mock_gtk[1]
+        gdk.KEY_Down = 65364
+        gdk.KEY_KP_Down = 65433
+        gdk.KEY_Up = 65362
+        gdk.KEY_KP_Up = 65431
+        gdk.KEY_Return = 65293
+        gdk.KEY_KP_Enter = 65421
+        gdk.ModifierType.CONTROL_MASK = 4
+
+        r1 = SearchResult(id="1", title="Video 1", url="https://youtube.com/v1", source="youtube")
+        r2 = SearchResult(id="2", title="Video 2", url="https://youtube.com/v2", source="youtube")
+        win._add_search_results_widget([r1, r2], selected_result=r1)
+
+        # Down arrow moves to first row (index 0)
+        win._on_key_pressed(MagicMock(), gdk.KEY_Down, 0, 0)
+        assert win._selected_row_index == 0
+
+        # Down arrow moves to second row (index 1)
+        win._on_key_pressed(MagicMock(), gdk.KEY_Down, 0, 0)
+        assert win._selected_row_index == 1
+
+        # Up arrow moves back to first row (index 0)
+        win._on_key_pressed(MagicMock(), gdk.KEY_Up, 0, 0)
+        assert win._selected_row_index == 0
+
+        # Up arrow moves to -1 (deselects)
+        win._on_key_pressed(MagicMock(), gdk.KEY_Up, 0, 0)
+        assert win._selected_row_index == -1
+
+    def test_prompt_history_navigation(self, mock_gtk):
+        from avi.ui.window import AviWindow
+
+        win = AviWindow(MagicMock(), MagicMock(), MagicMock())
+        gdk = mock_gtk[1]
+        gdk.KEY_Down = 65364
+        gdk.KEY_KP_Down = 65433
+        gdk.KEY_Up = 65362
+        gdk.KEY_KP_Up = 65431
+        gdk.ModifierType.CONTROL_MASK = 4
+
+        # Manually push 2 prompt history items
+        win._prompt_history = ["increase volume", "take a screenshot"]
+        win._history_index = 2
+
+        # Up arrow recalls previous prompt
+        win._on_key_pressed(MagicMock(), gdk.KEY_Up, 0, 0)
+        win.prompt_entry.set_text.assert_called_with("take a screenshot")
+        assert win._history_index == 1
+
+        # Up arrow recalls older prompt
+        win._on_key_pressed(MagicMock(), gdk.KEY_Up, 0, 0)
+        win.prompt_entry.set_text.assert_called_with("increase volume")
+        assert win._history_index == 0
+
+        # Down arrow moves forward
+        win._on_key_pressed(MagicMock(), gdk.KEY_Down, 0, 0)
+        win.prompt_entry.set_text.assert_called_with("take a screenshot")
+        assert win._history_index == 1
+
