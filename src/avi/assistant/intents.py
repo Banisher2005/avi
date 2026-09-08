@@ -5,6 +5,35 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from avi.apps.destinations import resolve_web_destination
+
+# Memory command patterns
+_REMEMBER_EXPLICIT_RE = re.compile(
+    r"^(?:please\s+)?(?:remember(?:\s+that)?|note(?:\s+that)?|keep\s+in\s+mind(?:\s+that)?)\s+(.+)$",
+    re.IGNORECASE,
+)
+_FORGET_EXPLICIT_RE = re.compile(
+    r"^(?:please\s+)?(?:forget(?:\s+that)?|delete\s+memory(?:\s+about|\s+for)?|remove\s+memory(?:\s+about|\s+for)?)\s+(.+)$",
+    re.IGNORECASE,
+)
+_RECALL_EXPLICIT_RE = re.compile(
+    r"^(?:what\s+do\s+you\s+remember\s+about|recall|search\s+memories\s+for|do\s+you\s+remember)\s+(.+)\??$",
+    re.IGNORECASE,
+)
+_LIST_MEMORIES_RE = re.compile(
+    r"^(?:list\s+memories|show\s+memories|what\s+do\s+you\s+remember|my\s+memories)\??$",
+    re.IGNORECASE,
+)
+_PREFERRED_BROWSER_RE = re.compile(
+    r"^(?:(?:my\s+)?preferred\s+browser\s+is|use|set\s+preferred\s+browser\s+to)\s+([a-zA-Z0-9_\-]+)$|"
+    r"^([a-zA-Z0-9_\-]+)\s+is\s+my\s+preferred\s+browser$",
+    re.IGNORECASE,
+)
+_FOLDER_PREFERENCE_RE = re.compile(
+    r"^(?:my\s+)?([a-zA-Z0-9_\-\s]+)\s+folder\s+is\s+(~?[a-zA-Z0-9_\-/\.]+)$",
+    re.IGNORECASE,
+)
+
 # Regex pattern for timer requests
 # Examples: "set a timer for 2 seconds", "timer for 10 mins", "timer 5s", "set timer 1 minute for tea"
 _TIMER_RE = re.compile(
@@ -225,6 +254,7 @@ class AssistantIntentType(str, Enum):
     YOUTUBE_SEARCH = "YOUTUBE_SEARCH"
     YOUTUBE_RECOMMEND = "YOUTUBE_RECOMMEND"
     OPEN_SEARCH_RESULT = "OPEN_SEARCH_RESULT"
+    MEMORY = "MEMORY"
     UNKNOWN = "UNKNOWN"
 
 
@@ -1257,6 +1287,17 @@ def detect_assistant_intent(prompt: str, last_turn: Any | None = None) -> Detect
                 },
             )
 
+        # Check web destinations (e.g. "chatgpt on chrome", "caht gpt on chrome", "chat gpt", "chatgpt")
+        web_dest = resolve_web_destination(target)
+        if web_dest is not None:
+            canonical_name, url, browser_target = web_dest
+            return DetectedIntent(
+                intent_type=AssistantIntentType.OPEN_URL,
+                raw_prompt=prompt,
+                target=url,
+                extra={"destination_name": canonical_name, "browser": browser_target},
+            )
+
         # Check local file or directory
         expanded_path = Path(target).expanduser()
         if expanded_path.exists():
@@ -1390,6 +1431,32 @@ def detect_assistant_intent(prompt: str, last_turn: Any | None = None) -> Detect
     if lower in DEFAULT_ALIASES or ApplicationResolver().is_known_app(s):
         return DetectedIntent(
             intent_type=AssistantIntentType.OPEN_APP,
+            raw_prompt=prompt,
+            target=s,
+        )
+
+    # 19.5 Bare web destinations (e.g. "chatgpt on chrome", "caht gpt on chrome", "chat gpt")
+    web_dest = resolve_web_destination(s)
+    if web_dest is not None:
+        canonical_name, url, browser_target = web_dest
+        return DetectedIntent(
+            intent_type=AssistantIntentType.OPEN_URL,
+            raw_prompt=prompt,
+            target=url,
+            extra={"destination_name": canonical_name, "browser": browser_target},
+        )
+
+    # 19.6 Memory commands (remember that..., forget that..., recall..., my preferred browser is...)
+    if (
+        _REMEMBER_EXPLICIT_RE.match(s)
+        or _FORGET_EXPLICIT_RE.match(s)
+        or _RECALL_EXPLICIT_RE.match(s)
+        or _LIST_MEMORIES_RE.match(s)
+        or _PREFERRED_BROWSER_RE.match(s)
+        or _FOLDER_PREFERENCE_RE.match(s)
+    ):
+        return DetectedIntent(
+            intent_type=AssistantIntentType.MEMORY,
             raw_prompt=prompt,
             target=s,
         )

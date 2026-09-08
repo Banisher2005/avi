@@ -298,6 +298,42 @@ class ApplicationResolver:
                             confidence=0.85,
                         )
 
+        # C: Fuzzy match against known aliases and desktop entry keys
+        all_app_keys = list(self.aliases.keys()) + list(desktop_entries.keys())
+        import difflib
+        close = difflib.get_close_matches(normalized, all_app_keys, n=1, cutoff=0.72)
+        if close:
+            fuzzy_target = close[0]
+            if fuzzy_target in self.aliases:
+                for cand in self.aliases[fuzzy_target]:
+                    found_which = shutil.which(cand)
+                    if found_which:
+                        return ApplicationResolution(
+                            requested_name=query,
+                            canonical_name=fuzzy_target.replace("-", " ").title(),
+                            executable=found_which,
+                            desktop_entry=None,
+                            platform=current_platform,
+                            installed=True,
+                            confidence=0.8,
+                        )
+            if fuzzy_target in desktop_entries:
+                info = desktop_entries[fuzzy_target]
+                binary = info["exec"]
+                full_path = shutil.which(binary) or (
+                    binary if os.path.isabs(binary) and os.access(binary, os.X_OK) else None
+                )
+                if full_path:
+                    return ApplicationResolution(
+                        requested_name=query,
+                        canonical_name=info["name"],
+                        executable=full_path,
+                        desktop_entry=info["path"],
+                        platform=current_platform,
+                        installed=True,
+                        confidence=0.8,
+                    )
+
         # Not installed / not found — provide clean canonical display name
         friendly_names = {
             "chrome": "Chrome",
