@@ -144,6 +144,10 @@ class ResponseMetrics:
     time_to_first_token_ms: float | None = None
     routing_duration_ms: float | None = None
     llm_duration_ms: float | None = None
+    memory_duration_ms: float | None = None
+    planning_duration_ms: float | None = None
+    action_duration_ms: float | None = None
+    verification_duration_ms: float | None = None
 
 
 @dataclass
