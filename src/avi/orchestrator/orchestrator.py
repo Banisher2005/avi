@@ -58,6 +58,8 @@ class AssistantOrchestrator:
         executor: Any | None = None,
         database: Database | None = None,
         memory: MemoryManager | None = None,
+        loop_guard: Any | None = None,
+        agent_orchestrator: Any | None = None,
     ) -> None:
         self.config = config
         self.tools = tools or create_default_registry()
@@ -71,18 +73,28 @@ class AssistantOrchestrator:
             tools=self.tools,
             safety=self.safety,
         )
-        from avi.agent import AgentExecutor, AgentPlanner
+        from avi.agent import AgentExecutor, AgentOrchestrator, AgentPlanner, LoopGuard
         from avi.capabilities import CapabilityRegistry, create_default_capability_registry
 
         self.capabilities: CapabilityRegistry = capabilities or create_default_capability_registry(
             tools=self.tools,
             resolver=self.app_resolver,
         )
+        self.loop_guard: LoopGuard = loop_guard or LoopGuard()
         self.planner: AgentPlanner = planner or AgentPlanner()
         self.executor: AgentExecutor = executor or AgentExecutor(
             registry=self.capabilities,
             safety_engine=self.safety,
             database=self.db,
+            loop_guard=self.loop_guard,
+        )
+        self.agent_orchestrator: AgentOrchestrator = agent_orchestrator or AgentOrchestrator(
+            registry=self.capabilities,
+            safety_engine=self.safety,
+            database=self.db,
+            loop_guard=self.loop_guard,
+            planner=self.planner,
+            executor=self.executor,
         )
 
     def is_assistant_request(self, prompt: str) -> bool:
@@ -719,6 +731,19 @@ class AssistantOrchestrator:
                                     planning_duration_ms=plan_res.planning_duration_ms,
                                     action_duration_ms=plan_res.action_duration_ms,
                                     verification_duration_ms=plan_res.verification_duration_ms,
+                                ),
+                                context=context,
+                            )
+                    else:
+                        agent_ctx = self.agent_orchestrator.run(normalized_prompt, confirmed=False)
+                        if agent_ctx.steps:
+                            from avi.agent.context import TaskStatus
+                            req_confirm = agent_ctx.status == TaskStatus.PAUSED_FOR_CONFIRMATION
+                            result = OrchestratorResult(
+                                text=agent_ctx.final_response,
+                                requires_confirmation=req_confirm,
+                                metrics=ResponseMetrics(
+                                    total_duration_ms=(time.perf_counter() - t0) * 1000.0,
                                 ),
                                 context=context,
                             )

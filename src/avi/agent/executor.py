@@ -19,10 +19,14 @@ class AgentExecutor:
         registry: CapabilityRegistry,
         safety_engine: SafetyEngine | None = None,
         database: Any | None = None,
+        loop_guard: Any | None = None,
+        event_dispatcher: Any | None = None,
     ) -> None:
         self.registry = registry
         self.safety_engine = safety_engine
         self.database = database
+        self.loop_guard = loop_guard
+        self.event_dispatcher = event_dispatcher
 
     def execute_plan(
         self,
@@ -65,7 +69,7 @@ class AgentExecutor:
                         verification_duration_ms=total_ver_duration_ms,
                     )
 
-                if step.pipe_arg_name in ("path", "file"):
+                if step.pipe_arg_name in ("path", "file", "source", "target"):
                     piped_path = dep_res.data.get("path") or dep_res.data.get("file")
                     if not piped_path and "results" in dep_res.data:
                         r_list = dep_res.data.get("results", [])
@@ -100,7 +104,51 @@ class AgentExecutor:
                     if piped_url:
                         step.arguments["url"] = piped_url
 
-            # 2. Check safety / confirmation
+            # 2. Loop guard check
+            if self.loop_guard:
+                loop_check = self.loop_guard.record_and_check(step.capability_name, step.arguments)
+                if loop_check.is_loop:
+                    step.status = StepStatus.FAILED
+                    failed_steps.append(step)
+                    task_state.status = "failed"
+                    task_state.failed_steps = failed_steps
+                    if self.event_dispatcher:
+                        from avi.agent.events import ProgressEvent, ProgressEventType
+                        self.event_dispatcher.emit(
+                            ProgressEvent(
+                                event_type=ProgressEventType.STEP_FAILED,
+                                task_id=task_state.task_id,
+                                step_index=step.step_id,
+                                capability_name=step.capability_name,
+                                message=f"Loop detected: {loop_check.reason}",
+                            )
+                        )
+                    return PlanExecutionResult(
+                        success=False,
+                        status=ExecutionStatus.FAILED,
+                        plan=plan,
+                        completed_steps=completed_steps,
+                        error=f"Loop detected: {loop_check.reason}",
+                        final_message=f"Halted execution to prevent loop: {loop_check.reason}",
+                        task_state=task_state,
+                        action_duration_ms=total_act_duration_ms,
+                        verification_duration_ms=total_ver_duration_ms,
+                    )
+
+            if self.event_dispatcher:
+                from avi.agent.events import ProgressEvent, ProgressEventType
+                self.event_dispatcher.emit(
+                    ProgressEvent(
+                        event_type=ProgressEventType.STEP_STARTED,
+                        task_id=task_state.task_id,
+                        step_index=step.step_id,
+                        capability_name=step.capability_name,
+                        message=step.description or f"Executing {step.capability_name}",
+                        data={"args": step.arguments},
+                    )
+                )
+
+            # 3. Check safety / confirmation
             step.status = StepStatus.RUNNING
             t_act0 = time.perf_counter()
             res = self.registry.execute_safe(
@@ -149,10 +197,36 @@ class AgentExecutor:
                     verification_duration_ms=total_ver_duration_ms,
                 )
 
-            # 3. Observe -> Verify step
+            # 4. Observe -> Verify step
             t_ver0 = time.perf_counter()
+            if self.event_dispatcher:
+                from avi.agent.events import ProgressEvent, ProgressEventType
+                self.event_dispatcher.emit(
+                    ProgressEvent(
+                        event_type=ProgressEventType.VERIFICATION_STARTED,
+                        task_id=task_state.task_id,
+                        step_index=step.step_id,
+                        capability_name=step.capability_name,
+                        message=f"Verifying step {step.step_id} outcome...",
+                    )
+                )
+
             verified = self._verify_step(step, res)
             total_ver_duration_ms += (time.perf_counter() - t_ver0) * 1000.0
+
+            if self.event_dispatcher:
+                from avi.agent.events import ProgressEvent, ProgressEventType
+                self.event_dispatcher.emit(
+                    ProgressEvent(
+                        event_type=ProgressEventType.VERIFICATION_COMPLETED,
+                        task_id=task_state.task_id,
+                        step_index=step.step_id,
+                        capability_name=step.capability_name,
+                        message=f"Step {step.step_id} verification {'passed' if verified else 'failed'}.",
+                        data={"verified": verified},
+                    )
+                )
+
             if not res.success or not verified:
                 # Single bounded retry recovery
                 retries = task_state.retry_counts.get(step.step_id, 0)
@@ -177,6 +251,17 @@ class AgentExecutor:
                         failed_steps.append(step)
                         task_state.status = "failed"
                         task_state.failed_steps = failed_steps
+                        if self.event_dispatcher:
+                            from avi.agent.events import ProgressEvent, ProgressEventType
+                            self.event_dispatcher.emit(
+                                ProgressEvent(
+                                    event_type=ProgressEventType.STEP_FAILED,
+                                    task_id=task_state.task_id,
+                                    step_index=step.step_id,
+                                    capability_name=step.capability_name,
+                                    message=f"Step {step.step_id} failed: {res.error or res.message}",
+                                )
+                            )
                         return self._build_failure_result(
                             plan, completed_steps, step, res, task_state,
                             action_duration_ms=total_act_duration_ms,
@@ -187,6 +272,17 @@ class AgentExecutor:
                     failed_steps.append(step)
                     task_state.status = "failed"
                     task_state.failed_steps = failed_steps
+                    if self.event_dispatcher:
+                        from avi.agent.events import ProgressEvent, ProgressEventType
+                        self.event_dispatcher.emit(
+                            ProgressEvent(
+                                event_type=ProgressEventType.STEP_FAILED,
+                                task_id=task_state.task_id,
+                                step_index=step.step_id,
+                                capability_name=step.capability_name,
+                                message=f"Step {step.step_id} failed: {res.error or res.message}",
+                            )
+                        )
                     return self._build_failure_result(
                         plan, completed_steps, step, res, task_state,
                         action_duration_ms=total_act_duration_ms,
@@ -196,6 +292,18 @@ class AgentExecutor:
             step.status = StepStatus.SUCCESS
             completed_steps.append(step)
             step_outputs[step.step_id] = res
+
+            if self.event_dispatcher:
+                from avi.agent.events import ProgressEvent, ProgressEventType
+                self.event_dispatcher.emit(
+                    ProgressEvent(
+                        event_type=ProgressEventType.STEP_COMPLETED,
+                        task_id=task_state.task_id,
+                        step_index=step.step_id,
+                        capability_name=step.capability_name,
+                        message=f"Step {step.step_id} completed successfully.",
+                    )
+                )
 
         # 4. All steps succeeded
         task_state.status = "success"

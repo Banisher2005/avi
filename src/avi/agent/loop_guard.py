@@ -27,6 +27,7 @@ class Invocation:
     arguments: dict[str, Any] = field(default_factory=dict)
     reason: str = ""
     step_id: int = 1
+    turn: int = 0
     invocation_id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
     def normalized_signature(self) -> str:
@@ -167,6 +168,22 @@ class LoopGuard:
         """Record an approved invocation into history."""
         self._invocations.append(invocation)
         self._signatures.append(invocation.normalized_signature())
+
+    def record_and_check(
+        self,
+        capability_name: str,
+        arguments: dict[str, Any] | None = None,
+    ) -> LoopDetectionResult:
+        """Convenience method to inspect an invocation and record it if allowed."""
+        inv = Invocation(
+            capability_name=capability_name,
+            arguments=arguments or {},
+            turn=self._turn_count,
+        )
+        res = self.check_invocation(inv)
+        if not res.is_loop:
+            self.record_invocation(inv)
+        return res
 
     def record_result(self, invocation: Invocation, result: CapabilityResult) -> None:
         """Record execution outcome and track failure momentum."""

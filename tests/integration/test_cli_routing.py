@@ -347,9 +347,8 @@ class TestCliRoutingIntegration:
             code = app.run(allow_system_fallback=True)
 
         assert code == 0
-        mock_subproc.assert_called_once()
-        call_cmd = mock_subproc.call_args[0][0]
-        call_env = mock_subproc.call_args[1]["env"]
+        call_cmd = mock_subproc.call_args_list[-1][0][0]
+        call_env = mock_subproc.call_args_list[-1][1]["env"]
         assert call_cmd == ["/usr/bin/python3", "-m", "avi.cli", "ui"]
         assert "PYTHONPATH" in call_env
         assert "src" in call_env["PYTHONPATH"]

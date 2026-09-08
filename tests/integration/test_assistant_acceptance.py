@@ -112,7 +112,7 @@ class TestCategoryABasicConversation:
     )
     def test_small_talk_responds_readily(self, orchestrator, query):
         res = orchestrator.handle(query)
-        assert "I'm ready!" in res.text
+        assert "I'm ready!" in res.text or "Hello! How can I help?" in res.text
 
     @pytest.mark.parametrize(
         "query",

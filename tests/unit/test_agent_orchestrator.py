@@ -1,0 +1,236 @@
+"""Unit tests for AgentOrchestrator lifecycle, loop guard, event dispatching, and error handling."""
+
+import pytest
+from unittest.mock import MagicMock
+
+from avi.agent.context import TaskStatus
+from avi.agent.events import EventDispatcher, ProgressEvent, ProgressEventType
+from avi.agent.executor import AgentExecutor
+from avi.agent.loop_guard import LoopGuard
+from avi.agent.models import AssistantInput, Plan, PlanStep, StepStatus
+from avi.agent.orchestrator import AgentOrchestrator
+from avi.agent.planner import AgentPlanner
+from avi.agent.tool_selection import ToolSelector
+from avi.capabilities.models import CapabilityResult, ExecutionStatus
+from avi.capabilities.registry import CapabilityRegistry
+from avi.memory.models import Memory
+from avi.memory.retriever import MemoryRetriever
+from avi.safety.engine import SafetyEngine
+from avi.storage.database import Database
+
+
+@pytest.fixture
+def temp_db(tmp_path):
+    db_path = tmp_path / "test_agent.db"
+    return Database(db_path=db_path)
+
+
+@pytest.fixture
+def memory_retriever(temp_db):
+    return MemoryRetriever(database=temp_db)
+
+
+@pytest.fixture
+def mock_registry(tmp_path):
+    registry = MagicMock(spec=CapabilityRegistry)
+    screenshot_path = tmp_path / "screen.png"
+    screenshot_path.write_text("screenshot data")
+
+    catalog = [
+        {
+            "name": "desktop.screenshot",
+            "description": "Capture screenshot",
+            "tags": ["screenshot"],
+        },
+        {
+            "name": "desktop.open_file",
+            "description": "Open a local file",
+            "tags": ["file"],
+        },
+        {
+            "name": "filesystem.delete",
+            "description": "Delete a file or directory",
+            "tags": ["filesystem", "delete"],
+        },
+    ]
+    registry.get_model_catalog.return_value = catalog
+
+    def fake_execute(name, args=None, safety_engine=None, confirmed=False):
+        if name == "filesystem.delete" and not confirmed:
+            return CapabilityResult(
+                success=False,
+                status=ExecutionStatus.CONFIRMATION_REQUIRED,
+                message="Are you sure you want to delete this file?",
+            )
+        return CapabilityResult(
+            success=True,
+            status=ExecutionStatus.SUCCESS,
+            message=f"Executed {name}",
+            data={"status": "ok", "path": str(screenshot_path)},
+        )
+
+    registry.execute_safe.side_effect = fake_execute
+    return registry
+
+
+def test_orchestrator_deterministic_plan(mock_registry, temp_db, memory_retriever):
+    events = []
+    dispatcher = EventDispatcher()
+    dispatcher.subscribe(lambda ev: events.append(ev))
+
+    orchestrator = AgentOrchestrator(
+        registry=mock_registry,
+        database=temp_db,
+        memory_retriever=memory_retriever,
+        event_dispatcher=dispatcher,
+    )
+
+    ctx = orchestrator.run("take a screenshot and open it")
+    assert ctx.status == TaskStatus.COMPLETED
+    assert len(ctx.steps) == 2
+    assert ctx.steps[0].capability_name == "desktop.screenshot"
+    assert ctx.steps[1].capability_name == "desktop.open_file"
+
+    # Verify event stream
+    event_types = [ev.event_type for ev in events]
+    assert ProgressEventType.TASK_STARTED in event_types
+    assert ProgressEventType.PLANNING in event_types
+    assert ProgressEventType.CAPABILITY_SELECTED in event_types
+    assert ProgressEventType.STEP_STARTED in event_types
+    assert ProgressEventType.STEP_COMPLETED in event_types
+    assert ProgressEventType.TASK_COMPLETED in event_types
+
+
+def test_orchestrator_confirmation_pause(mock_registry, temp_db, memory_retriever):
+    orchestrator = AgentOrchestrator(
+        registry=mock_registry,
+        database=temp_db,
+        memory_retriever=memory_retriever,
+    )
+
+    # Force a plan that requires confirmation
+    planner = MagicMock(spec=AgentPlanner)
+    plan = Plan(
+        user_goal="delete sensitive directory",
+        steps=[
+            PlanStep(
+                step_id=1,
+                capability_name="filesystem.delete",
+                arguments={"path": "/tmp/test_dir"},
+                description="Delete test dir",
+            )
+        ],
+        requires_confirmation=True,
+        confirmation_prompt="Do you want to delete /tmp/test_dir?",
+    )
+    planner.create_plan.return_value = plan
+    orchestrator.planner = planner
+
+    # Unconfirmed run
+    ctx = orchestrator.run("delete test dir", confirmed=False)
+    assert ctx.status == TaskStatus.PAUSED_FOR_CONFIRMATION
+    assert "delete" in ctx.final_response.lower()
+
+    # Confirmed run
+    ctx_confirmed = orchestrator.run("delete test dir", confirmed=True)
+    assert ctx_confirmed.status == TaskStatus.COMPLETED
+
+
+def test_orchestrator_loop_guard_protection(mock_registry, temp_db, memory_retriever):
+    orchestrator = AgentOrchestrator(
+        registry=mock_registry,
+        database=temp_db,
+        memory_retriever=memory_retriever,
+    )
+
+    # Force a repeating plan that exceeds loop threshold
+    planner = MagicMock(spec=AgentPlanner)
+    plan = Plan(
+        user_goal="repeated action",
+        steps=[
+            PlanStep(step_id=1, capability_name="desktop.screenshot", arguments={}),
+            PlanStep(step_id=2, capability_name="desktop.screenshot", arguments={}),
+            PlanStep(step_id=3, capability_name="desktop.screenshot", arguments={}),
+            PlanStep(step_id=4, capability_name="desktop.screenshot", arguments={}),
+        ],
+    )
+    planner.create_plan.return_value = plan
+    orchestrator.planner = planner
+
+    ctx = orchestrator.run("take repeating screenshots")
+    assert ctx.status == TaskStatus.FAILED
+    assert "loop" in ctx.final_response.lower() or "loop" in str(ctx.error_details).lower()
+
+
+def test_orchestrator_memory_injection(mock_registry, temp_db, memory_retriever):
+    memory_retriever.manager.remember("Default project is /home/user/code/avi", category="project")
+
+    orchestrator = AgentOrchestrator(
+        registry=mock_registry,
+        database=temp_db,
+        memory_retriever=memory_retriever,
+    )
+
+    ctx = orchestrator.run("check my avi project files")
+    assert len(ctx.memories) >= 1
+    assert "Default project is /home/user/code/avi" in ctx.memories[0].content
+
+
+def test_orchestrator_empty_prompt():
+    orch = AgentOrchestrator()
+    ctx = orch.run("")
+    assert ctx.status == TaskStatus.COMPLETED
+    assert ctx.final_response == ""
+
+
+def test_orchestrator_clean_response_synthesis_no_leak(mock_registry, temp_db, memory_retriever):
+    orchestrator = AgentOrchestrator(
+        registry=mock_registry,
+        database=temp_db,
+        memory_retriever=memory_retriever,
+    )
+    ctx = orchestrator.run("take a screenshot and open it")
+    assert ctx.status == TaskStatus.COMPLETED
+    assert "<think>" not in ctx.final_response
+    assert "</think>" not in ctx.final_response
+    assert "Traceback" not in ctx.final_response
+    assert "{" not in ctx.final_response  # No raw JSON dump
+    assert "Executed desktop.screenshot" in ctx.final_response or "Captured screenshot" in ctx.final_response or "Opened" in ctx.final_response
+
+
+def test_orchestrator_replan_event_on_failure(mock_registry, temp_db, memory_retriever):
+    events = []
+    dispatcher = EventDispatcher()
+    dispatcher.subscribe(lambda ev: events.append(ev))
+
+    orchestrator = AgentOrchestrator(
+        registry=mock_registry,
+        database=temp_db,
+        memory_retriever=memory_retriever,
+        event_dispatcher=dispatcher,
+    )
+
+    # Force a failing step
+    planner = MagicMock(spec=AgentPlanner)
+    plan = Plan(
+        user_goal="fail task",
+        steps=[
+            PlanStep(step_id=1, capability_name="filesystem.delete", arguments={"path": "/nonexistent"})
+        ],
+    )
+    planner.create_plan.return_value = plan
+    orchestrator.planner = planner
+
+    # Make execute fail
+    mock_registry.execute_safe.side_effect = None
+    mock_registry.execute_safe.return_value = CapabilityResult(
+        success=False,
+        status=ExecutionStatus.FAILED,
+        error="Permission denied",
+    )
+
+    ctx = orchestrator.run("fail task", confirmed=True)
+    assert ctx.status == TaskStatus.FAILED
+    assert ctx.replan_count >= 1
+    event_types = [ev.event_type for ev in events]
+    assert ProgressEventType.REPLANNING in event_types
