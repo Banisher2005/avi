@@ -220,9 +220,18 @@ class AgentOrchestrator:
             for i, step in enumerate(plan.steps):
                 if i < len(context.steps):
                     context.steps[i].status = step.status.value
+                    context.steps[i].input_data = step.arguments
                     if step.result:
+                        context.steps[i].output_data = step.result.data if isinstance(step.result.data, dict) else {}
                         context.steps[i].observation = step.result.data
                         context.steps[i].error = step.result.error
+                    context.steps[i].verification_result = getattr(step, "verified", None)
+                    context.steps[i].duration_ms = getattr(step, "duration_ms", 0.0)
+                    art = getattr(step, "artifact_path", None)
+                    if art:
+                        context.steps[i].artifact_path = art
+                        if art not in context.steps[i].artifacts:
+                            context.steps[i].artifacts.append(art)
 
             if plan_res.status == ExecutionStatus.CONFIRMATION_REQUIRED:
                 context.status = TaskStatus.PAUSED_FOR_CONFIRMATION

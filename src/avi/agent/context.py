@@ -29,24 +29,38 @@ class StepRecord:
     args: dict[str, Any] = field(default_factory=dict)
     description: str = ""
     status: str = "pending"  # pending, executing, completed, failed, skipped
+    input_data: dict[str, Any] = field(default_factory=dict)
+    output_data: dict[str, Any] = field(default_factory=dict)
     observation: Any = None
+    verification_result: bool | None = None
+    verification_message: str | None = None
     error: str | None = None
     requires_confirmation: bool = False
     confirmed: bool = False
     duration_ms: float = 0.0
+    retry_count: int = 0
+    artifact_path: str | None = None
+    artifacts: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "step_index": self.step_index,
             "capability_name": self.capability_name,
             "args": self.args,
+            "input_data": self.input_data or self.args,
+            "output_data": self.output_data,
             "description": self.description,
             "status": self.status,
             "observation": str(self.observation) if self.observation is not None else None,
+            "verification_result": self.verification_result,
+            "verification_message": self.verification_message,
             "error": self.error,
             "requires_confirmation": self.requires_confirmation,
             "confirmed": self.confirmed,
             "duration_ms": self.duration_ms,
+            "retry_count": self.retry_count,
+            "artifact_path": self.artifact_path,
+            "artifacts": self.artifacts,
         }
 
 

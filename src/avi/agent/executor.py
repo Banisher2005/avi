@@ -290,6 +290,13 @@ class AgentExecutor:
                 verified = False
             total_ver_duration_ms += (time.perf_counter() - t_ver0) * 1000.0
 
+            step.verified = verified
+            step.duration_ms = dur_act_ms
+            if res.data and isinstance(res.data, dict):
+                art = res.data.get("path") or res.data.get("destination") or res.data.get("file")
+                if art:
+                    step.artifact_path = str(art)
+
             if self.event_dispatcher:
                 from avi.agent.events import ProgressEvent, ProgressEventType
                 self.event_dispatcher.emit(
@@ -449,8 +456,9 @@ class AgentExecutor:
             return False
 
         cap = step.capability_name
-        # For file operations, verify filesystem state
-        if cap == "desktop.screenshot":
+
+        # 1. Screenshot verification: file path non-empty and exists
+        if cap in ("desktop.screenshot", "screenshot"):
             path = res.data.get("path") if res.data else None
             if not path:
                 return False
@@ -458,12 +466,90 @@ class AgentExecutor:
             if p.parent.exists() and not p.exists():
                 return False
             return True
-        if cap == "filesystem.create_directory":
-            p = res.data.get("path") if res.data else None
-            return bool(p)
-        if cap == "filesystem.delete":
+
+        # 2. Filesystem create directory verification: dir exists
+        if cap in ("filesystem.create_directory", "filesystem.mkdir", "mkdir"):
+            p = (res.data.get("path") if res.data else None) or step.arguments.get("path")
+            if not p:
+                return False
+            dp = Path(p)
+            if dp.parent.exists() and not dp.is_dir():
+                return False
+            return True
+
+        # 3. Filesystem copy verification: destination exists
+        if cap in ("filesystem.copy", "filesystem.copy_file", "copy_file"):
+            dest = (res.data.get("destination") if res.data else None) or step.arguments.get("destination")
+            if not dest:
+                return False
+            dest_p = Path(dest)
+            if dest_p.is_dir():
+                src = step.arguments.get("source")
+                if src:
+                    dest_p = dest_p / Path(src).name
+            if dest_p.parent.exists() and not dest_p.exists():
+                return False
+            return True
+
+        # 4. Filesystem move verification: destination exists and source removed
+        if cap in ("filesystem.move", "filesystem.move_file", "move_file"):
+            dest = (res.data.get("destination") if res.data else None) or step.arguments.get("destination")
+            src = (res.data.get("source") if res.data else None) or step.arguments.get("source")
+            if not dest:
+                return False
+            dest_p = Path(dest)
+            if dest_p.is_dir() and src:
+                dest_p = dest_p / Path(src).name
+            if dest_p.parent.exists() and not dest_p.exists():
+                return False
+            if src:
+                src_p = Path(src)
+                if src_p.parent.exists() and src_p.exists() and src_p.resolve() != dest_p.resolve():
+                    return False
+            return True
+
+        # 5. Filesystem delete verification: target deleted
+        if cap in ("filesystem.delete", "filesystem.delete_file", "delete_file"):
             target = step.arguments.get("path")
-            return bool(target)
+            if not target:
+                return False
+            tp = Path(target)
+            if tp.exists():
+                return False
+            return True
+
+        # 6. Filesystem search verification: results structured
+        if cap in ("filesystem.search", "find_file"):
+            if not res.data or not any(k in res.data for k in ("matches", "results", "files")):
+                return False
+            return True
+
+        # 7. Clipboard verification
+        if cap in ("desktop.clipboard.set", "clipboard.set"):
+            return res.data is not None and "text" in res.data
+        if cap in ("desktop.clipboard.get", "clipboard.get"):
+            return res.data is not None and "text" in res.data
+
+        # 8. Window management verification
+        if cap in ("desktop.window.list", "window.list"):
+            return res.data is not None and "windows" in res.data
+        if cap in ("desktop.window.focus", "window.focus"):
+            return res.success
+
+        # 9. Desktop input verification
+        if cap in ("desktop.input.type_text", "desktop.type_text", "type_text"):
+            return res.success
+        if cap in ("desktop.input.press_key", "desktop.press_key", "press_key"):
+            return res.success
+
+        # 10. Open file verification: file must exist
+        if cap in ("desktop.open_file", "open_file"):
+            p = step.arguments.get("path")
+            if p:
+                fp = Path(p)
+                if fp.parent.exists() and not fp.exists():
+                    return False
+            return True
 
         return True
 

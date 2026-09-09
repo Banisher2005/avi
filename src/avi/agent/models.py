@@ -53,6 +53,9 @@ class PlanStep:
     result: CapabilityResult | None = None
     pipe_from_step: int | None = None
     pipe_arg_name: str = ""
+    verified: bool | None = None
+    duration_ms: float = 0.0
+    artifact_path: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -63,6 +66,9 @@ class PlanStep:
             "status": self.status.value,
             "pipe_from_step": self.pipe_from_step,
             "pipe_arg_name": self.pipe_arg_name,
+            "verified": self.verified,
+            "duration_ms": self.duration_ms,
+            "artifact_path": self.artifact_path,
         }
 
 
