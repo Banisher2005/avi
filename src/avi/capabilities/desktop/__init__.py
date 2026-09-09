@@ -10,6 +10,10 @@ from avi.capabilities.desktop.clipboard import (
     ClipboardGetCapability,
     ClipboardSetCapability,
 )
+from avi.capabilities.desktop.input import (
+    PressKeyCapability,
+    TypeTextCapability,
+)
 from avi.capabilities.desktop.notification import NotificationCapability
 from avi.capabilities.desktop.screenshot import ScreenshotCapability
 from avi.capabilities.desktop.system_controls import (
@@ -31,7 +35,9 @@ __all__ = [
     "OpenDirectoryCapability",
     "OpenFileCapability",
     "OpenUrlCapability",
+    "PressKeyCapability",
     "ScreenshotCapability",
+    "TypeTextCapability",
     "VolumeGetCapability",
     "VolumeSetCapability",
     "WindowFocusCapability",

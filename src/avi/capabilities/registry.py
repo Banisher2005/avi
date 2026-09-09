@@ -14,6 +14,10 @@ from avi.capabilities.desktop.clipboard import (
     ClipboardGetCapability,
     ClipboardSetCapability,
 )
+from avi.capabilities.desktop.input import (
+    PressKeyCapability,
+    TypeTextCapability,
+)
 from avi.capabilities.desktop.notification import NotificationCapability
 from avi.capabilities.desktop.screenshot import ScreenshotCapability
 from avi.capabilities.desktop.system_controls import (
@@ -324,6 +328,20 @@ def create_default_capability_registry(
     registry.register(
         win_focus,
         aliases=["window.focus", "desktop.focus_window", "focus_window", "activate_window", "switch_to_window"],
+    )
+
+    type_cap = TypeTextCapability()
+    type_cap.tags = ("desktop", "input", "keyboard", "type", "text")
+    registry.register(
+        type_cap,
+        aliases=["type_text", "desktop.type_text", "input.type", "type_string"],
+    )
+
+    press_cap = PressKeyCapability()
+    press_cap.tags = ("desktop", "input", "keyboard", "key", "press", "hotkey")
+    registry.register(
+        press_cap,
+        aliases=["press_key", "desktop.press_key", "input.press", "send_key", "hotkey"],
     )
 
     # 3. Web Capabilities

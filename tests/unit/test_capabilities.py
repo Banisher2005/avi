@@ -13,6 +13,10 @@ from avi.capabilities.desktop.clipboard import (
     ClipboardGetCapability,
     ClipboardSetCapability,
 )
+from avi.capabilities.desktop.input import (
+    PressKeyCapability,
+    TypeTextCapability,
+)
 from avi.capabilities.desktop.notification import NotificationCapability
 from avi.capabilities.desktop.system_controls import (
     MediaControlCapability,
@@ -98,6 +102,10 @@ class TestCapabilityRegistry:
         assert "window.focus" in reg
         assert "list_windows" in reg
         assert "focus_window" in reg
+        assert "desktop.input.type_text" in reg
+        assert "desktop.input.press_key" in reg
+        assert "type_text" in reg
+        assert "press_key" in reg
         assert "filesystem.search" in reg
         assert "system.volume.set" in reg
         assert "system.volume.get" in reg
@@ -366,6 +374,83 @@ class TestDesktopCapabilities:
             assert "Activated application 'Slack'" in res.message
             mock_resolver.resolve.assert_called_once_with("Slack")
             mock_resolver.launch.assert_called_once_with(resolution.app)
+
+    def test_type_text_success_xdotool(self):
+        cap = TypeTextCapability()
+        with patch("shutil.which", side_effect=lambda x: "/usr/bin/xdotool" if x == "xdotool" else None):
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value.returncode = 0
+                res = cap.execute(text="hello world")
+                assert res.success is True
+                assert res.status == ExecutionStatus.SUCCESS
+                assert res.data["length"] == 11
+                assert "hello world" in res.message
+                mock_run.assert_called_once()
+                assert mock_run.call_args[0][0][:2] == ["xdotool", "type"]
+
+    def test_type_text_success_native(self):
+        cap = TypeTextCapability()
+        mock_backend = MagicMock()
+        mock_backend.is_available = True
+        mock_backend.type_ascii_text.return_value = True
+        with patch("shutil.which", return_value=None):
+            with patch("avi.capabilities.desktop.input.get_x11_backend", return_value=mock_backend):
+                res = cap.execute(text="python code")
+                assert res.success is True
+                assert res.status == ExecutionStatus.SUCCESS
+                assert "python code" in res.message
+                mock_backend.type_ascii_text.assert_called_once()
+
+    def test_type_text_multiline_clipboard(self):
+        cap = TypeTextCapability()
+        with patch("avi.capabilities.desktop.input._write_system_clipboard") as mock_clip:
+            with patch("avi.capabilities.desktop.input.execute_press_key", return_value=(True, "ok")) as mock_key:
+                res = cap.execute(text="line 1\nline 2")
+                assert res.success is True
+                assert res.status == ExecutionStatus.SUCCESS
+                mock_clip.assert_called_once_with("line 1\nline 2")
+                mock_key.assert_called_once_with("ctrl+v", timeout=5.0)
+
+    def test_type_text_missing_param(self):
+        cap = TypeTextCapability()
+        res = cap.execute()
+        assert res.success is False
+        assert res.status == ExecutionStatus.FAILED
+        assert "Parameter 'text' is required" in res.error
+
+    def test_press_key_success_xdotool(self):
+        cap = PressKeyCapability()
+        with patch("shutil.which", side_effect=lambda x: "/usr/bin/xdotool" if x == "xdotool" else None):
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value.returncode = 0
+                res = cap.execute(key="ctrl+c")
+                assert res.success is True
+                assert res.status == ExecutionStatus.SUCCESS
+                assert res.data["key"] == "ctrl+c"
+                assert "ctrl+c" in res.message
+                mock_run.assert_called_once()
+                assert mock_run.call_args[0][0] == ["xdotool", "key", "ctrl+c"]
+
+    def test_press_key_success_native(self):
+        cap = PressKeyCapability()
+        mock_backend = MagicMock()
+        mock_backend.is_available = True
+        mock_backend.press_key_combination.return_value = True
+        with patch("shutil.which", return_value=None):
+            with patch("avi.capabilities.desktop.input.get_x11_backend", return_value=mock_backend):
+                res = cap.execute(key="Return")
+                assert res.success is True
+                assert res.status == ExecutionStatus.SUCCESS
+                assert "Return" in res.message
+                mock_backend.press_key_combination.assert_called_once_with(["Return"])
+
+    def test_press_key_missing_param(self):
+        cap = PressKeyCapability()
+        res = cap.execute()
+        assert res.success is False
+        assert res.status == ExecutionStatus.FAILED
+        assert "Parameter 'key' is required" in res.error
+
 
 
 
