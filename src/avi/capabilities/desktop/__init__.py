@@ -6,6 +6,10 @@ from avi.capabilities.desktop.app_launcher import (
     OpenFileCapability,
     OpenUrlCapability,
 )
+from avi.capabilities.desktop.clipboard import (
+    ClipboardGetCapability,
+    ClipboardSetCapability,
+)
 from avi.capabilities.desktop.notification import NotificationCapability
 from avi.capabilities.desktop.screenshot import ScreenshotCapability
 from avi.capabilities.desktop.system_controls import (
@@ -15,6 +19,8 @@ from avi.capabilities.desktop.system_controls import (
 )
 
 __all__ = [
+    "ClipboardGetCapability",
+    "ClipboardSetCapability",
     "LaunchAppCapability",
     "MediaControlCapability",
     "NotificationCapability",

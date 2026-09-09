@@ -10,6 +10,10 @@ from avi.capabilities.desktop.app_launcher import (
     OpenFileCapability,
     OpenUrlCapability,
 )
+from avi.capabilities.desktop.clipboard import (
+    ClipboardGetCapability,
+    ClipboardSetCapability,
+)
 from avi.capabilities.desktop.notification import NotificationCapability
 from avi.capabilities.desktop.screenshot import ScreenshotCapability
 from avi.capabilities.desktop.system_controls import (
@@ -269,6 +273,20 @@ def create_default_capability_registry(
     registry.register(
         media_cap,
         aliases=["desktop.media.control", "desktop.media", "media", "media_control"],
+    )
+
+    clip_get = ClipboardGetCapability()
+    clip_get.tags = ("desktop", "clipboard", "read", "get", "paste")
+    registry.register(
+        clip_get,
+        aliases=["clipboard.get", "desktop.clipboard.get", "clipboard.read", "get_clipboard"],
+    )
+
+    clip_set = ClipboardSetCapability()
+    clip_set.tags = ("desktop", "clipboard", "write", "set", "copy")
+    registry.register(
+        clip_set,
+        aliases=["clipboard.set", "desktop.clipboard.set", "clipboard.write", "set_clipboard", "copy_to_clipboard"],
     )
 
     launch_cap = LaunchAppCapability(app_resolver)

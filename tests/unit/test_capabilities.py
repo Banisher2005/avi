@@ -9,6 +9,10 @@ from avi.capabilities.desktop.app_launcher import (
     OpenFileCapability,
     OpenUrlCapability,
 )
+from avi.capabilities.desktop.clipboard import (
+    ClipboardGetCapability,
+    ClipboardSetCapability,
+)
 from avi.capabilities.desktop.notification import NotificationCapability
 from avi.capabilities.desktop.system_controls import (
     MediaControlCapability,
@@ -80,6 +84,10 @@ class TestCapabilityRegistry:
         assert len(reg) >= 15
         assert "desktop.screenshot" in reg
         assert "desktop.open_app" in reg
+        assert "desktop.clipboard.get" in reg
+        assert "desktop.clipboard.set" in reg
+        assert "clipboard.get" in reg
+        assert "clipboard.set" in reg
         assert "filesystem.search" in reg
         assert "system.volume.set" in reg
         assert "system.volume.get" in reg
@@ -180,6 +188,66 @@ class TestDesktopCapabilities:
                 assert res.success is True
                 assert res.status == ExecutionStatus.SUCCESS
                 assert res.data["command"] == "play"
+
+    def test_clipboard_get_success(self):
+        cap = ClipboardGetCapability()
+        with patch("shutil.which", side_effect=lambda x: "/usr/bin/wl-paste" if x == "wl-paste" else None):
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value.returncode = 0
+                mock_run.return_value.stdout = "copied text sample"
+                res = cap.execute()
+                assert res.success is True
+                assert res.status == ExecutionStatus.SUCCESS
+                assert res.data["text"] == "copied text sample"
+                assert res.data["length"] == 18
+                assert "copied text sample" in res.message
+
+    def test_clipboard_get_xclip_fallback(self):
+        cap = ClipboardGetCapability()
+        with patch("shutil.which", side_effect=lambda x: "/usr/bin/xclip" if x == "xclip" else None):
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value.returncode = 0
+                mock_run.return_value.stdout = "xclip text"
+                res = cap.execute()
+                assert res.success is True
+                assert res.data["text"] == "xclip text"
+
+    def test_clipboard_get_no_utility(self):
+        cap = ClipboardGetCapability()
+        with patch("shutil.which", return_value=None):
+            res = cap.execute()
+            assert res.success is False
+            assert res.status == ExecutionStatus.FAILED
+            assert "No supported clipboard utility found" in res.error
+
+    def test_clipboard_set_success(self):
+        cap = ClipboardSetCapability()
+        with patch("shutil.which", side_effect=lambda x: "/usr/bin/wl-copy" if x == "wl-copy" else None):
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value.returncode = 0
+                res = cap.execute(text="new clipboard text")
+                assert res.success is True
+                assert res.status == ExecutionStatus.SUCCESS
+                assert res.data["text"] == "new clipboard text"
+                mock_run.assert_called_once()
+                assert mock_run.call_args[1]["input"] == "new clipboard text"
+
+    def test_clipboard_set_xclip_fallback(self):
+        cap = ClipboardSetCapability()
+        with patch("shutil.which", side_effect=lambda x: "/usr/bin/xclip" if x == "xclip" else None):
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value.returncode = 0
+                res = cap.execute(content="text from content param")
+                assert res.success is True
+                assert res.data["text"] == "text from content param"
+
+    def test_clipboard_set_missing_text(self):
+        cap = ClipboardSetCapability()
+        res = cap.execute()
+        assert res.success is False
+        assert res.status == ExecutionStatus.FAILED
+        assert "Parameter 'text' is required" in res.error
+
 
 
 class TestFilesystemCapabilities:
