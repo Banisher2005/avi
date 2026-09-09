@@ -556,6 +556,22 @@ class AgentExecutor:
                     return False
             return True
 
+        # 11. Browser capabilities verification
+        if cap in ("browser.observe", "browser.state", "observe_browser"):
+            return res.data is not None and "status" in res.data
+        if cap in ("browser.navigate", "navigate", "browser.go"):
+            return res.data is not None and "url" in res.data
+        if cap in ("browser.extract", "browser.read", "read_page"):
+            return res.data is not None and "text" in res.data
+        if cap in ("browser.type", "browser.input"):
+            return res.data is not None and "text" in res.data
+        if cap in ("browser.click", "click_element"):
+            return res.data is not None
+        if cap in ("browser.scroll", "scroll_page"):
+            return res.data is not None and "direction" in res.data
+        if cap in ("browser.download", "browser.downloads", "detect_download"):
+            return res.data is not None
+
         return True
 
     def _build_failure_result(

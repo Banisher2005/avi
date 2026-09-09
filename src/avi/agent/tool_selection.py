@@ -108,6 +108,14 @@ class ToolSelector:
                 score += 10.0
             if any(a in tokens for a in ("open", "launch", "start", "run", "app", "application")) and "apps" in name:
                 score += 8.0
+            if any(b in tokens for b in ("browser", "webpage", "website", "url", "navigate", "page", "tab")) and "browser" in name:
+                score += 12.0
+            if any(s in tokens for s in ("scroll", "scrolling")) and "scroll" in name:
+                score += 15.0
+            if any(c in tokens for c in ("click", "button", "link")) and "click" in name:
+                score += 14.0
+            if any(d in tokens for d in ("download", "downloads", "downloaded")) and "download" in name:
+                score += 15.0
 
             scored.append((score, meta))
 
