@@ -43,6 +43,7 @@ from avi.capabilities.models import (
     ToolCapabilityAdapter,
 )
 from avi.capabilities.browser import (
+    BrowserExtractCapability,
     BrowserNavigateCapability,
     BrowserObserveCapability,
 )
@@ -374,6 +375,19 @@ def create_default_capability_registry(
     registry.register(
         browser_nav,
         aliases=["browser.navigate", "navigate", "browser.go", "goto_url", "browser.open"],
+    )
+
+    browser_extract = BrowserExtractCapability()
+    registry.register(
+        browser_extract,
+        aliases=[
+            "browser.extract",
+            "browser.read",
+            "read_page",
+            "extract_page",
+            "browser.read_page",
+            "get_page_text",
+        ],
     )
 
     # 4. Filesystem Capabilities
