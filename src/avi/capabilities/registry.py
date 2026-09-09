@@ -43,6 +43,7 @@ from avi.capabilities.models import (
     ToolCapabilityAdapter,
 )
 from avi.capabilities.browser import (
+    BrowserClickCapability,
     BrowserExtractCapability,
     BrowserNavigateCapability,
     BrowserObserveCapability,
@@ -395,6 +396,12 @@ def create_default_capability_registry(
     registry.register(
         browser_type,
         aliases=["browser.type", "browser.input", "type_into_browser", "web.type"],
+    )
+
+    browser_click = BrowserClickCapability()
+    registry.register(
+        browser_click,
+        aliases=["browser.click", "click_element", "browser.click_element", "web.click"],
     )
 
     # 4. Filesystem Capabilities

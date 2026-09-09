@@ -1,5 +1,6 @@
 """Browser capabilities for AVI."""
 
+from avi.capabilities.browser.click import BrowserClickCapability
 from avi.capabilities.browser.extract import BrowserExtractCapability
 from avi.capabilities.browser.input import BrowserTypeCapability
 from avi.capabilities.browser.navigate import (
@@ -13,5 +14,6 @@ __all__ = [
     "BrowserNavigateCapability",
     "BrowserExtractCapability",
     "BrowserTypeCapability",
+    "BrowserClickCapability",
     "sanitize_and_validate_url",
 ]
