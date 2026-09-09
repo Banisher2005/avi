@@ -21,6 +21,10 @@ from avi.capabilities.desktop.system_controls import (
     VolumeGetCapability,
     VolumeSetCapability,
 )
+from avi.capabilities.desktop.window import (
+    WindowFocusCapability,
+    WindowListCapability,
+)
 from avi.capabilities.filesystem.operations import (
     CopyFileCapability,
     CreateDirectoryCapability,
@@ -307,6 +311,20 @@ def create_default_capability_registry(
     dir_cap = OpenDirectoryCapability()
     dir_cap.tags = ("desktop", "filesystem", "directory", "folder")
     registry.register(dir_cap, aliases=["open_directory", "open_folder"])
+
+    win_list = WindowListCapability()
+    win_list.tags = ("desktop", "window", "list", "windows", "inspect")
+    registry.register(
+        win_list,
+        aliases=["window.list", "desktop.list_windows", "list_windows", "get_windows"],
+    )
+
+    win_focus = WindowFocusCapability(resolver=app_resolver)
+    win_focus.tags = ("desktop", "window", "focus", "activate", "switch")
+    registry.register(
+        win_focus,
+        aliases=["window.focus", "desktop.focus_window", "focus_window", "activate_window", "switch_to_window"],
+    )
 
     # 3. Web Capabilities
     url_opener = registry.get("desktop.open_url")

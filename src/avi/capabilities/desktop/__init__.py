@@ -17,6 +17,10 @@ from avi.capabilities.desktop.system_controls import (
     VolumeGetCapability,
     VolumeSetCapability,
 )
+from avi.capabilities.desktop.window import (
+    WindowFocusCapability,
+    WindowListCapability,
+)
 
 __all__ = [
     "ClipboardGetCapability",
@@ -30,4 +34,6 @@ __all__ = [
     "ScreenshotCapability",
     "VolumeGetCapability",
     "VolumeSetCapability",
+    "WindowFocusCapability",
+    "WindowListCapability",
 ]

@@ -19,6 +19,10 @@ from avi.capabilities.desktop.system_controls import (
     VolumeGetCapability,
     VolumeSetCapability,
 )
+from avi.capabilities.desktop.window import (
+    WindowFocusCapability,
+    WindowListCapability,
+)
 from avi.capabilities.filesystem.operations import (
     CopyFileCapability,
     CreateDirectoryCapability,
@@ -88,6 +92,12 @@ class TestCapabilityRegistry:
         assert "desktop.clipboard.set" in reg
         assert "clipboard.get" in reg
         assert "clipboard.set" in reg
+        assert "desktop.window.list" in reg
+        assert "desktop.window.focus" in reg
+        assert "window.list" in reg
+        assert "window.focus" in reg
+        assert "list_windows" in reg
+        assert "focus_window" in reg
         assert "filesystem.search" in reg
         assert "system.volume.set" in reg
         assert "system.volume.get" in reg
@@ -247,6 +257,116 @@ class TestDesktopCapabilities:
         assert res.success is False
         assert res.status == ExecutionStatus.FAILED
         assert "Parameter 'text' is required" in res.error
+
+    def test_window_list_success_wmctrl(self):
+        cap = WindowListCapability()
+        mock_output = (
+            "0x02800003  0 12345 org.gnome.Terminal.Gnome-terminal localhost Terminal - user@host: ~\n"
+            "0x03a00001  1 12346 code.Code localhost test.py - Visual Studio Code\n"
+        )
+        with patch("shutil.which", side_effect=lambda x: "/usr/bin/wmctrl" if x == "wmctrl" else None):
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value.returncode = 0
+                mock_run.return_value.stdout = mock_output
+                res = cap.execute()
+                assert res.success is True
+                assert res.status == ExecutionStatus.SUCCESS
+                assert res.data["count"] == 2
+                assert len(res.data["windows"]) == 2
+                w1, w2 = res.data["windows"]
+                assert w1["id"] == "0x02800003"
+                assert w1["pid"] == 12345
+                assert w1["wm_class"] == "org.gnome.Terminal.Gnome-terminal"
+                assert "Terminal" in w1["title"]
+                assert w2["title"] == "test.py - Visual Studio Code"
+
+    def test_window_list_filter_query(self):
+        cap = WindowListCapability()
+        mock_output = (
+            "0x02800003  0 12345 org.gnome.Terminal.Gnome-terminal localhost Terminal\n"
+            "0x03a00001  1 12346 code.Code localhost test.py - Visual Studio Code\n"
+        )
+        with patch("shutil.which", side_effect=lambda x: "/usr/bin/wmctrl" if x == "wmctrl" else None):
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value.returncode = 0
+                mock_run.return_value.stdout = mock_output
+                res = cap.execute(query="Visual Studio")
+                assert res.success is True
+                assert res.data["count"] == 1
+                assert res.data["windows"][0]["title"] == "test.py - Visual Studio Code"
+
+    def test_window_list_empty(self):
+        cap = WindowListCapability()
+        with patch("shutil.which", side_effect=lambda x: "/usr/bin/wmctrl" if x == "wmctrl" else None):
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value.returncode = 0
+                mock_run.return_value.stdout = ""
+                res = cap.execute()
+                assert res.success is True
+                assert res.data["count"] == 0
+                assert res.data["windows"] == []
+                assert "No open desktop windows detected" in res.message
+
+    def test_window_focus_by_title_success(self):
+        cap = WindowFocusCapability()
+        with patch("shutil.which", side_effect=lambda x: "/usr/bin/wmctrl" if x == "wmctrl" else None):
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value.returncode = 0
+                res = cap.execute(title="Terminal")
+                assert res.success is True
+                assert res.status == ExecutionStatus.SUCCESS
+                assert "Focused window matching 'Terminal'" in res.message
+                mock_run.assert_called_once_with(
+                    ["wmctrl", "-a", "Terminal"],
+                    stdout=-1,
+                    stderr=-1,
+                    text=True,
+                    check=False,
+                    timeout=3.0,
+                )
+
+    def test_window_focus_by_id_success(self):
+        cap = WindowFocusCapability()
+        with patch("shutil.which", side_effect=lambda x: "/usr/bin/wmctrl" if x == "wmctrl" else None):
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value.returncode = 0
+                res = cap.execute(window_id="0x02800003")
+                assert res.success is True
+                assert res.status == ExecutionStatus.SUCCESS
+                mock_run.assert_called_once_with(
+                    ["wmctrl", "-i", "-a", "0x02800003"],
+                    stdout=-1,
+                    stderr=-1,
+                    text=True,
+                    check=False,
+                    timeout=3.0,
+                )
+
+    def test_window_focus_missing_args(self):
+        cap = WindowFocusCapability()
+        res = cap.execute()
+        assert res.success is False
+        assert res.status == ExecutionStatus.FAILED
+        assert "Either 'title', 'app_name', or 'window_id' must be specified" in res.error
+
+    def test_window_focus_fallback_to_resolver(self):
+        mock_resolver = MagicMock()
+        resolution = MagicMock()
+        resolution.found = True
+        resolution.app = MagicMock(name="SlackApp")
+        resolution.app.name = "Slack"
+        mock_resolver.resolve.return_value = resolution
+        mock_resolver.launch.return_value = (True, "Launched Slack")
+
+        cap = WindowFocusCapability(resolver=mock_resolver)
+        with patch("shutil.which", return_value=None):
+            res = cap.execute(title="Slack")
+            assert res.success is True
+            assert res.status == ExecutionStatus.SUCCESS
+            assert "Activated application 'Slack'" in res.message
+            mock_resolver.resolve.assert_called_once_with("Slack")
+            mock_resolver.launch.assert_called_once_with(resolution.app)
+
 
 
 
