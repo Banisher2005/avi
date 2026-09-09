@@ -420,6 +420,7 @@ class AviWindow:
         self._current_stream_text = ""
         self._worker_thread: threading.Thread | None = None
         self._auto_dismiss_tag: int | None = None
+        self._still_thinking_tag: int | None = None
 
         self._prompt_history: list[str] = []
         self._history_index: int = -1
@@ -1137,6 +1138,9 @@ class AviWindow:
             return (f"Opening {name}…", False)
 
         if intent.intent_type == AssistantIntentType.OPEN_URL:
+            dest_name = intent.extra.get("destination_name")
+            if dest_name:
+                return (f"Opening {dest_name}…", False)
             return ("Opening browser…", False)
 
         if intent.intent_type in (
@@ -1180,10 +1184,26 @@ class AviWindow:
             except Exception:
                 pass
 
+        try:
+            from avi.apps.destinations import DestinationResolver
+
+            d_res = DestinationResolver().resolve(prompt)
+            if d_res.is_resolved:
+                return (f"Opening {d_res.target}…", False)
+        except Exception:
+            pass
+
         return ("Thinking…", True)
 
     def _on_agent_progress_event(self, event: Any) -> None:
         """Handle real-time progress events from the agent orchestrator."""
+        if getattr(self, "_still_thinking_tag", None):
+            try:
+                GLib.source_remove(self._still_thinking_tag)
+            except Exception:
+                pass
+            self._still_thinking_tag = None
+
         def _update():
             if not self._is_busy:
                 return False
@@ -1221,6 +1241,13 @@ class AviWindow:
         entry.set_text("")
         self._add_user_message(cleaned_text)
 
+        if getattr(self, "_still_thinking_tag", None):
+            try:
+                GLib.source_remove(self._still_thinking_tag)
+            except Exception:
+                pass
+            self._still_thinking_tag = None
+
         status_text, is_llm = self._get_loading_status(cleaned_text)
         self._set_status(status_text, spinning=True, is_llm=is_llm)
         self._show_working_line(status_text)
@@ -1228,12 +1255,13 @@ class AviWindow:
         if is_llm:
 
             def _check_still_thinking() -> bool:
+                self._still_thinking_tag = None
                 if self._is_busy and self._current_working_widget is not None:
                     self._show_working_line("Still thinking…")
                     self._set_status("Still thinking…", spinning=True, is_llm=True)
                 return False
 
-            GLib.timeout_add(4000, _check_still_thinking)
+            self._still_thinking_tag = GLib.timeout_add(4000, _check_still_thinking)
 
         self._worker_thread = threading.Thread(
             target=self._run_query,
@@ -1546,6 +1574,12 @@ class AviWindow:
 
     def _restore_idle_state(self) -> None:
         """Reset UI to idle state (clearing spinner and restoring status)."""
+        if getattr(self, "_still_thinking_tag", None):
+            try:
+                GLib.source_remove(self._still_thinking_tag)
+            except Exception:
+                pass
+            self._still_thinking_tag = None
         self._is_busy = False
         self.send_button.set_sensitive(True)
         self.spinner.stop()

@@ -5,7 +5,18 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from avi.apps.destinations import resolve_web_destination
+from avi.apps.destinations import DestinationResolver, resolve_web_destination
+from avi.apps.models import DestinationType
+
+_DESTINATION_RESOLVER: DestinationResolver | None = None
+
+
+def _get_destination_resolver() -> DestinationResolver:
+    global _DESTINATION_RESOLVER
+    if _DESTINATION_RESOLVER is None:
+        _DESTINATION_RESOLVER = DestinationResolver()
+    return _DESTINATION_RESOLVER
+
 
 # Memory command patterns
 _REMEMBER_EXPLICIT_RE = re.compile(
@@ -46,7 +57,7 @@ _TIMER_RE = re.compile(
 
 # Open / launch intent prefix
 _OPEN_PREFIX_RE = re.compile(
-    r"^(?:please\s+|can\s+you\s+|could\s+you\s+)?(?:open(?:\s+up)?|launch|start|run)\s+(.+)$",
+    r"^(?:please\s+|can\s+you\s+|could\s+you\s+)?(?:open(?:\s+up)?|launch|start|run|go\s+to|visit|browse\s+to|navigate\s+to)\s+(.+)$",
     re.IGNORECASE,
 )
 
@@ -215,6 +226,8 @@ _GREETING_RE = re.compile(
 
 # Common websites that can be referenced by name
 _POPULAR_WEBSITES = {
+    "kaggle": "https://www.kaggle.com",
+    "chatgpt": "https://chatgpt.com",
     "youtube": "https://www.youtube.com",
     "google": "https://www.google.com",
     "github": "https://www.github.com",
@@ -1301,7 +1314,7 @@ def detect_assistant_intent(prompt: str, last_turn: Any | None = None) -> Detect
 
     # 14. Open / Launch requests
     open_match = _OPEN_PREFIX_RE.match(s)
-    if open_match and not re.search(r"\b(?:and|then)\s+(?:play|watch)\b", open_match.group(1).lower()):
+    if open_match and not re.search(r"\b(?:and\s+then|and|then)\s+(?:play|watch|search|find|look\s*up)\b", open_match.group(1).lower()):
         target = open_match.group(1).strip()
         target_lower = target.lower()
 
@@ -1414,17 +1427,6 @@ def detect_assistant_intent(prompt: str, last_turn: Any | None = None) -> Detect
                 },
             )
 
-        # Check web destinations (e.g. "chatgpt on chrome", "caht gpt on chrome", "chat gpt", "chatgpt")
-        web_dest = resolve_web_destination(target)
-        if web_dest is not None:
-            canonical_name, url, browser_target = web_dest
-            return DetectedIntent(
-                intent_type=AssistantIntentType.OPEN_URL,
-                raw_prompt=prompt,
-                target=url,
-                extra={"destination_name": canonical_name, "browser": browser_target},
-            )
-
         # Check local file or directory
         expanded_path = Path(target).expanduser()
         if expanded_path.exists():
@@ -1440,6 +1442,51 @@ def detect_assistant_intent(prompt: str, last_turn: Any | None = None) -> Detect
                     raw_prompt=prompt,
                     target=str(expanded_path),
                 )
+
+        # Smart destination resolution (installed app precedence -> browser fallback -> typo tolerance)
+        dest_res = _get_destination_resolver().resolve(prompt)
+        if dest_res.destination_type == DestinationType.WEBSITE:
+            return DetectedIntent(
+                intent_type=AssistantIntentType.OPEN_URL,
+                raw_prompt=prompt,
+                target=dest_res.url,
+                extra={
+                    "destination_name": dest_res.target,
+                    "browser": dest_res.browser,
+                    "destination_resolution": dest_res,
+                },
+            )
+        elif dest_res.destination_type == DestinationType.AMBIGUOUS:
+            return DetectedIntent(
+                intent_type=AssistantIntentType.CLARIFICATION,
+                raw_prompt=prompt,
+                target=dest_res.target,
+                extra={
+                    "clarification_type": "ambiguous_destination",
+                    "message": dest_res.suggested_clarification
+                    or f"Did you mean '{dest_res.target}'?",
+                    "suggested": f"open {dest_res.target}",
+                    "destination_resolution": dest_res,
+                },
+            )
+        elif dest_res.destination_type == DestinationType.APPLICATION:
+            return DetectedIntent(
+                intent_type=AssistantIntentType.OPEN_APP,
+                raw_prompt=prompt,
+                target=target,
+                extra={"destination_resolution": dest_res},
+            )
+
+        # Check web destinations fallback
+        web_dest = resolve_web_destination(target)
+        if web_dest is not None:
+            canonical_name, url, browser_target = web_dest
+            return DetectedIntent(
+                intent_type=AssistantIntentType.OPEN_URL,
+                raw_prompt=prompt,
+                target=url,
+                extra={"destination_name": canonical_name, "browser": browser_target},
+            )
 
         # Otherwise, treat target as an application to resolve
         return DetectedIntent(

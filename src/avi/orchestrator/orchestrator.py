@@ -61,6 +61,7 @@ class AssistantOrchestrator:
         memory: MemoryManager | None = None,
         loop_guard: Any | None = None,
         agent_orchestrator: Any | None = None,
+        destination_resolver: Any | None = None,
     ) -> None:
         self.config = config
         self.tools = tools or create_default_registry()
@@ -97,6 +98,16 @@ class AssistantOrchestrator:
             planner=self.planner,
             executor=self.executor,
         )
+        from avi.apps.destinations import DestinationResolver
+
+        self.destination_resolver: DestinationResolver = (
+            destination_resolver
+            or DestinationResolver(
+                app_resolver=self.app_resolver,
+                database=self.db,
+                memory=self.memory,
+            )
+        )
         self.pending_clarification: PendingClarification | None = None
 
     def get_pending_clarification(self) -> PendingClarification | None:
@@ -125,6 +136,7 @@ class AssistantOrchestrator:
         intent = detect_assistant_intent(normalized_prompt, last_turn=self.history.last_turn)
         if intent.intent_type != AssistantIntentType.UNKNOWN:
             return True
+
 
         # 2. Pending clarification confirmation / cancellation check
         if (
@@ -656,13 +668,58 @@ class AssistantOrchestrator:
                             context=context,
                         )
                 else:
-                    result = OrchestratorResult(
-                        text=f"I couldn't find {resolution.canonical_name} installed. Application '{resolution.canonical_name}' is not installed on this system.",
-                        metrics=ResponseMetrics(
-                            total_duration_ms=(time.perf_counter() - t0) * 1000.0
-                        ),
-                        context=context,
-                    )
+                    # Destination fallback: if target is a known website, open URL
+                    from avi.apps.models import DestinationType
+
+                    dest_res = self.destination_resolver.resolve(intent.target)
+                    if dest_res.destination_type == DestinationType.WEBSITE and dest_res.url:
+                        browser = dest_res.browser or self.memory.get_preferred_browser()
+                        action = OpenUrlAction(url=dest_res.url, browser=browser)
+                        if auto_execute_actions:
+                            act_res = action.execute()
+                            result = OrchestratorResult(
+                                text=act_res.message,
+                                action=action,
+                                metrics=ResponseMetrics(
+                                    total_duration_ms=(time.perf_counter() - t0) * 1000.0
+                                ),
+                                context=context,
+                            )
+                        else:
+                            browser_str = f" in {browser.title()}" if browser else ""
+                            result = OrchestratorResult(
+                                text=f"Ready to open URL: {dest_res.url}{browser_str}",
+                                action=action,
+                                context=context,
+                            )
+                    elif dest_res.destination_type == DestinationType.AMBIGUOUS:
+                        msg = (
+                            dest_res.suggested_clarification
+                            or f"Did you mean '{dest_res.target}'?"
+                        )
+                        self.pending_clarification = PendingClarification(
+                            original_prompt=normalized_prompt,
+                            proposed_interpretation=dest_res.target,
+                            clarification_type="ambiguous_destination",
+                            created_at=time.time(),
+                            metadata={"target": dest_res.target, "url": dest_res.url},
+                        )
+                        result = OrchestratorResult(
+                            text=msg,
+                            metrics=ResponseMetrics(
+                                total_duration_ms=(time.perf_counter() - t0) * 1000.0
+                            ),
+                            context=context,
+                            pending_clarification=self.pending_clarification,
+                        )
+                    else:
+                        result = OrchestratorResult(
+                            text=f"I couldn't find {resolution.canonical_name} installed. Application '{resolution.canonical_name}' is not installed on this system.",
+                            metrics=ResponseMetrics(
+                                total_duration_ms=(time.perf_counter() - t0) * 1000.0
+                            ),
+                            context=context,
+                        )
 
         # Q2. Native Assistant Activation
         elif intent.intent_type == AssistantIntentType.ACTIVATE:

@@ -224,6 +224,56 @@ class AgentPlanner:
                     max_steps=self.max_steps,
                 )
 
+        # Pattern: Open <destination> and (then )?search for <query>
+        # e.g. "open kaggle and then search for datasets", "open github and search for react", "go to wikipedia and search machine learning"
+        web_search_match = re.search(
+            r"^(?:please\s+|can\s+you\s+|could\s+you\s+)?(?:open(?:\s+up)?|go\s+to|visit|browse\s+to|navigate\s+to)\s+([a-zA-Z0-9_\-\.\s]+?)\s+(?:and\s+then|and|then)\s+(?:search(?:\s+for)?|find|look\s*up)\s+(.+)$",
+            clean,
+            re.IGNORECASE,
+        )
+        if web_search_match:
+            dest_query = web_search_match.group(1).strip()
+            search_query = web_search_match.group(2).strip().strip("\"'")
+            if search_query.lower().startswith("for "):
+                search_query = search_query[4:].strip()
+
+            from avi.apps.destinations import DestinationResolver
+            from avi.apps.models import DestinationType
+
+            resolver = DestinationResolver()
+            dest_res = resolver.resolve(dest_query)
+
+            if dest_res.destination_type == DestinationType.WEBSITE or dest_res.url:
+                start_url = dest_res.url
+                dest_name = dest_res.target or dest_query.title()
+                search_url = resolver.get_search_url(dest_query, search_query)
+
+                steps = [
+                    PlanStep(
+                        step_id=1,
+                        capability_name="browser.navigate",
+                        arguments={"url": start_url},
+                        description=f"Open {dest_name} in browser",
+                    ),
+                    PlanStep(
+                        step_id=2,
+                        capability_name="browser.observe",
+                        arguments={},
+                        description="Observe browser state",
+                    ),
+                    PlanStep(
+                        step_id=3,
+                        capability_name="browser.navigate",
+                        arguments={"url": search_url},
+                        description=f"Search {dest_name} for '{search_query}'",
+                    ),
+                ]
+                return Plan(
+                    user_goal=clean,
+                    steps=steps[: self.max_steps],
+                    max_steps=self.max_steps,
+                )
+
         # Pattern: Find newest <ext/file> in <dir> and open it
         newest_match = re.search(
             r"\b(?:find|search(?:\s+for)?)(?:\s+the)?\s+(?:newest|latest)\s+(\w+)(?:\s+(?:in|under)\s+([^\s]+))?\s+(?:and|then)\s+(?:open|view|show)\s+(?:it|file)\b",
