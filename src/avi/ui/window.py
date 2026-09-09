@@ -100,24 +100,26 @@ window.avi-palette-window, window.avi-overlay-window, window.avi-main-window {
     background-color: #050505;
     color: #F2F2F2;
     border: 1px solid #242424;
-    border-radius: 8px;
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.9);
+    border-radius: 10px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.95);
     font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", "Source Code Pro", monospace, sans-serif;
 }
 
 /* Primary Command Bar */
 .avi-command-bar {
     background-color: #080808;
-    padding: 10px 14px;
-    border-top-left-radius: 8px;
-    border-top-right-radius: 8px;
+    padding: 14px 18px;
+    min-height: 56px;
+    border-top-left-radius: 10px;
+    border-top-right-radius: 10px;
 }
 
 .avi-prompt-glyph {
     color: #F2F2F2;
-    font-size: 16px;
+    font-size: 20px;
     font-weight: 800;
-    margin-right: 4px;
+    margin-right: 8px;
+    margin-left: 2px;
     font-family: monospace;
 }
 
@@ -127,10 +129,11 @@ entry.avi-command-input {
     box-shadow: none;
     outline: none;
     color: #F2F2F2;
-    font-size: 14px;
+    font-size: 17px;
     font-family: "JetBrains Mono", "Fira Code", monospace, sans-serif;
-    padding: 2px 4px;
-    min-height: 28px;
+    padding: 6px 8px;
+    min-height: 48px;
+    line-height: 1.4;
 }
 
 entry.avi-command-input:focus {
@@ -144,8 +147,8 @@ entry.avi-command-input:focus {
     color: #666666;
     border: 1px solid #242424;
     border-radius: 4px;
-    padding: 1px 6px;
-    font-size: 11px;
+    padding: 3px 8px;
+    font-size: 13px;
     font-family: monospace;
 }
 
@@ -153,8 +156,8 @@ entry.avi-command-input:focus {
     background: transparent;
     border: none;
     color: #666666;
-    padding: 2px 6px;
-    font-size: 14px;
+    padding: 4px 10px;
+    font-size: 18px;
     font-weight: bold;
     border-radius: 4px;
 }
@@ -168,97 +171,103 @@ entry.avi-command-input:focus {
 .avi-execution-log, .avi-conversation-area, .avi-dynamic-results {
     background-color: #0D0D0D;
     border-top: 1px solid #242424;
-    padding: 8px 14px 12px 14px;
+    padding: 16px 20px 20px 20px;
 }
 
 .avi-cli-line {
-    padding: 2px 0;
+    padding: 6px 0;
     font-family: "JetBrains Mono", "Fira Code", monospace, sans-serif;
 }
 
 .avi-glyph-cmd {
     color: #F2F2F2;
     font-weight: 800;
-    font-size: 13px;
-    margin-right: 6px;
+    font-size: 17px;
+    margin-right: 8px;
     font-family: monospace;
 }
 
 .avi-glyph-work {
     color: #A0A0A0;
-    font-size: 13px;
-    margin-right: 6px;
+    font-size: 17px;
+    margin-right: 8px;
     font-family: monospace;
 }
 
 .avi-glyph-ok {
     color: #4EBA6F;
     font-weight: 800;
-    font-size: 13px;
-    margin-right: 6px;
+    font-size: 17px;
+    margin-right: 8px;
     font-family: monospace;
 }
 
 .avi-glyph-err {
     color: #FF6B6B;
     font-weight: 800;
-    font-size: 13px;
-    margin-right: 6px;
+    font-size: 17px;
+    margin-right: 8px;
     font-family: monospace;
 }
 
 .avi-cli-text-cmd {
     color: #F2F2F2;
     font-weight: 600;
-    font-size: 13px;
+    font-size: 17px;
+    line-height: 1.45;
     font-family: monospace;
 }
 
 .avi-cli-text-work {
     color: #A0A0A0;
-    font-size: 13px;
+    font-size: 15px;
+    line-height: 1.4;
     font-family: monospace;
 }
 
 .avi-cli-text-ok {
     color: #F2F2F2;
-    font-size: 13px;
+    font-size: 17px;
+    line-height: 1.5;
     font-family: monospace;
 }
 
 .avi-cli-text-err {
     color: #FF6B6B;
+    font-size: 16px;
+    line-height: 1.45;
+    font-family: monospace;
+}
+
+button.avi-cli-action-btn, button.avi-action-btn, .avi-cli-action-btn, .avi-action-btn {
+    background-color: #141414;
+    background-image: none;
+    color: #F2F2F2;
+    border: 1px solid #242424;
+    border-radius: 5px;
+    padding: 4px 12px;
     font-size: 13px;
     font-family: monospace;
 }
 
-.avi-cli-action-btn, .avi-action-btn {
-    background-color: #141414;
-    color: #F2F2F2;
-    border: 1px solid #242424;
-    border-radius: 4px;
-    padding: 1px 8px;
-    font-size: 11px;
-    font-family: monospace;
-}
-
-.avi-cli-action-btn:hover, .avi-action-btn:hover {
+button.avi-cli-action-btn:hover, button.avi-action-btn:hover, .avi-cli-action-btn:hover, .avi-action-btn:hover {
     background-color: #242424;
+    background-image: none;
     color: #FFFFFF;
 }
 
 /* Interactive Result Rows (YouTube / Search) */
 .avi-results-list {
     background: transparent;
-    padding: 2px 0;
+    padding: 4px 0;
 }
 
 .avi-result-row, .avi-best-match-card, .avi-result-card {
     background-color: #080808;
     border: 1px solid #242424;
-    border-radius: 6px;
-    margin: 2px 0;
-    padding: 6px 10px;
+    border-radius: 8px;
+    margin: 4px 0;
+    padding: 10px 14px;
     transition: background-color 0.1s ease;
 }
 
@@ -270,40 +279,43 @@ entry.avi-command-input:focus {
 .avi-row-thumb {
     background-color: #0D0D0D;
     border: 1px solid #242424;
-    border-radius: 4px;
-    padding: 3px 6px;
-    min-width: 28px;
+    border-radius: 5px;
+    padding: 4px 8px;
+    min-width: 32px;
     color: #A0A0A0;
-    font-size: 11px;
+    font-size: 13px;
     font-weight: bold;
     font-family: monospace;
 }
 
 .avi-row-title, .avi-result-title {
-    font-size: 13px;
+    font-size: 15px;
     font-weight: 600;
     color: #F2F2F2;
+    line-height: 1.35;
 }
 
 .avi-row-meta, .avi-result-meta {
-    font-size: 11px;
+    font-size: 13px;
     color: #666666;
     font-family: monospace;
 }
 
-.avi-row-open-btn, .avi-play-btn {
+button.avi-row-open-btn, button.avi-play-btn, .avi-row-open-btn, .avi-play-btn {
     background-color: #141414;
+    background-image: none;
     color: #F2F2F2;
     border: 1px solid #242424;
-    border-radius: 4px;
-    padding: 2px 10px;
-    font-size: 11px;
+    border-radius: 5px;
+    padding: 4px 12px;
+    font-size: 13px;
     font-weight: 600;
     font-family: monospace;
 }
 
-.avi-row-open-btn:hover, .avi-play-btn:hover {
+button.avi-row-open-btn:hover, button.avi-play-btn:hover, .avi-row-open-btn:hover, .avi-play-btn:hover {
     background-color: #242424;
+    background-image: none;
     color: #FFFFFF;
 }
 
@@ -311,12 +323,12 @@ entry.avi-command-input:focus {
 .avi-confirm-card {
     background-color: #0D0D0D;
     border: 1px solid #303030;
-    border-radius: 6px;
-    padding: 8px 12px;
+    border-radius: 8px;
+    padding: 14px 18px;
 }
 
 .avi-confirm-header {
-    font-size: 12px;
+    font-size: 15px;
     font-weight: bold;
     color: #A0A0A0;
     font-family: monospace;
@@ -326,10 +338,11 @@ entry.avi-command-input:focus {
     background-color: #050505;
     color: #F2F2F2;
     border: 1px solid #242424;
-    border-radius: 4px;
-    padding: 4px 8px;
+    border-radius: 6px;
+    padding: 8px 12px;
     font-family: monospace;
-    font-size: 12px;
+    font-size: 14px;
+    line-height: 1.4;
 }
 
 /* Compatibility classes */
@@ -365,17 +378,17 @@ entry.avi-command-input:focus {
     background-color: #150808;
     color: #FF6B6B;
     border: 1px solid #FF6B6B;
-    border-radius: 6px;
-    padding: 6px 10px;
+    border-radius: 8px;
+    padding: 8px 14px;
 }
 .avi-hint-label, .avi-status-label {
     color: #666666;
-    font-size: 11px;
+    font-size: 13px;
 }
 .avi-provider-label {
-    color: #444444;
+    color: #555555;
     font-family: monospace;
-    font-size: 10px;
+    font-size: 12px;
 }
 """
 
@@ -427,7 +440,8 @@ class AviWindow:
         self.window.set_title("⚡ AVI Assistant")
         self.window.set_decorated(False)
         self.window.set_resizable(True)
-        self.window.set_default_size(720, -1)
+        self.window.set_default_size(800, 580)
+        self.window.set_size_request(680, 460)
         self.window.add_css_class("avi-overlay-window")
         self.window.add_css_class("avi-palette-window")
         self.window.add_css_class("avi-main-window")
@@ -437,7 +451,7 @@ class AviWindow:
         self.window.set_child(root_box)
 
         # ── Primary Command Bar (Antigravity CLI Style) ───────────────────
-        command_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        command_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         command_bar.add_css_class("avi-command-bar")
 
         self.prompt_glyph = Gtk.Label(label="❯")
@@ -457,7 +471,7 @@ class AviWindow:
         command_bar.append(self.prompt_entry)
 
         self.spinner = Gtk.Spinner()
-        self.spinner.set_size_request(14, 14)
+        self.spinner.set_size_request(20, 20)
         self.spinner.set_valign(Gtk.Align.CENTER)
         self.spinner.set_visible(False)
         command_bar.append(self.spinner)
@@ -508,11 +522,13 @@ class AviWindow:
         self.scroll_window = Gtk.ScrolledWindow()
         self.scroll_window.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         self.scroll_window.set_vexpand(True)
+        self.scroll_window.set_hexpand(True)
         self.scroll_window.set_propagate_natural_height(True)
-        self.scroll_window.set_max_content_height(520)
-        self.scroll_window.set_visible(False)
+        self.scroll_window.set_max_content_height(600)
+        self.scroll_window.set_min_content_height(400)
+        self.scroll_window.set_visible(True)
 
-        self.conversation_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.conversation_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         self.conversation_box.add_css_class("avi-execution-log")
         self.conversation_box.add_css_class("avi-conversation-area")
         self.conversation_box.add_css_class("avi-dynamic-results")
@@ -637,7 +653,7 @@ class AviWindow:
         """Show an inline working indicator line: ◌ {status_text}."""
         self._clear_working_line()
 
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         row.add_css_class("avi-cli-line")
         row.set_halign(Gtk.Align.START)
         row.set_hexpand(True)
@@ -675,7 +691,7 @@ class AviWindow:
         self._current_search_rows = []
         self._selected_row_index = -1
 
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         row.add_css_class("avi-cli-line")
         row.add_css_class("avi-bubble-user")
         row.set_halign(Gtk.Align.START)
@@ -706,7 +722,7 @@ class AviWindow:
         """Add an assistant result execution line: ✓ {text} with optional action button."""
         self._clear_working_line()
 
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         row.add_css_class("avi-cli-line")
         row.add_css_class("avi-bubble-assistant")
         row.set_halign(Gtk.Align.START)
@@ -925,7 +941,7 @@ class AviWindow:
         """Display an error line in CLI style: ! {message}."""
         self._clear_working_line()
 
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         row.add_css_class("avi-cli-line")
         row.add_css_class("avi-bubble-error")
         row.set_halign(Gtk.Align.START)
@@ -1013,7 +1029,7 @@ class AviWindow:
         """Create a new streaming assistant CLI line."""
         self._clear_working_line()
 
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         row.add_css_class("avi-cli-line")
         row.add_css_class("avi-bubble-assistant")
         row.set_halign(Gtk.Align.START)

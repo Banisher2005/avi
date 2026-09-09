@@ -539,7 +539,7 @@ class TestOverlayRedesign:
 
         win = AviWindow(mock_app, mock_router, mock_config)
         win.window.set_decorated.assert_called_with(False)
-        win.window.set_default_size.assert_called_with(720, -1)
+        win.window.set_default_size.assert_called_with(800, 580)
         win.window.add_css_class.assert_any_call("avi-overlay-window")
         assert win.close_button is not None
         assert win.voice_button is not None
@@ -1093,7 +1093,7 @@ class TestCliCommandPalette:
         assert hasattr(win, "prompt_entry")
         assert hasattr(win, "esc_hint")
         assert hasattr(win, "close_button")
-        win.window.set_default_size.assert_called_with(720, -1)
+        win.window.set_default_size.assert_called_with(800, 580)
 
     def test_cli_execution_lines_and_glyphs(self, mock_gtk):
         from avi.ui.window import AviWindow
@@ -1252,7 +1252,7 @@ class TestTrueBlackPalette:
         from avi.ui.window import AviWindow
 
         win = AviWindow(MagicMock(), MagicMock(), MagicMock())
-        win.window.set_default_size.assert_called_with(720, -1)
-        win.scroll_window.set_max_content_height.assert_called_with(520)
+        win.window.set_default_size.assert_called_with(800, 580)
+        win.scroll_window.set_max_content_height.assert_called_with(600)
 
 
