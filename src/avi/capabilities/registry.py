@@ -47,6 +47,7 @@ from avi.capabilities.browser import (
     BrowserExtractCapability,
     BrowserNavigateCapability,
     BrowserObserveCapability,
+    BrowserScrollCapability,
     BrowserTypeCapability,
 )
 from avi.capabilities.web.search import (
@@ -402,6 +403,19 @@ def create_default_capability_registry(
     registry.register(
         browser_click,
         aliases=["browser.click", "click_element", "browser.click_element", "web.click"],
+    )
+
+    browser_scroll = BrowserScrollCapability()
+    registry.register(
+        browser_scroll,
+        aliases=[
+            "browser.scroll",
+            "scroll_page",
+            "browser.scroll_page",
+            "web.scroll",
+            "scroll_down",
+            "scroll_up",
+        ],
     )
 
     # 4. Filesystem Capabilities

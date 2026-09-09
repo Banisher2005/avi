@@ -8,6 +8,7 @@ from avi.capabilities.browser.navigate import (
     sanitize_and_validate_url,
 )
 from avi.capabilities.browser.observe import BrowserObserveCapability
+from avi.capabilities.browser.scroll import BrowserScrollCapability
 
 __all__ = [
     "BrowserObserveCapability",
@@ -15,5 +16,6 @@ __all__ = [
     "BrowserExtractCapability",
     "BrowserTypeCapability",
     "BrowserClickCapability",
+    "BrowserScrollCapability",
     "sanitize_and_validate_url",
 ]
