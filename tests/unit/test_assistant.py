@@ -4,6 +4,7 @@ import pytest
 
 from avi.assistant.intents import (
     AssistantIntentType,
+    classify_confirmation,
     detect_assistant_intent,
 )
 from avi.assistant.synthesizer import (
@@ -120,6 +121,62 @@ class TestAssistantIntentDetection:
         intent = detect_assistant_intent(prompt)
         assert intent.intent_type == AssistantIntentType.OPEN_URL
         assert intent.target == expected_url
+
+    @pytest.mark.parametrize("prompt", ["ss", "take ss", "snip"])
+    def test_detect_shorthand_clarifications(self, prompt):
+        intent = detect_assistant_intent(prompt)
+        assert intent.intent_type == AssistantIntentType.CLARIFICATION
+        assert intent.target == "take a screenshot"
+        assert "Did you mean 'take a screenshot'?" in intent.extra.get("message", "")
+
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            ("yes", True),
+            ("y", True),
+            ("yeah", True),
+            ("yep", True),
+            ("yup", True),
+            ("sure", True),
+            ("correct", True),
+            ("do it", True),
+            ("yes please", True),
+            ("yes, please", True),
+            ("yes do it", True),
+            ("no", False),
+            ("n", False),
+            ("nope", False),
+            ("not that", False),
+            ("no thanks", False),
+            ("cancel", False),
+            ("stop", False),
+            ("hi", None),
+            ("what time is it", None),
+            ("disk space", None),
+            ("yesterday", None),
+        ],
+    )
+    def test_classify_confirmation(self, text, expected):
+        assert classify_confirmation(text) == expected
+
+    def test_multi_turn_clarification_confirmation(self):
+        from unittest.mock import MagicMock
+
+        last_turn = MagicMock()
+        last_turn.intent_type = "CLARIFICATION"
+        last_turn.target = "take a screenshot"
+        last_turn.response_text = "Did you mean 'take a screenshot'?"
+        last_turn.pending_clarification = None
+
+        intent = detect_assistant_intent("yes", last_turn=last_turn)
+        assert intent.intent_type == AssistantIntentType.CONFIRMATION
+        assert intent.target == "take a screenshot"
+
+        neg_intent = detect_assistant_intent("no", last_turn=last_turn)
+        assert neg_intent.intent_type == AssistantIntentType.CANCELLATION
+
+        unrelated = detect_assistant_intent("hi", last_turn=last_turn)
+        assert unrelated.intent_type == AssistantIntentType.GREETING
 
 
 class TestConversationalSynthesizer:

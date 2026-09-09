@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from avi.orchestrator.models import ConversationTurn
+from avi.orchestrator.models import ConversationTurn, PendingClarification
 from avi.retrieval.models import SearchResult
 
 logger = logging.getLogger("avi.session.state")
@@ -38,11 +38,11 @@ def save_session_state(
 ) -> bool:
     """Persist minimal turn state needed for subsequent cross-process follow-ups.
 
-    Only stores search results, selected recommendations, and basic turn metadata.
+    Stores search results, selected recommendations, or pending clarification state.
     Avoids storing sensitive prompt text or unbounded data.
     """
-    # Only persist if there are actionable results to follow up on
-    if not turn.search_results and not turn.selected_result:
+    # Only persist if there are actionable results or pending clarification to follow up on
+    if not turn.search_results and not turn.selected_result and not turn.pending_clarification:
         return False
 
     path = state_path or get_default_state_path()
@@ -64,6 +64,10 @@ def save_session_state(
             elif isinstance(turn.selected_result, dict):
                 selected_data = turn.selected_result
 
+        clarification_data = None
+        if turn.pending_clarification:
+            clarification_data = turn.pending_clarification.to_dict()
+
         payload: dict[str, Any] = {
             "version": 1,
             "turn_id": turn.turn_id,
@@ -73,6 +77,7 @@ def save_session_state(
             "target": turn.target,
             "search_results": results_data,
             "selected_result": selected_data,
+            "pending_clarification": clarification_data,
         }
 
         tmp_path = path.with_suffix(".tmp")
@@ -144,6 +149,15 @@ def load_session_state(
                 metadata=raw_selected.get("metadata", {}),
             )
 
+        raw_clarification = data.get("pending_clarification")
+        pending_clarification = (
+            PendingClarification.from_dict(raw_clarification)
+            if raw_clarification
+            else None
+        )
+        if pending_clarification and pending_clarification.is_expired():
+            pending_clarification = None
+
         return ConversationTurn(
             turn_id=int(data.get("turn_id", 1)),
             user_query=str(data.get("user_query", "")),
@@ -152,6 +166,7 @@ def load_session_state(
             target=data.get("target"),
             search_results=search_results,
             selected_result=selected_result,
+            pending_clarification=pending_clarification,
             timestamp=saved_time,
         )
     except Exception as err:

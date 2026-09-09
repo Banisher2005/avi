@@ -255,6 +255,8 @@ class AssistantIntentType(str, Enum):
     YOUTUBE_RECOMMEND = "YOUTUBE_RECOMMEND"
     OPEN_SEARCH_RESULT = "OPEN_SEARCH_RESULT"
     MEMORY = "MEMORY"
+    CONFIRMATION = "CONFIRMATION"
+    CANCELLATION = "CANCELLATION"
     UNKNOWN = "UNKNOWN"
 
 
@@ -815,6 +817,65 @@ def clean_natural_language_input(text: str) -> str:
     return s
 
 
+_AFFIRMATIVE_PHRASES = {
+    "yes", "y", "yeah", "yep", "yup", "yea", "sure", "sure thing",
+    "ok", "okay", "k", "correct", "right", "that's right", "thats right",
+    "do it", "go ahead", "yes please", "yeah please", "yep please", "please do",
+    "confirm", "proceed", "sounds good", "definitely", "absolutely",
+    "affirmative", "all right", "alright", "go for it",
+}
+
+_NEGATIVE_PHRASES = {
+    "no", "n", "nope", "nah", "not really", "not that", "don't", "dont",
+    "cancel", "stop", "abort", "never mind", "nevermind",
+    "no thanks", "no thank you", "negative", "incorrect", "wrong",
+    "leave it", "forget it", "drop it", "no don't", "no dont", "no stop",
+}
+
+_DESKTOP_SHORTHANDS: dict[str, str] = {
+    "ss": "take a screenshot",
+    "take ss": "take a screenshot",
+    "snip": "take a screenshot",
+}
+
+
+def classify_confirmation(text: str) -> bool | None:
+    """Classify user response as affirmative, negative, or unrelated.
+
+    Returns:
+        True: Affirmative confirmation ('yes', 'yeah', 'yep', 'sure', 'correct', 'do it', etc.)
+        False: Negative rejection / cancellation ('no', 'nope', 'nah', 'cancel', 'not that', etc.)
+        None: Unrelated command or query (e.g. 'hi', 'disk space', etc.)
+    """
+    if not text:
+        return None
+    s = text.strip().lower().strip("\"'")
+    s = re.sub(r"[.!?]+$", "", s).strip()
+    if not s:
+        return None
+
+    if s in _AFFIRMATIVE_PHRASES:
+        return True
+    if s in _NEGATIVE_PHRASES:
+        return False
+
+    if re.match(r"^(?:yes|yeah|yep|yup|sure|ok|okay)\b", s):
+        if re.match(
+            r"^(?:yes|yeah|yep|yup|sure|ok|okay)(?:,\s*|\s+)(?:please|do\s+it|do\s+that|that|go\s+ahead|that's\s+it|thats\s+it|exactly|correct)?$",
+            s,
+        ):
+            return True
+
+    if re.match(r"^(?:no|nope|nah)\b", s):
+        if re.match(
+            r"^(?:no|nope|nah)(?:,\s*|\s+)(?:thanks|thank\s+you|cancel|don'?t|stop|leave\s+it|forget\s+it|not\s+that)?$",
+            s,
+        ):
+            return False
+
+    return None
+
+
 def detect_assistant_intent(prompt: str, last_turn: Any | None = None) -> DetectedIntent:
     """Analyze prompt and detect if it maps to a native assistant capability."""
     cleaned = clean_natural_language_input(prompt)
@@ -946,6 +1007,69 @@ def detect_assistant_intent(prompt: str, last_turn: Any | None = None) -> Detect
                     target=clean_followup,
                     extra={"query": clean_followup},
                 )
+
+        # Check confirmation / cancellation of pending clarification or plan
+        has_pending_clarification = (
+            getattr(last_turn, "pending_clarification", None) is not None
+            or (
+                last_intent_val in ("CLARIFICATION", AssistantIntentType.CLARIFICATION.value)
+                and getattr(last_turn, "target", "") != "youtube"
+            )
+        )
+        has_pending_plan = (
+            getattr(last_turn, "plan", None) is not None
+            and getattr(last_turn.plan, "requires_confirmation", False)
+        )
+
+        if has_pending_clarification or has_pending_plan:
+            conf = classify_confirmation(s)
+            if conf is True:
+                confirmed_target = ""
+                if getattr(last_turn, "pending_clarification", None) is not None:
+                    confirmed_target = last_turn.pending_clarification.proposed_interpretation
+                elif getattr(last_turn, "target", None) and getattr(last_turn, "target") != "youtube":
+                    confirmed_target = str(last_turn.target)
+                elif "Did you mean '" in getattr(last_turn, "response_text", ""):
+                    m_target = re.search(r"Did you mean '([^']+)'", last_turn.response_text)
+                    if m_target:
+                        confirmed_target = m_target.group(1)
+
+                action = (
+                    "confirm_plan"
+                    if has_pending_plan and not confirmed_target
+                    else "confirm_clarification"
+                )
+                return DetectedIntent(
+                    intent_type=AssistantIntentType.CONFIRMATION,
+                    raw_prompt=prompt,
+                    target=confirmed_target,
+                    extra={
+                        "action": action,
+                        "confirmed_target": confirmed_target,
+                    },
+                )
+            elif conf is False:
+                action = "cancel_plan" if has_pending_plan else "cancel_clarification"
+                return DetectedIntent(
+                    intent_type=AssistantIntentType.CANCELLATION,
+                    raw_prompt=prompt,
+                    target="",
+                    extra={"action": action},
+                )
+
+    # 1.5 Desktop shorthand clarifications (e.g. "ss" -> clarify to "take a screenshot")
+    if lower in _DESKTOP_SHORTHANDS:
+        suggested = _DESKTOP_SHORTHANDS[lower]
+        return DetectedIntent(
+            intent_type=AssistantIntentType.CLARIFICATION,
+            raw_prompt=prompt,
+            target=suggested,
+            extra={
+                "clarification_type": "shorthand",
+                "message": f"Did you mean '{suggested}'?",
+                "suggested": suggested,
+            },
+        )
 
     # 2. Ambiguous deictic requests without context (clarification required)
     if lower in _AMBIGUOUS_DEICTIC_PATTERNS:
@@ -1473,6 +1597,7 @@ def detect_assistant_intent(prompt: str, last_turn: Any | None = None) -> Detect
         return DetectedIntent(
             intent_type=AssistantIntentType.CLARIFICATION,
             raw_prompt=prompt,
+            target=typo_suggestion,
             extra={
                 "clarification_type": "typo",
                 "message": msg,

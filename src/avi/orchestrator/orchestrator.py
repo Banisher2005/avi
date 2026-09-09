@@ -20,6 +20,7 @@ from avi.actions.timer import TimerAction
 from avi.apps.resolver import ApplicationResolver
 from avi.assistant.intents import (
     AssistantIntentType,
+    classify_confirmation,
     clean_natural_language_input,
     detect_assistant_intent,
 )
@@ -33,7 +34,7 @@ from avi.assistant.synthesizer import (
 from avi.config import Config
 from avi.core.router import Router
 from avi.memory.manager import MemoryManager
-from avi.orchestrator.models import ConversationHistory, OrchestratorResult
+from avi.orchestrator.models import ConversationHistory, OrchestratorResult, PendingClarification
 from avi.providers.models import ProviderCapabilities, ResponseMetrics
 from avi.providers.registry import select_provider
 from avi.retrieval.youtube import validate_youtube_url
@@ -96,6 +97,23 @@ class AssistantOrchestrator:
             planner=self.planner,
             executor=self.executor,
         )
+        self.pending_clarification: PendingClarification | None = None
+
+    def get_pending_clarification(self) -> PendingClarification | None:
+        """Retrieve active pending clarification, checking in-memory state and persistent history."""
+        if self.pending_clarification is not None:
+            if self.pending_clarification.is_expired():
+                self.pending_clarification = None
+                return None
+            return self.pending_clarification
+        last = self.history.last_turn
+        if last and getattr(last, "pending_clarification", None) is not None:
+            p = last.pending_clarification
+            if p.is_expired():
+                last.pending_clarification = None
+                return None
+            return p
+        return None
 
     def is_assistant_request(self, prompt: str) -> bool:
         """Determine if a prompt should be routed to native assistant capabilities rather than shell fallback."""
@@ -108,7 +126,14 @@ class AssistantOrchestrator:
         if intent.intent_type != AssistantIntentType.UNKNOWN:
             return True
 
-        # 2. Screen observation intent
+        # 2. Pending clarification confirmation / cancellation check
+        if (
+            classify_confirmation(normalized_prompt) is not None
+            and self.get_pending_clarification() is not None
+        ):
+            return True
+
+        # 3. Screen observation intent
         import re
 
         if re.search(
@@ -117,9 +142,9 @@ class AssistantOrchestrator:
         ):
             return True
 
-        # 3. Pending confirmation for multi-step plan
+        # 4. Pending confirmation for multi-step plan
         if (
-            normalized_prompt.lower() in ("yes", "y", "confirm", "proceed", "do it")
+            classify_confirmation(normalized_prompt) is not None
             and self.history.last_turn
             and self.history.last_turn.plan
             and getattr(self.history.last_turn.plan, "requires_confirmation", False)
@@ -181,6 +206,74 @@ class AssistantOrchestrator:
         if not normalized_prompt:
             return OrchestratorResult(text="")
 
+        # ── Check active pending clarification before standard dispatch ────────
+        pending = self.get_pending_clarification()
+        if pending is not None:
+            conf = classify_confirmation(normalized_prompt)
+            if conf is True:
+                target_cmd = pending.proposed_interpretation
+                self.pending_clarification = None
+                if self.history.last_turn:
+                    self.history.last_turn.pending_clarification = None
+                try:
+                    from avi.session.state import clear_session_state
+
+                    clear_session_state()
+                except Exception:
+                    pass
+
+                logger.info(
+                    "Clarification confirmed: '%s' -> executing '%s'",
+                    pending.original_prompt,
+                    target_cmd,
+                )
+                return self.handle(
+                    target_cmd,
+                    context=context,
+                    auto_execute_actions=auto_execute_actions,
+                )
+            elif conf is False:
+                self.pending_clarification = None
+                if self.history.last_turn:
+                    self.history.last_turn.pending_clarification = None
+                try:
+                    from avi.session.state import clear_session_state
+
+                    clear_session_state()
+                except Exception:
+                    pass
+
+                logger.info(
+                    "Clarification rejected: '%s' cancelled by '%s'",
+                    pending.original_prompt,
+                    normalized_prompt,
+                )
+                result = OrchestratorResult(
+                    text="Okay, cancelled.",
+                    metrics=ResponseMetrics(
+                        total_duration_ms=(time.perf_counter() - t0) * 1000.0,
+                        routing_duration_ms=(time.perf_counter() - t0) * 1000.0,
+                    ),
+                    context=context,
+                )
+                self.history.add_turn(
+                    user_query=normalized_prompt,
+                    intent_type="CANCEL",
+                    response_text=result.text,
+                )
+                return result
+            else:
+                # User provided an unrelated command: clear pending clarification and continue normal dispatch
+                self.pending_clarification = None
+                if self.history.last_turn:
+                    self.history.last_turn.pending_clarification = None
+                try:
+                    from avi.session.state import clear_session_state
+
+                    clear_session_state()
+                except Exception:
+                    pass
+
         # ── Step 1: Detect native assistant intent ───────────────────────
         intent = detect_assistant_intent(normalized_prompt, last_turn=self.history.last_turn)
         routing_duration_ms = (time.perf_counter() - t0) * 1000.0
@@ -231,9 +324,84 @@ class AssistantOrchestrator:
                 "message",
                 "Could you please clarify what you would like me to do?",
             )
+            suggested = intent.target or intent.extra.get("suggested", "")
+            if suggested:
+                self.pending_clarification = PendingClarification(
+                    original_prompt=normalized_prompt,
+                    proposed_interpretation=suggested,
+                    clarification_type=intent.extra.get("clarification_type", "typo"),
+                    created_at=time.time(),
+                    metadata=dict(intent.extra),
+                )
             result = OrchestratorResult(
                 text=msg,
                 metrics=ResponseMetrics(total_duration_ms=(time.perf_counter() - t0) * 1000.0),
+                context=context,
+                pending_clarification=self.pending_clarification,
+            )
+
+        # E1. Confirmation of pending clarification or plan
+        elif intent.intent_type == AssistantIntentType.CONFIRMATION:
+            confirmed_target = intent.target or intent.extra.get("confirmed_target")
+            action = intent.extra.get("action")
+            if action == "confirm_plan" and self.history.last_turn and self.history.last_turn.plan:
+                pending_plan = self.history.last_turn.plan
+                plan_res = self.executor.execute_plan(pending_plan, confirmed=True)
+                result = OrchestratorResult(
+                    text=plan_res.final_message,
+                    plan=pending_plan,
+                    capability_result=(
+                        plan_res.completed_steps[-1].result
+                        if plan_res.completed_steps
+                        else None
+                    ),
+                    metrics=ResponseMetrics(
+                        total_duration_ms=(time.perf_counter() - t0) * 1000.0,
+                        planning_duration_ms=plan_res.planning_duration_ms,
+                        action_duration_ms=plan_res.action_duration_ms,
+                        verification_duration_ms=plan_res.verification_duration_ms,
+                    ),
+                    context=context,
+                )
+            elif confirmed_target:
+                self.pending_clarification = None
+                if self.history.last_turn:
+                    self.history.last_turn.pending_clarification = None
+                try:
+                    from avi.session.state import clear_session_state
+
+                    clear_session_state()
+                except Exception:
+                    pass
+                return self.handle(
+                    confirmed_target,
+                    context=context,
+                    auto_execute_actions=auto_execute_actions,
+                )
+            else:
+                result = OrchestratorResult(
+                    text="Confirmed.",
+                    metrics=ResponseMetrics(total_duration_ms=(time.perf_counter() - t0) * 1000.0),
+                    context=context,
+                )
+
+        # E2. Cancellation
+        elif intent.intent_type == AssistantIntentType.CANCELLATION:
+            self.pending_clarification = None
+            if self.history.last_turn:
+                self.history.last_turn.pending_clarification = None
+            try:
+                from avi.session.state import clear_session_state
+
+                clear_session_state()
+            except Exception:
+                pass
+            result = OrchestratorResult(
+                text="Okay, cancelled.",
+                metrics=ResponseMetrics(
+                    total_duration_ms=(time.perf_counter() - t0) * 1000.0,
+                    routing_duration_ms=routing_duration_ms,
+                ),
                 context=context,
             )
 
@@ -683,13 +851,12 @@ class AssistantOrchestrator:
 
             # Second: Agent capability planner
             if result is None:
-                # Handle pending confirmation response
-                if (
-                    normalized_prompt.lower() in ("yes", "y", "confirm", "proceed", "do it")
-                    and self.history.last_turn
+                has_pending_plan = (
+                    self.history.last_turn
                     and self.history.last_turn.plan
                     and getattr(self.history.last_turn.plan, "requires_confirmation", False)
-                ):
+                )
+                if has_pending_plan and classify_confirmation(normalized_prompt) is True:
                     pending_plan = self.history.last_turn.plan
                     plan_res = self.executor.execute_plan(pending_plan, confirmed=True)
                     result = OrchestratorResult(
@@ -705,6 +872,14 @@ class AssistantOrchestrator:
                             planning_duration_ms=plan_res.planning_duration_ms,
                             action_duration_ms=plan_res.action_duration_ms,
                             verification_duration_ms=plan_res.verification_duration_ms,
+                        ),
+                        context=context,
+                    )
+                elif has_pending_plan and classify_confirmation(normalized_prompt) is False:
+                    result = OrchestratorResult(
+                        text="Operation cancelled.",
+                        metrics=ResponseMetrics(
+                            total_duration_ms=(time.perf_counter() - t0) * 1000.0
                         ),
                         context=context,
                     )
@@ -874,6 +1049,7 @@ class AssistantOrchestrator:
             target=intent.target,
             search_results=result.search_results,
             selected_result=result.selected_result,
+            pending_clarification=self.pending_clarification,
         )
 
         # Developer/debug timing instrumentation

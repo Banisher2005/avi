@@ -220,3 +220,129 @@ class TestAssistantOrchestrator:
             assert res.metrics is not None
             assert res.metrics.llm_duration_ms is not None
 
+    def test_clarification_flow_take_a_ss_confirmed(self):
+        """'take a ss' prompts for clarification; replying 'yes' immediately executes screenshot without LLM."""
+        with patch.object(self.router, "route") as mock_route, patch.object(
+            self.provider, "generate_full"
+        ) as mock_gen, patch.object(
+            self.orchestrator.capabilities, "execute"
+        ) as mock_cap_exec:
+            mock_cap_exec.return_value = MagicMock(
+                success=True,
+                error=None,
+                message="Captured screenshot and saved it to /tmp/screenshot.png.",
+                data={"path": "/tmp/screenshot.png"},
+            )
+
+            # Turn 1: user asks ambiguous shorthand
+            res1 = self.orchestrator.handle("take a ss")
+            assert "screenshot" in res1.text.lower()
+            assert "Did you mean" in res1.text
+            assert self.orchestrator.pending_clarification is not None
+            assert self.orchestrator.is_assistant_request("yes")
+
+            # Turn 2: user confirms with 'yes'
+            res2 = self.orchestrator.handle("yes")
+            assert "screenshot" in res2.text.lower()
+            assert mock_cap_exec.called
+            # Ensure LLM was NEVER called
+            mock_route.assert_not_called()
+            mock_gen.assert_not_called()
+            # Ensure pending clarification is cleared
+            assert self.orchestrator.pending_clarification is None
+
+    def test_clarification_flow_affirmative_variants(self):
+        """Affirmative variants ('yeah', 'yep', 'correct', 'sure', 'do it', 'yes please') all confirm."""
+        affirmative_variants = ["yeah", "yep", "correct", "sure", "do it", "yes please"]
+        for variant in affirmative_variants:
+            with patch.object(self.router, "route") as mock_route, patch.object(
+                self.provider, "generate_full"
+            ) as mock_gen, patch.object(
+                self.orchestrator.capabilities, "execute"
+            ) as mock_cap_exec:
+                mock_cap_exec.return_value = MagicMock(
+                    success=True,
+                    error=None,
+                    message="Captured screenshot and saved it to /tmp/screenshot.png.",
+                    data={"path": "/tmp/screenshot.png"},
+                )
+
+                self.orchestrator.handle("take a ss")
+                assert self.orchestrator.is_assistant_request(variant)
+                res = self.orchestrator.handle(variant)
+                assert mock_cap_exec.called, f"Failed to execute for variant: {variant}"
+                assert "screenshot" in res.text.lower()
+                mock_route.assert_not_called()
+                mock_gen.assert_not_called()
+
+    def test_clarification_flow_negative_cancellation(self):
+        """Negative responses ('no', 'nope', 'not that', 'no thanks', 'cancel') cancel cleanly."""
+        negative_variants = ["no", "nope", "not that", "no thanks", "cancel"]
+        for variant in negative_variants:
+            with patch.object(self.router, "route") as mock_route, patch.object(
+                self.provider, "generate_full"
+            ) as mock_gen, patch.object(
+                self.orchestrator.capabilities, "execute"
+            ) as mock_cap_exec:
+                self.orchestrator.handle("take a ss")
+                assert self.orchestrator.is_assistant_request(variant)
+                res = self.orchestrator.handle(variant)
+                assert not mock_cap_exec.called
+                assert "cancelled" in res.text.lower()
+                mock_route.assert_not_called()
+                mock_gen.assert_not_called()
+                assert self.orchestrator.pending_clarification is None
+
+    def test_clarification_unrelated_query_clears_state(self):
+        """An unrelated query after clarification clears pending state and handles the query normally."""
+        self.orchestrator.handle("take a ss")
+        assert self.orchestrator.pending_clarification is not None
+
+        res = self.orchestrator.handle("hi")
+        assert res.text == "Hello! How can I help?"
+        assert self.orchestrator.pending_clarification is None
+        assert not self.orchestrator.is_assistant_request("yes")
+
+    def test_shorthand_ss_clarification(self):
+        """Shorthand 'ss' clarifies to 'take a screenshot' and executes upon confirmation."""
+        with patch.object(self.orchestrator.capabilities, "execute") as mock_cap_exec:
+            mock_cap_exec.return_value = MagicMock(
+                success=True,
+                error=None,
+                message="Captured screenshot and saved it to /tmp/screenshot.png.",
+                data={"path": "/tmp/screenshot.png"},
+            )
+            res1 = self.orchestrator.handle("ss")
+            assert "screenshot" in res1.text.lower()
+            res2 = self.orchestrator.handle("yes")
+            assert mock_cap_exec.called
+            assert "screenshot" in res2.text.lower()
+
+    def test_cross_process_clarification_continuity(self, tmp_path):
+        """Verify cross-process persistence of PendingClarification across separate orchestrator instances."""
+        from avi.session.state import get_default_state_path
+
+        state_file = tmp_path / "session_state.json"
+        with patch("avi.session.state.get_default_state_path", return_value=state_file):
+            # Process 1
+            orch1 = AssistantOrchestrator(config=self.config, router=self.router)
+            res1 = orch1.handle("take a ss")
+            assert "screenshot" in res1.text.lower()
+            assert state_file.is_file()
+
+            # Process 2 (new AssistantOrchestrator)
+            with patch.object(self.orchestrator.capabilities, "execute") as mock_cap_exec:
+                mock_cap_exec.return_value = MagicMock(
+                    success=True,
+                    error=None,
+                    message="Captured screenshot and saved it to /tmp/screenshot.png.",
+                    data={"path": "/tmp/screenshot.png"},
+                )
+                orch2 = AssistantOrchestrator(
+                    config=self.config, router=self.router, capabilities=self.orchestrator.capabilities
+                )
+                assert orch2.is_assistant_request("yes")
+                res2 = orch2.handle("yes")
+                assert mock_cap_exec.called
+                assert "screenshot" in res2.text.lower()
+

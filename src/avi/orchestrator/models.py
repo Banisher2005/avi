@@ -10,6 +10,46 @@ from avi.tools.base import ToolResult
 
 
 @dataclass
+class PendingClarification:
+    """State of an ambiguous or shorthand request awaiting user confirmation."""
+
+    original_prompt: str
+    proposed_interpretation: str
+    clarification_type: str = "typo"
+    created_at: float = field(default_factory=time.time)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def is_expired(self, ttl_seconds: float = 180.0) -> bool:
+        """Check if pending clarification has expired."""
+        return (time.time() - self.created_at) > ttl_seconds
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "original_prompt": self.original_prompt,
+            "proposed_interpretation": self.proposed_interpretation,
+            "clarification_type": self.clarification_type,
+            "created_at": self.created_at,
+            "metadata": self.metadata,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "PendingClarification | None":
+        if not isinstance(data, dict):
+            return None
+        orig = data.get("original_prompt")
+        prop = data.get("proposed_interpretation")
+        if not orig or not prop:
+            return None
+        return cls(
+            original_prompt=str(orig),
+            proposed_interpretation=str(prop),
+            clarification_type=str(data.get("clarification_type", "typo")),
+            created_at=float(data.get("created_at", time.time())),
+            metadata=dict(data.get("metadata", {})),
+        )
+
+
+@dataclass
 class ConversationTurn:
     """A single turn in an assistant conversation."""
 
@@ -26,6 +66,7 @@ class ConversationTurn:
     target: str | None = None
     search_results: list[Any] | None = None
     selected_result: Any | None = None
+    pending_clarification: PendingClarification | None = None
     timestamp: float = field(default_factory=time.time)
 
 
@@ -51,6 +92,7 @@ class ConversationHistory:
         target: str | None = None,
         search_results: list[Any] | None = None,
         selected_result: Any | None = None,
+        pending_clarification: PendingClarification | None = None,
     ) -> ConversationTurn:
         turn = ConversationTurn(
             turn_id=len(self.turns) + 1,
@@ -66,6 +108,7 @@ class ConversationHistory:
             capability_result=capability_result,
             search_results=search_results,
             selected_result=selected_result,
+            pending_clarification=pending_clarification,
             timestamp=time.time(),
         )
         self.turns.append(turn)
@@ -128,3 +171,4 @@ class OrchestratorResult:
     search_results: list[Any] | None = None
     selected_result: Any | None = None
     action_url: str | None = None
+    pending_clarification: PendingClarification | None = None

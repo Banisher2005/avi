@@ -1152,6 +1152,8 @@ class AviWindow:
             AssistantIntentType.COURTESY,
             AssistantIntentType.SMALL_TALK,
             AssistantIntentType.CLARIFICATION,
+            AssistantIntentType.CONFIRMATION,
+            AssistantIntentType.CANCELLATION,
         ):
             return ("Working…", False)
 
@@ -1430,6 +1432,7 @@ class AviWindow:
                         AssistantIntentType.MEDIA_CONTROL,
                         AssistantIntentType.OPEN_SEARCH_RESULT,
                         AssistantIntentType.SCREENSHOT,
+                        AssistantIntentType.CONFIRMATION,
                     )
                     auto_dismiss = is_transient and not res.search_results
                     GLib.idle_add(
