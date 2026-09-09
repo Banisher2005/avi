@@ -44,6 +44,7 @@ from avi.capabilities.models import (
 )
 from avi.capabilities.browser import (
     BrowserClickCapability,
+    BrowserDownloadCapability,
     BrowserExtractCapability,
     BrowserNavigateCapability,
     BrowserObserveCapability,
@@ -415,6 +416,18 @@ def create_default_capability_registry(
             "web.scroll",
             "scroll_down",
             "scroll_up",
+        ],
+    )
+
+    browser_dl = BrowserDownloadCapability()
+    registry.register(
+        browser_dl,
+        aliases=[
+            "browser.download",
+            "browser.downloads",
+            "check_downloads",
+            "get_recent_downloads",
+            "detect_download",
         ],
     )
 
