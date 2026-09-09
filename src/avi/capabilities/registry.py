@@ -42,6 +42,7 @@ from avi.capabilities.models import (
     ExecutionStatus,
     ToolCapabilityAdapter,
 )
+from avi.capabilities.browser.observe import BrowserObserveCapability
 from avi.capabilities.web.search import (
     YouTubeSearchCapability,
     YouTubeSearchResultsCapability,
@@ -358,6 +359,12 @@ def create_default_capability_registry(
     registry.register(
         yt_results,
         aliases=["youtube.search_results", "youtube_search_results", "youtube.retrieve"],
+    )
+
+    browser_observe = BrowserObserveCapability()
+    registry.register(
+        browser_observe,
+        aliases=["browser.observe", "browser.state", "observe_browser", "get_browser_state"],
     )
 
     # 4. Filesystem Capabilities
