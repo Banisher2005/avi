@@ -84,14 +84,16 @@ class CopyFileCapability(BaseCapability):
             )
 
         try:
+            target_path = dest / src.name if dest.is_dir() else dest
             if src.is_dir():
                 shutil.copytree(src, dest, dirs_exist_ok=True)
             else:
                 shutil.copy2(src, dest)
+            final_path = target_path if target_path.exists() else dest
             return CapabilityResult(
                 success=True,
                 status=ExecutionStatus.SUCCESS,
-                data={"source": str(src), "destination": str(dest)},
+                data={"source": str(src), "destination": str(dest), "path": str(final_path)},
                 message=f"Copied {src.name} to {dest}.",
                 classification=self.data_classification,
             )
@@ -140,11 +142,13 @@ class MoveFileCapability(BaseCapability):
             dest.parent.mkdir(parents=True, exist_ok=True)
 
         try:
+            target_path = dest / src.name if dest.is_dir() else dest
             shutil.move(str(src), str(dest))
+            final_path = target_path if target_path.exists() else dest
             return CapabilityResult(
                 success=True,
                 status=ExecutionStatus.SUCCESS,
-                data={"source": str(src), "destination": str(dest)},
+                data={"source": str(src), "destination": str(dest), "path": str(final_path)},
                 message=f"Moved {src.name} to {dest}.",
                 classification=self.data_classification,
             )

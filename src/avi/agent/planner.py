@@ -260,6 +260,57 @@ class AgentPlanner:
                 max_steps=self.max_steps,
             )
 
+        # Pattern: 4-step pipeline: Find newest <ext> in <dir>, create <dir2>, move it, and open it
+        pipeline_4step_match = re.search(
+            r"\b(?:find|search(?:\s+for)?)(?:\s+the)?\s+(?:newest|latest)\s+(\w+)(?:\s+(?:in|under)\s+([^\s,]+))?[,\s]+create\s+(?:a\s+)?(?:directory\s+|folder\s+)?([^\s,]+)[,\s]+(?:then\s+)?move\s+it(?:\s+there)?[,\s]+(?:and\s+)?(?:then\s+)?(?:open|view)\s+(?:it|file)\b",
+            clean,
+            re.IGNORECASE,
+        )
+        if pipeline_4step_match:
+            ext = pipeline_4step_match.group(1).lstrip(".").lower()
+            search_path = _normalize_search_dir(pipeline_4step_match.group(2))
+            new_dir = pipeline_4step_match.group(3).strip()
+            steps = [
+                PlanStep(
+                    step_id=1,
+                    capability_name="filesystem.search",
+                    arguments={
+                        "extension": ext,
+                        "path": search_path,
+                        "newest_first": True,
+                        "limit": 1,
+                    },
+                    description=f"Find newest {ext} in {search_path}",
+                ),
+                PlanStep(
+                    step_id=2,
+                    capability_name="filesystem.create_directory",
+                    arguments={"path": new_dir},
+                    description=f"Create folder {new_dir}",
+                ),
+                PlanStep(
+                    step_id=3,
+                    capability_name="filesystem.move",
+                    arguments={"destination": new_dir},
+                    description=f"Move {ext} to {new_dir}",
+                    pipe_from_step=1,
+                    pipe_arg_name="source",
+                ),
+                PlanStep(
+                    step_id=4,
+                    capability_name="desktop.open_file",
+                    arguments={},
+                    description="Open moved file",
+                    pipe_from_step=3,
+                    pipe_arg_name="path",
+                ),
+            ]
+            return Plan(
+                user_goal=clean,
+                steps=steps[: self.max_steps],
+                max_steps=self.max_steps,
+            )
+
         # Pattern: Create directory and copy file into it
         mkdir_copy_match = re.search(
             r"\bcreate\s+(?:a\s+)?(?:directory|folder)\s+(?:called|named\s+)?([^\s]+)\s+(?:and|then)\s+copy\s+([^\s]+)\s+(?:in|into|to)\s+it\b",
@@ -568,5 +619,159 @@ class AgentPlanner:
                         )
                     ],
                 )
+
+        # -------------------------------------------------------------------
+        # 3. Computer-use single-step patterns (clipboard, window, input, filesystem)
+        # -------------------------------------------------------------------
+
+        # Clipboard set
+        if re.search(r"\b(?:copy|set)\s+(.+?)\s+(?:to|in|into)\s+(?:the\s+)?clipboard\b", clean, re.IGNORECASE) or re.search(r"\bcopy\s+to\s+clipboard\s+(.+)$", clean, re.IGNORECASE):
+            clip_match = re.search(r"\b(?:copy|set)\s+(.+?)\s+(?:to|in|into)\s+(?:the\s+)?clipboard\b", clean, re.IGNORECASE)
+            if not clip_match:
+                clip_match = re.search(r"\bcopy\s+to\s+clipboard\s+(.+)$", clean, re.IGNORECASE)
+            text_to_copy = clip_match.group(1).strip().strip("\"'")
+            return Plan(
+                user_goal=clean,
+                steps=[
+                    PlanStep(
+                        step_id=1,
+                        capability_name="desktop.clipboard.set",
+                        arguments={"text": text_to_copy},
+                        description=f"Copy '{text_to_copy}' to clipboard",
+                    )
+                ],
+                max_steps=self.max_steps,
+            )
+
+        # Clipboard get
+        if re.match(
+            r"^(?:please\s+)?(?:read|get|show|check|view|inspect)\s+(?:the\s+)?clipboard(?:\s+content)?$|"
+            r"^(?:what(?:'s|\s+is)\s+(?:on|in)\s+(?:the\s+|my\s+)?clipboard)\??$",
+            lower,
+        ):
+            return Plan(
+                user_goal=clean,
+                steps=[
+                    PlanStep(
+                        step_id=1,
+                        capability_name="desktop.clipboard.get",
+                        arguments={},
+                        description="Read clipboard content",
+                    )
+                ],
+                max_steps=self.max_steps,
+            )
+
+        # Window list
+        win_list_match = re.match(
+            r"^(?:please\s+)?(?:list|show|get|display)\s+(?:open\s+|active\s+|all\s+)?windows(?:\s+(?:matching|with|called|for)\s+(.+))?$",
+            clean,
+            re.IGNORECASE,
+        )
+        if win_list_match:
+            win_q = win_list_match.group(1).strip() if win_list_match.group(1) else ""
+            args = {"query": win_q} if win_q else {}
+            return Plan(
+                user_goal=clean,
+                steps=[
+                    PlanStep(
+                        step_id=1,
+                        capability_name="desktop.window.list",
+                        arguments=args,
+                        description=f"List windows{' matching ' + win_q if win_q else ''}",
+                    )
+                ],
+                max_steps=self.max_steps,
+            )
+
+        # Window focus
+        win_focus_match = re.match(
+            r"^(?:please\s+)?(?:focus|switch\s+to|activate|bring\s+to\s+front)\s+(?:the\s+)?(?:window\s+)?(.+)$",
+            clean,
+            re.IGNORECASE,
+        )
+        if win_focus_match:
+            target_win = win_focus_match.group(1).strip()
+            return Plan(
+                user_goal=clean,
+                steps=[
+                    PlanStep(
+                        step_id=1,
+                        capability_name="desktop.window.focus",
+                        arguments={"title": target_win},
+                        description=f"Focus window '{target_win}'",
+                    )
+                ],
+                max_steps=self.max_steps,
+            )
+
+        # Keyboard typing
+        type_match = re.match(
+            r"^(?:please\s+)?(?:type\s+text|type)\s+(.+)$",
+            clean,
+            re.IGNORECASE,
+        )
+        if type_match:
+            text_to_type = type_match.group(1).strip().strip("\"'")
+            return Plan(
+                user_goal=clean,
+                steps=[
+                    PlanStep(
+                        step_id=1,
+                        capability_name="desktop.input.type_text",
+                        arguments={"text": text_to_type},
+                        description=f"Type text '{text_to_type}'",
+                    )
+                ],
+                max_steps=self.max_steps,
+            )
+
+        # Keyboard key press
+        press_match = re.match(
+            r"^(?:please\s+)?(?:press(?:\s+key)?|hit(?:\s+key)?|send\s+key)\s+(.+)$",
+            clean,
+            re.IGNORECASE,
+        )
+        if press_match:
+            key_name = press_match.group(1).strip().strip("\"'")
+            return Plan(
+                user_goal=clean,
+                steps=[
+                    PlanStep(
+                        step_id=1,
+                        capability_name="desktop.input.press_key",
+                        arguments={"key": key_name},
+                        description=f"Press key '{key_name}'",
+                    )
+                ],
+                max_steps=self.max_steps,
+            )
+
+        # Filesystem search (general "find <query> in <dir>" or "search for <query> in <dir>")
+        fs_search_match = re.match(
+            r"^(?:please\s+)?(?:find|search(?:\s+for)?)\s+(?:files?\s+matching\s+|files?\s+with\s+|all\s+)?([^\s]+)\s+(?:in|under)\s+([^\s]+)$",
+            clean,
+            re.IGNORECASE,
+        )
+        if fs_search_match and not re.search(r"\b(?:and|then|youtube|yt)\b", lower):
+            q_or_ext = fs_search_match.group(1).strip()
+            target_dir = _normalize_search_dir(fs_search_match.group(2))
+            args = {"path": target_dir, "limit": 10}
+            if q_or_ext.startswith(".") or q_or_ext.lower() in ("pdf", "png", "jpg", "txt", "py", "md", "csv"):
+                args["extension"] = q_or_ext.lstrip(".")
+            else:
+                args["query"] = q_or_ext
+            return Plan(
+                user_goal=clean,
+                steps=[
+                    PlanStep(
+                        step_id=1,
+                        capability_name="filesystem.search",
+                        arguments=args,
+                        description=f"Search for '{q_or_ext}' in {target_dir}",
+                    )
+                ],
+                max_steps=self.max_steps,
+            )
 
         return None

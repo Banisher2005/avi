@@ -92,12 +92,17 @@ class AgentExecutor:
                         verification_duration_ms=total_ver_duration_ms,
                     )
 
-                if step.pipe_arg_name in ("path", "file", "source", "target"):
-                    piped_path = dep_res.data.get("path") or dep_res.data.get("file")
+                if step.pipe_arg_name in ("path", "file", "source", "target", "destination"):
+                    piped_path = dep_res.data.get("path") or dep_res.data.get("destination") or dep_res.data.get("file")
                     if not piped_path and "results" in dep_res.data:
                         r_list = dep_res.data.get("results", [])
                         if r_list and isinstance(r_list[0], dict):
                             piped_path = r_list[0].get("path")
+                    if not piped_path and "matches" in dep_res.data:
+                        m_list = dep_res.data.get("matches", [])
+                        if m_list:
+                            first_m = m_list[0]
+                            piped_path = first_m.get("path") if isinstance(first_m, dict) else str(first_m)
                     if not piped_path:
                         step.status = StepStatus.FAILED
                         failed_steps.append(step)
@@ -632,6 +637,25 @@ class AgentExecutor:
                 f"Created directory '{steps[0].arguments.get('path')}' "
                 f"and copied '{steps[1].arguments.get('source')}' into it."
             )
+        if cap_names == [
+            "filesystem.search",
+            "filesystem.create_directory",
+            "filesystem.move",
+            "desktop.open_file",
+        ]:
+            opened_path = steps[3].arguments.get("path", "")
+            filename = Path(opened_path).name if opened_path else "file"
+            dir_name = steps[1].arguments.get("path", "")
+            return f"Found '{filename}', created directory '{dir_name}', moved it, and opened it."
+        if cap_names == ["filesystem.search", "filesystem.move", "desktop.open_file"]:
+            opened_path = steps[2].arguments.get("path", "")
+            filename = Path(opened_path).name if opened_path else "file"
+            dest = steps[1].arguments.get("destination", "")
+            return f"Found '{filename}', moved it to '{dest}', and opened it."
+        if cap_names == ["filesystem.copy", "desktop.open_file"]:
+            opened_path = steps[1].arguments.get("path", "")
+            filename = Path(opened_path).name if opened_path else "file"
+            return f"Copied '{steps[0].arguments.get('source')}' and opened '{filename}'."
 
         last_res = steps[-1].result
         if last_res and last_res.message:
