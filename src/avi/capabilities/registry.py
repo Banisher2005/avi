@@ -46,6 +46,7 @@ from avi.capabilities.browser import (
     BrowserExtractCapability,
     BrowserNavigateCapability,
     BrowserObserveCapability,
+    BrowserTypeCapability,
 )
 from avi.capabilities.web.search import (
     YouTubeSearchCapability,
@@ -388,6 +389,12 @@ def create_default_capability_registry(
             "browser.read_page",
             "get_page_text",
         ],
+    )
+
+    browser_type = BrowserTypeCapability()
+    registry.register(
+        browser_type,
+        aliases=["browser.type", "browser.input", "type_into_browser", "web.type"],
     )
 
     # 4. Filesystem Capabilities
