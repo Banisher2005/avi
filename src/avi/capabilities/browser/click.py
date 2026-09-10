@@ -20,16 +20,35 @@ from avi.safety.models import ActionCategory
 logger = logging.getLogger(__name__)
 
 
+HIGH_RISK_CLICK_TERMS = {
+    "buy now",
+    "purchase",
+    "submit payment",
+    "pay now",
+    "pay",
+    "delete account",
+    "confirm purchase",
+    "place order",
+    "checkout",
+    "transfer funds",
+    "confirm payment",
+}
+
+
 class BrowserClickCapability(BaseCapability):
-    """Click an element, link, or button on a webpage by selector or text."""
+    """Click an element, link, or button on a webpage by element_id, selector, or text."""
 
     name = "browser.click"
     description = (
-        "Click a clickable element, button, or link on a webpage by CSS selector or visible text."
+        "Click a clickable element, button, or link on a webpage by element_id, CSS selector, or visible text."
     )
     input_schema = {
         "type": "object",
         "properties": {
+            "element_id": {
+                "type": ["integer", "string"],
+                "description": "Observation-local ID of the interactive element to click (e.g. 1, 2, '3').",
+            },
             "selector": {
                 "type": "string",
                 "description": "Optional CSS selector of the element to click (e.g. 'button.primary', '#submit').",
@@ -41,6 +60,11 @@ class BrowserClickCapability(BaseCapability):
             "wait_navigation": {
                 "type": "boolean",
                 "description": "Whether to observe and record potential URL changes after clicking.",
+                "default": False,
+            },
+            "confirmed": {
+                "type": "boolean",
+                "description": "Explicit confirmation for high-risk actions (e.g. purchase, payments).",
                 "default": False,
             },
         },
@@ -63,90 +87,85 @@ class BrowserClickCapability(BaseCapability):
 
     def execute(self, **kwargs: Any) -> CapabilityResult:
         """Execute element click in browser."""
+        element_id = kwargs.get("element_id") or kwargs.get("id")
         selector = kwargs.get("selector")
         text = kwargs.get("text") or kwargs.get("label")
+        confirmed = bool(kwargs.get("confirmed", False))
 
-        if not selector and not text:
+        if element_id is None and not selector and not text:
             return CapabilityResult(
                 success=False,
                 status=ExecutionStatus.FAILED,
-                error="At least one of 'selector' or 'text' is required to identify element to click.",
-                message="Missing selector or text parameter.",
+                error="At least one of 'element_id', 'selector', or 'text' is required to identify element to click.",
+                message="Missing element_id, selector, or text parameter.",
             )
 
-        cdp_used = False
+        # Safety Check: Inspect target element descriptor for high-risk operations
+        target_descriptor = str(text or selector or "").lower()
+        if element_id is not None:
+            resolved_el, _ = self.controller.resolve_element(element_id=element_id)
+            if resolved_el:
+                target_descriptor += f" {resolved_el.text} {resolved_el.selector} {resolved_el.name or ''}".lower()
 
-        # 1. Try CDP execution
-        if self.controller.cdp.is_available():
-            try:
-                js_click = (
-                    "(() => {"
-                    f"  const selector = {json.dumps(selector)};"
-                    f"  const text = {json.dumps(text)};"
-                    "  let el = selector ? document.querySelector(selector) : null;"
-                    "  if (!el && text) {"
-                    "    const candidates = Array.from(document.querySelectorAll('button, a, input[type=button], input[type=submit], [role=button], [onclick]'));"
-                    "    const t = text.toLowerCase();"
-                    "    el = candidates.find(c => (c.innerText || c.value || '').trim().toLowerCase() === t)"
-                    "       || candidates.find(c => (c.innerText || c.value || '').toLowerCase().includes(t));"
-                    "  }"
-                    "  if (!el) return {success: false, error: 'Element matching selector/text not found'};"
-                    "  if (typeof el.scrollIntoView === 'function') el.scrollIntoView({block: 'center'});"
-                    "  el.click();"
-                    "  return {"
-                    "    success: true,"
-                    "    tag: el.tagName,"
-                    "    text: (el.innerText || el.value || '').trim().slice(0, 60),"
-                    "    href: el.href || null"
-                    "  };"
-                    "})()"
-                )
-                res = self.controller.cdp.evaluate(js_click)
-                if isinstance(res, dict) and res.get("success"):
-                    cdp_used = True
-                    # If clicked link has href, record navigation
-                    if res.get("href"):
-                        self.controller.record_navigation(res["href"])
-
-                    target_desc = selector or f"text '{text}'"
-                    return CapabilityResult(
-                        success=True,
-                        status=ExecutionStatus.SUCCESS,
-                        message=f"Clicked {res.get('tag', 'element')} matching {target_desc}.",
-                        data={
-                            "selector": selector,
-                            "text": text,
-                            "method": "cdp",
-                            "clicked_element": res,
-                        },
-                    )
-                elif isinstance(res, dict) and not res.get("success"):
+        if not confirmed:
+            for term in HIGH_RISK_CLICK_TERMS:
+                if term in target_descriptor:
                     return CapabilityResult(
                         success=False,
-                        status=ExecutionStatus.FAILED,
-                        error=res.get("error", "Element not found"),
-                        message=f"Could not click element: {res.get('error', 'not found')}",
+                        status=ExecutionStatus.CONFIRMATION_REQUIRED,
+                        error=f"Click target contains high-risk action ('{term}').",
+                        message=f"Action '{target_descriptor.strip()}' may be consequential or irreversible. Confirmation required.",
+                        data={
+                            "element_id": element_id,
+                            "selector": selector,
+                            "text": text,
+                            "high_risk_term": term,
+                            "confirmation_required": True,
+                        },
                     )
-            except Exception as cdp_err:
-                logger.debug("CDP click failed: %s", cdp_err)
 
-        # 2. Fallback: If href or url-like target is recognizable in text/selector
+        # Fallback if text is direct URL
         if text and text.startswith(("http://", "https://")):
             return self.nav_cap.execute(url=text)
 
-        # If browser window is running, focus it
-        state = self.controller.observe()
-        if state.is_running and state.browser_name:
-            self.focus_cap.execute(app=state.browser_name)
+        wait_seconds = 0.5 if kwargs.get("wait_navigation") else 0.3
+        res = self.controller.click(
+            element_id=element_id,
+            selector=selector,
+            text=text,
+            wait_seconds=wait_seconds,
+        )
 
-        target_desc = selector or f"text '{text}'"
+        if not res.get("success"):
+            return CapabilityResult(
+                success=False,
+                status=ExecutionStatus.FAILED,
+                error=res.get("error", "Element not found"),
+                message=f"Could not click element: {res.get('error', 'not found')}",
+            )
+
+        clicked_info = res.get("clicked_element", {})
+        tag_str = clicked_info.get("tag") or "element"
+        target_desc = (
+            f"element #{element_id}"
+            if element_id is not None
+            else (selector or f"text '{text}'")
+        )
+        msg = f"Clicked {tag_str} matching {target_desc}."
+
+        result_data: dict[str, Any] = {
+            "element_id": element_id,
+            "selector": selector,
+            "text": text,
+            "method": res.get("method", "cdp"),
+            "clicked_element": clicked_info,
+        }
+        if "observation" in res:
+            result_data["observation"] = res["observation"]
+
         return CapabilityResult(
             success=True,
             status=ExecutionStatus.SUCCESS,
-            message=f"Activated browser window and targeted click on {target_desc}.",
-            data={
-                "selector": selector,
-                "text": text,
-                "method": "fallback_focus",
-            },
+            message=msg,
+            data=result_data,
         )

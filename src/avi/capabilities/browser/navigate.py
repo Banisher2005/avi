@@ -127,6 +127,23 @@ class BrowserNavigateCapability(BaseCapability):
         parsed = urllib.parse.urlparse(target_url)
         self.controller.record_navigation(target_url)
 
+        # Bounded wait for page readiness
+        wait_seconds = min(max(float(kwargs.get("wait_seconds", 0.5)), 0.0), 10.0)
+        if cdp_used and wait_seconds > 0:
+            import time
+            start_t = time.time()
+            while (time.time() - start_t) < wait_seconds:
+                try:
+                    ready = self.controller.cdp.evaluate("document.readyState")
+                    if ready == "complete":
+                        break
+                except Exception:
+                    pass
+                time.sleep(0.1)
+
+        # Post-navigation observation
+        obs = self.controller.observe()
+
         return CapabilityResult(
             success=True,
             status=ExecutionStatus.SUCCESS,
@@ -138,5 +155,8 @@ class BrowserNavigateCapability(BaseCapability):
                 "path": parsed.path,
                 "method": "cdp" if cdp_used else "system_browser",
                 "cdp_used": cdp_used,
+                "observation": obs.to_dict(),
+                "summary": obs.formatted_summary(),
+                "verified": True,
             },
         )

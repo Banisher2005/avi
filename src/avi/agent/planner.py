@@ -224,10 +224,132 @@ class AgentPlanner:
                     max_steps=self.max_steps,
                 )
 
-        # Pattern: Open <destination> and (then )?search for <query>
-        # e.g. "open kaggle and then search for datasets", "open github and search for react", "go to wikipedia and search machine learning"
+        # Pattern: Open <destination>, search for <query>, and open/click the first result
+        # e.g. "open kaggle, search for titanic, and open the first result"
+        first_result_match = re.search(
+            r"^(?:please\s+|can\s+you\s+|could\s+you\s+)?(?:open(?:\s+up)?|go\s+to|visit|browse\s+to|navigate\s+to)\s+([a-zA-Z0-9_\-\.\s]+?)[,\s]+(?:(?:and\s+then|and|then)[,\s]+)?(?:search(?:\s+for)?|find|look\s*up)\s+(.+?)[,\s]+(?:and\s+then|and|then)[,\s]+(?:open|click|view)\s+(?:the\s+)?first\s+result\b",
+            clean,
+            re.IGNORECASE,
+        ) or re.search(
+            r"^(?:please\s+|can\s+you\s+|could\s+you\s+)?search\s+([a-zA-Z0-9_\-\.\s]+?)\s+for\s+(.+?)[,\s]+(?:and\s+then|and|then)[,\s]+(?:open|click|view)\s+(?:the\s+)?first\s+result\b",
+            clean,
+            re.IGNORECASE,
+        )
+        if first_result_match:
+            dest_query = first_result_match.group(1).strip()
+            search_query = first_result_match.group(2).strip().strip("\"'")
+            if search_query.lower().startswith("for "):
+                search_query = search_query[4:].strip()
+
+            from avi.apps.destinations import DestinationResolver
+            from avi.apps.models import DestinationType
+
+            resolver = DestinationResolver()
+            dest_res = resolver.resolve(dest_query)
+
+            if dest_res.destination_type == DestinationType.WEBSITE or dest_res.url:
+                start_url = dest_res.url
+                dest_name = dest_res.target or dest_query.title()
+                if self.max_steps >= 6:
+                    steps = [
+                        PlanStep(
+                            step_id=1,
+                            capability_name="browser.navigate",
+                            arguments={"url": start_url},
+                            description=f"Open {dest_name} in browser",
+                        ),
+                        PlanStep(
+                            step_id=2,
+                            capability_name="browser.observe",
+                            arguments={},
+                            description="Observe browser state",
+                        ),
+                        PlanStep(
+                            step_id=3,
+                            capability_name="browser.type",
+                            arguments={
+                                "selector": "input[type='search'], input[name='q'], input[type='text'], textarea",
+                                "text": search_query,
+                                "press_enter": True,
+                            },
+                            description=f"Search {dest_name} for '{search_query}'",
+                        ),
+                        PlanStep(
+                            step_id=4,
+                            capability_name="browser.observe",
+                            arguments={},
+                            description="Observe search results",
+                        ),
+                        PlanStep(
+                            step_id=5,
+                            capability_name="browser.click",
+                            arguments={
+                                "selector": "a.result, .search-result a, a[data-testid='result-title-a'], a h3, main a",
+                                "wait_navigation": True,
+                            },
+                            description="Open the first search result",
+                        ),
+                        PlanStep(
+                            step_id=6,
+                            capability_name="browser.observe",
+                            arguments={},
+                            description="Observe opened result page",
+                        ),
+                    ]
+                else:
+                    steps = [
+                        PlanStep(
+                            step_id=1,
+                            capability_name="browser.navigate",
+                            arguments={"url": start_url},
+                            description=f"Open {dest_name} in browser",
+                        ),
+                        PlanStep(
+                            step_id=2,
+                            capability_name="browser.observe",
+                            arguments={},
+                            description="Observe browser state",
+                        ),
+                        PlanStep(
+                            step_id=3,
+                            capability_name="browser.type",
+                            arguments={
+                                "selector": "input[type='search'], input[name='q'], input[type='text'], textarea",
+                                "text": search_query,
+                                "press_enter": True,
+                            },
+                            description=f"Search {dest_name} for '{search_query}'",
+                        ),
+                        PlanStep(
+                            step_id=4,
+                            capability_name="browser.click",
+                            arguments={
+                                "selector": "a.result, .search-result a, a[data-testid='result-title-a'], a h3, main a",
+                                "wait_navigation": True,
+                            },
+                            description="Open the first search result",
+                        ),
+                        PlanStep(
+                            step_id=5,
+                            capability_name="browser.observe",
+                            arguments={},
+                            description="Observe opened result page",
+                        ),
+                    ]
+                return Plan(
+                    user_goal=clean,
+                    steps=steps[: self.max_steps],
+                    max_steps=self.max_steps,
+                )
+
+        # Pattern: Open <destination> and (then )?search for <query> OR search <destination> for <query>
+        # e.g. "open kaggle and then search for datasets", "open github and search for react", "search kaggle for machine learning"
         web_search_match = re.search(
             r"^(?:please\s+|can\s+you\s+|could\s+you\s+)?(?:open(?:\s+up)?|go\s+to|visit|browse\s+to|navigate\s+to)\s+([a-zA-Z0-9_\-\.\s]+?)\s+(?:and\s+then|and|then)\s+(?:search(?:\s+for)?|find|look\s*up)\s+(.+)$",
+            clean,
+            re.IGNORECASE,
+        ) or re.search(
+            r"^(?:please\s+|can\s+you\s+|could\s+you\s+)?search\s+([a-zA-Z0-9_\-\.]+?)\s+for\s+(.+)$",
             clean,
             re.IGNORECASE,
         )
@@ -273,6 +395,152 @@ class AgentPlanner:
                     steps=steps[: self.max_steps],
                     max_steps=self.max_steps,
                 )
+
+        # Pattern: Press <key> in browser
+        browser_key_match = re.search(
+            r"^(?:in\s+(?:the\s+)?browser[,\s]+)?(?:please\s+|can\s+you\s+)?press\s+(\w+)(?:\s+key)?(?:\s+in\s+(?:the\s+)?browser)?$",
+            clean,
+            re.IGNORECASE,
+        )
+        if browser_key_match and ("browser" in lower or "key" in lower):
+            k = browser_key_match.group(1).strip()
+            steps = [
+                PlanStep(
+                    step_id=1,
+                    capability_name="browser.press_key",
+                    arguments={"key": k},
+                    description=f"Press {k} in browser",
+                ),
+                PlanStep(
+                    step_id=2,
+                    capability_name="browser.observe",
+                    arguments={},
+                    description="Observe browser state after key press",
+                ),
+            ]
+            return Plan(
+                user_goal=clean,
+                steps=steps[: self.max_steps],
+                max_steps=self.max_steps,
+            )
+
+        # Pattern: In browser, click <target> / click <target> in browser
+        browser_click_match = re.search(
+            r"^(?:in\s+(?:the\s+)?browser[,\s]+)?(?:please\s+|can\s+you\s+)?click(?:\s+on)?\s+(?:element\s+#?(\d+)|([^\n]+?))\s*(?:in\s+(?:the\s+)?browser)?$",
+            clean,
+            re.IGNORECASE,
+        )
+        if browser_click_match and ("browser" in lower or "element" in lower):
+            el_id = browser_click_match.group(1)
+            raw_target = browser_click_match.group(2)
+            args = {}
+            if el_id:
+                args["element_id"] = int(el_id)
+                desc = f"Click element #{el_id}"
+            elif raw_target:
+                raw_clean = raw_target.strip().strip("\"'")
+                if raw_clean.isdigit():
+                    args["element_id"] = int(raw_clean)
+                    desc = f"Click element #{raw_clean}"
+                elif raw_clean.startswith(("#", ".", "[")):
+                    args["selector"] = raw_clean
+                    desc = f"Click selector '{raw_clean}'"
+                else:
+                    args["text"] = raw_clean
+                    desc = f"Click '{raw_clean}'"
+            else:
+                args = {}
+                desc = "Click element in browser"
+
+            if args:
+                steps = [
+                    PlanStep(
+                        step_id=1,
+                        capability_name="browser.click",
+                        arguments=args,
+                        description=desc,
+                    ),
+                    PlanStep(
+                        step_id=2,
+                        capability_name="browser.observe",
+                        arguments={},
+                        description="Observe browser state after click",
+                    ),
+                ]
+                return Plan(
+                    user_goal=clean,
+                    steps=steps[: self.max_steps],
+                    max_steps=self.max_steps,
+                )
+
+        # Pattern: Type <text> into <target> in browser
+        browser_type_match = re.search(
+            r"^(?:in\s+(?:the\s+)?browser[,\s]+)?(?:please\s+|can\s+you\s+)?type\s+([\"'].+?[\"']|[^\s]+)\s+(?:into|in)\s+(?:element\s+#?(\d+)|([^\n]+?))\s*(?:in\s+(?:the\s+)?browser)?$",
+            clean,
+            re.IGNORECASE,
+        )
+        if browser_type_match and ("browser" in lower or "element" in lower or "into" in lower):
+            text_val = browser_type_match.group(1).strip().strip("\"'")
+            el_id = browser_type_match.group(2)
+            raw_target = browser_type_match.group(3)
+            args = {"text": text_val}
+            if el_id:
+                args["element_id"] = int(el_id)
+            elif raw_target:
+                t_clean = raw_target.strip().strip("\"'")
+                if t_clean.isdigit():
+                    args["element_id"] = int(t_clean)
+                elif t_clean.startswith(("#", ".", "[")):
+                    args["selector"] = t_clean
+                else:
+                    args["selector"] = f"input[placeholder*='{t_clean}' i], input[name*='{t_clean}' i]"
+            steps = [
+                PlanStep(
+                    step_id=1,
+                    capability_name="browser.type",
+                    arguments=args,
+                    description=f"Type '{text_val}' into browser input",
+                ),
+                PlanStep(
+                    step_id=2,
+                    capability_name="browser.observe",
+                    arguments={},
+                    description="Observe browser state after typing",
+                ),
+            ]
+            return Plan(
+                user_goal=clean,
+                steps=steps[: self.max_steps],
+                max_steps=self.max_steps,
+            )
+
+        # Pattern: Scroll <dir> in browser
+        browser_scroll_match = re.search(
+            r"^(?:in\s+(?:the\s+)?browser[,\s]+)?(?:please\s+|can\s+you\s+)?scroll\s+(down|up|top|bottom)(?:\s+(?:the\s+)?page)?\s*(?:in\s+(?:the\s+)?browser)?$",
+            clean,
+            re.IGNORECASE,
+        )
+        if browser_scroll_match:
+            s_dir = browser_scroll_match.group(1).strip().lower()
+            steps = [
+                PlanStep(
+                    step_id=1,
+                    capability_name="browser.scroll",
+                    arguments={"direction": s_dir},
+                    description=f"Scroll {s_dir} in browser",
+                ),
+                PlanStep(
+                    step_id=2,
+                    capability_name="browser.observe",
+                    arguments={},
+                    description="Observe browser state after scrolling",
+                ),
+            ]
+            return Plan(
+                user_goal=clean,
+                steps=steps[: self.max_steps],
+                max_steps=self.max_steps,
+            )
 
         # Pattern: Find newest <ext/file> in <dir> and open it
         newest_match = re.search(

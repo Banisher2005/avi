@@ -118,6 +118,7 @@ class BrowserScrollCapability(BaseCapability):
                 res = self.controller.cdp.evaluate(js_scroll)
                 if isinstance(res, dict) and res.get("success"):
                     cdp_used = True
+                    obs = self.controller.observe()
                     return CapabilityResult(
                         success=True,
                         status=ExecutionStatus.SUCCESS,
@@ -127,6 +128,7 @@ class BrowserScrollCapability(BaseCapability):
                             "amount": amount,
                             "method": "cdp",
                             "metrics": res,
+                            "observation": obs.to_dict(),
                         },
                     )
             except Exception as cdp_err:
@@ -146,6 +148,7 @@ class BrowserScrollCapability(BaseCapability):
         key_to_press = key_map.get(direction, "Page_Down")
         press_res = self.press_cap.execute(key=key_to_press)
 
+        obs = self.controller.observe()
         return CapabilityResult(
             success=press_res.success,
             status=ExecutionStatus.SUCCESS if press_res.success else ExecutionStatus.FAILED,
@@ -155,5 +158,6 @@ class BrowserScrollCapability(BaseCapability):
                 "amount": amount,
                 "key": key_to_press,
                 "method": "keyboard_fallback",
+                "observation": obs.to_dict(),
             },
         )

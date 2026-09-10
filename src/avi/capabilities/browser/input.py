@@ -26,7 +26,7 @@ class BrowserTypeCapability(BaseCapability):
     name = "browser.type"
     description = (
         "Type text into a web input field, search box, or active element in the browser. "
-        "Supports CSS selector targeting, field clearing, and pressing Enter."
+        "Supports element_id targeting, CSS selector targeting, field clearing, and pressing Enter."
     )
     input_schema = {
         "type": "object",
@@ -34,6 +34,10 @@ class BrowserTypeCapability(BaseCapability):
             "text": {
                 "type": "string",
                 "description": "The text string to type into the browser input.",
+            },
+            "element_id": {
+                "type": ["integer", "string"],
+                "description": "Observation-local ID of the interactive element to type into.",
             },
             "selector": {
                 "type": "string",
@@ -82,11 +86,16 @@ class BrowserTypeCapability(BaseCapability):
             )
 
         text_str = str(text)
+        element_id = kwargs.get("element_id") or kwargs.get("id")
         selector = kwargs.get("selector")
         press_enter = bool(kwargs.get("press_enter", False))
         clear_existing = bool(kwargs.get("clear_existing", False))
 
-        cdp_used = False
+        # Resolve selector if element_id given
+        if element_id is not None and not selector:
+            resolved_el, resolved_sel = self.controller.resolve_element(element_id=element_id)
+            if resolved_sel:
+                selector = resolved_sel
 
         # 1. Try CDP if available
         if self.controller.cdp.is_available():
@@ -94,12 +103,17 @@ class BrowserTypeCapability(BaseCapability):
                 js_script = (
                     "(() => {"
                     f"  const selector = {json.dumps(selector)};"
+                    f"  const aviId = {json.dumps(int(element_id) if element_id is not None and str(element_id).isdigit() else None)};"
                     f"  const text = {json.dumps(text_str)};"
                     f"  const clear = {json.dumps(clear_existing)};"
                     f"  const pressEnter = {json.dumps(press_enter)};"
-                    "  let el = selector ? document.querySelector(selector) : document.activeElement;"
-                    "  if (!el && !selector) el = document.querySelector('input:not([type=hidden]), textarea');"
+                    "  let el = null;"
+                    "  if (aviId) el = document.querySelector(`[data-avi-id='${aviId}']`);"
+                    "  if (!el && selector) el = document.querySelector(selector);"
+                    "  if (!el && !aviId && !selector) el = document.activeElement;"
+                    "  if (!el || el === document.body) el = document.querySelector('input:not([type=hidden]), textarea');"
                     "  if (!el) return {success: false, error: 'Element not found'};"
+                    "  if (typeof el.scrollIntoView === 'function') el.scrollIntoView({block: 'center', inline: 'center'});"
                     "  el.focus();"
                     "  if (clear) el.value = '';"
                     "  el.value = clear ? text : (el.value + text);"
@@ -107,32 +121,34 @@ class BrowserTypeCapability(BaseCapability):
                     "  el.dispatchEvent(new Event('change', {bubbles: true}));"
                     "  if (pressEnter) {"
                     "    el.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true}));"
+                    "    el.dispatchEvent(new KeyboardEvent('keyup', {key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true}));"
                     "    if (el.form) el.form.submit();"
                     "  }"
-                    "  return {success: true, tag: el.tagName, id: el.id, name: el.name};"
+                    "  return {success: true, tag: el.tagName, id: el.id, name: el.name, value: el.value};"
                     "})()"
                 )
                 eval_res = self.controller.cdp.evaluate(js_script)
                 if isinstance(eval_res, dict) and eval_res.get("success"):
-                    cdp_used = True
+                    obs = self.controller.observe()
                     return CapabilityResult(
                         success=True,
                         status=ExecutionStatus.SUCCESS,
                         message=f"Typed '{text_str}' into {eval_res.get('tag', 'element')} via CDP.",
                         data={
                             "text": text_str,
+                            "element_id": element_id,
                             "selector": selector,
                             "press_enter": press_enter,
                             "clear_existing": clear_existing,
                             "method": "cdp",
                             "element_info": eval_res,
+                            "observation": obs.to_dict(),
                         },
                     )
             except Exception as cdp_err:
                 logger.debug("CDP typing failed, falling back to desktop input: %s", cdp_err)
 
         # 2. Desktop input fallback
-        # Focus browser window if a browser is known to be running
         state = self.controller.observe()
         if state.is_running and state.browser_name:
             self.focus_cap.execute(app=state.browser_name)
@@ -153,15 +169,18 @@ class BrowserTypeCapability(BaseCapability):
         if press_enter:
             self.press_cap.execute(key="Return")
 
+        obs = self.controller.observe()
         return CapabilityResult(
             success=True,
             status=ExecutionStatus.SUCCESS,
             message=f"Typed '{text_str}' into browser window.",
             data={
                 "text": text_str,
+                "element_id": element_id,
                 "selector": selector,
                 "press_enter": press_enter,
                 "clear_existing": clear_existing,
                 "method": "desktop_input",
+                "observation": obs.to_dict(),
             },
         )

@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from typing import Any
 
+from avi.browser.models import InteractiveElement
+
 logger = logging.getLogger(__name__)
 
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 AVI/1.0"
@@ -25,6 +27,7 @@ class ExtractedPageContent:
     text: str = ""
     headings: list[str] = field(default_factory=list)
     links: list[dict[str, str]] = field(default_factory=list)
+    elements: list[InteractiveElement] = field(default_factory=list)
     meta_description: str = ""
     is_truncated: bool = False
     status_code: int = 200
@@ -37,6 +40,7 @@ class ExtractedPageContent:
             "text": self.text,
             "headings": self.headings,
             "links": self.links,
+            "elements": [el.to_dict() for el in self.elements],
             "meta_description": self.meta_description,
             "is_truncated": self.is_truncated,
             "status_code": self.status_code,
@@ -44,16 +48,18 @@ class ExtractedPageContent:
 
 
 class SimpleHtmlParser(HTMLParser):
-    """Parses HTML into clean readable text, headings, and links."""
+    """Parses HTML into clean readable text, headings, links, and interactive elements."""
 
-    def __init__(self, base_url: str = "", max_links: int = 20) -> None:
+    def __init__(self, base_url: str = "", max_links: int = 20, max_elements: int = 50) -> None:
         super().__init__()
         self.base_url = base_url
         self.max_links = max_links
+        self.max_elements = max_elements
         self.title = ""
         self.meta_description = ""
         self.headings: list[str] = []
         self.links: list[dict[str, str]] = []
+        self.elements: list[InteractiveElement] = []
         self.text_blocks: list[str] = []
 
         self._in_title = False
@@ -62,6 +68,9 @@ class SimpleHtmlParser(HTMLParser):
         self._in_link = False
         self._current_link_text = ""
         self._current_link_href = ""
+        self._in_button = False
+        self._current_button_text = ""
+        self._current_button_attrs: dict[str, str] = {}
         self._ignore_depth = 0
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
@@ -91,6 +100,33 @@ class SimpleHtmlParser(HTMLParser):
                 self._in_link = True
                 self._current_link_text = ""
                 self._current_link_href = urllib.parse.urljoin(self.base_url, href)
+        elif tag_lower == "button" and len(self.elements) < self.max_elements:
+            self._in_button = True
+            self._current_button_text = ""
+            self._current_button_attrs = attr_dict
+        elif tag_lower in ("input", "textarea", "select") and len(self.elements) < self.max_elements:
+            elem_type = attr_dict.get("type", "text").lower()
+            if elem_type != "hidden":
+                eid = len(self.elements) + 1
+                name = attr_dict.get("name")
+                ph = attr_dict.get("placeholder")
+                val = attr_dict.get("value")
+                label = attr_dict.get("aria-label") or ph or name or ""
+                role = "searchbox" if elem_type == "search" else ("button" if elem_type in ("submit", "button") else "textbox")
+                sel = f"#{attr_dict['id']}" if attr_dict.get("id") else (f"{tag_lower}[name='{name}']" if name else f"{tag_lower}[type='{elem_type}']")
+                self.elements.append(
+                    InteractiveElement(
+                        element_id=eid,
+                        tag=tag_lower,
+                        element_type=elem_type,
+                        role=role,
+                        text=label,
+                        placeholder=ph,
+                        name=name,
+                        selector=sel,
+                        value=val,
+                    )
+                )
 
     def handle_endtag(self, tag: str) -> None:
         tag_lower = tag.lower()
@@ -114,6 +150,33 @@ class SimpleHtmlParser(HTMLParser):
             link_text = self._current_link_text.strip()
             if link_text and self._current_link_href:
                 self.links.append({"text": link_text, "href": self._current_link_href})
+                if len(self.elements) < self.max_elements:
+                    eid = len(self.elements) + 1
+                    self.elements.append(
+                        InteractiveElement(
+                            element_id=eid,
+                            tag="a",
+                            role="link",
+                            text=link_text,
+                            href=self._current_link_href,
+                            selector=f"a[href='{self._current_link_href}']",
+                        )
+                    )
+        elif tag_lower == "button" and self._in_button:
+            self._in_button = False
+            btn_text = self._current_button_text.strip()
+            eid = len(self.elements) + 1
+            btn_id = self._current_button_attrs.get("id")
+            sel = f"#{btn_id}" if btn_id else f"button"
+            self.elements.append(
+                InteractiveElement(
+                    element_id=eid,
+                    tag="button",
+                    role="button",
+                    text=btn_text or self._current_button_attrs.get("aria-label", ""),
+                    selector=sel,
+                )
+            )
 
     def handle_data(self, data: str) -> None:
         if self._ignore_depth > 0:
@@ -130,6 +193,9 @@ class SimpleHtmlParser(HTMLParser):
             self.text_blocks.append(clean)
         elif self._in_link:
             self._current_link_text += f" {clean}"
+            self.text_blocks.append(clean)
+        elif self._in_button:
+            self._current_button_text += f" {clean}"
             self.text_blocks.append(clean)
         else:
             self.text_blocks.append(clean)
@@ -160,6 +226,7 @@ def extract_html_content(
         text=full_text,
         headings=parser.headings[:15],
         links=parser.links if include_links else [],
+        elements=parser.elements,
         meta_description=parser.meta_description,
         is_truncated=is_truncated,
         status_code=status_code,

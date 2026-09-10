@@ -30,11 +30,14 @@ class BrowserObserveCapability(BaseCapability):
             title_str = state.title or "No active page"
             browser_str = state.browser_name or "browser"
             msg = f"Browser state: {browser_str} ({state.status}) - {title_str}"
+            data = state.to_dict()
+            data["observation"] = dict(data)
+            data["summary"] = state.formatted_summary()
             return CapabilityResult(
                 success=True,
                 status=ExecutionStatus.SUCCESS,
                 message=msg,
-                data=state.to_dict(),
+                data=data,
             )
         except Exception as err:
             return CapabilityResult(

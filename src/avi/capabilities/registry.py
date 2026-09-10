@@ -48,7 +48,9 @@ from avi.capabilities.browser import (
     BrowserExtractCapability,
     BrowserNavigateCapability,
     BrowserObserveCapability,
+    BrowserPressKeyCapability,
     BrowserScrollCapability,
+    BrowserTabsCapability,
     BrowserTypeCapability,
 )
 from avi.capabilities.web.search import (
@@ -404,6 +406,18 @@ def create_default_capability_registry(
     registry.register(
         browser_click,
         aliases=["browser.click", "click_element", "browser.click_element", "web.click"],
+    )
+
+    browser_press_key = BrowserPressKeyCapability()
+    registry.register(
+        browser_press_key,
+        aliases=["browser.press_key", "browser.key", "press_browser_key", "web.press_key"],
+    )
+
+    browser_tabs = BrowserTabsCapability()
+    registry.register(
+        browser_tabs,
+        aliases=["browser.tabs", "tabs", "browser.tab", "manage_tabs", "browser_tabs"],
     )
 
     browser_scroll = BrowserScrollCapability()

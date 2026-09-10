@@ -558,15 +558,19 @@ class AgentExecutor:
 
         # 11. Browser capabilities verification
         if cap in ("browser.observe", "browser.state", "observe_browser"):
-            return res.data is not None and "status" in res.data
+            return res.data is not None and ("status" in res.data or "url" in res.data or "observation" in res.data)
         if cap in ("browser.navigate", "navigate", "browser.go"):
             return res.data is not None and "url" in res.data
         if cap in ("browser.extract", "browser.read", "read_page"):
             return res.data is not None and "text" in res.data
         if cap in ("browser.type", "browser.input"):
-            return res.data is not None and "text" in res.data
+            return res.data is not None and ("text" in res.data or "element_info" in res.data or "typed" in res.data)
         if cap in ("browser.click", "click_element"):
-            return res.data is not None
+            return res.data is not None and ("clicked_element" in res.data or "observation" in res.data or "selector" in res.data or "element_id" in res.data)
+        if cap in ("browser.press_key", "press_browser_key"):
+            return res.data is not None and "key" in res.data
+        if cap in ("browser.tabs", "tabs", "manage_tabs"):
+            return res.data is not None and ("action" in res.data or "tabs" in res.data or "tab_id" in res.data)
         if cap in ("browser.scroll", "scroll_page"):
             return res.data is not None and "direction" in res.data
         if cap in ("browser.download", "browser.downloads", "detect_download"):
