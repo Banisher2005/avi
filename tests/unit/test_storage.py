@@ -1,14 +1,12 @@
 """Unit tests for Phase 15 SQLite persistence layer."""
 
+
 import pytest
-from pathlib import Path
 
 from avi.storage.database import Database, screen_for_sensitive_data
 from avi.storage.models import (
     ActionRecord,
-    AliasRecord,
     MemoryRecord,
-    PreferenceRecord,
     TaskRecord,
 )
 

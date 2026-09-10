@@ -1121,8 +1121,8 @@ class TestCliCommandPalette:
         assert "!" in [call.kwargs.get("label") for call in gtk_mock.Label.call_args_list]
 
     def test_compact_result_rows_rendering(self, mock_gtk):
-        from avi.ui.window import AviWindow
         from avi.retrieval.models import SearchResult
+        from avi.ui.window import AviWindow
 
         win = AviWindow(MagicMock(), MagicMock(), MagicMock())
         gtk_mock = mock_gtk[0]
@@ -1137,8 +1137,8 @@ class TestCliCommandPalette:
         assert len(win._current_search_rows) == 2
 
     def test_arrow_navigation_search_results(self, mock_gtk):
-        from avi.ui.window import AviWindow
         from avi.retrieval.models import SearchResult
+        from avi.ui.window import AviWindow
 
         win = AviWindow(MagicMock(), MagicMock(), MagicMock())
         gdk = mock_gtk[1]

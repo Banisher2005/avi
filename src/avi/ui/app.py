@@ -328,7 +328,7 @@ class AviApp:
         import gi
 
         gi.require_version("Gtk", "4.0")
-        from gi.repository import Gdk, Gio, GLib, Gtk
+        from gi.repository import Gdk, Gio, Gtk
 
         app = Gtk.Application(
             application_id=_APP_ID,

@@ -394,7 +394,10 @@ class SystemControlsSkill(BaseSkill):
         parameters: dict[str, Any],
         context: dict[str, Any] | None = None,
     ) -> SkillResult:
-        from avi.capabilities.desktop.system_controls import VolumeGetCapability, VolumeSetCapability
+        from avi.capabilities.desktop.system_controls import (
+            VolumeGetCapability,
+            VolumeSetCapability,
+        )
 
         if action == "get_volume":
             cap_res = VolumeGetCapability().execute()

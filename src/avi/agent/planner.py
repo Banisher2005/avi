@@ -1,9 +1,8 @@
-"""Agent planner for decomposing user intents into bounded capability plans."""
-
 import re
+from datetime import datetime, timezone
 from typing import Any
 
-from avi.agent.models import Plan, PlanStep
+from avi.agent.models import Goal, GoalSegment, Plan, PlanStep
 
 
 def _normalize_search_dir(dir_name: str | None, context: dict[str, Any] | None = None) -> str:
@@ -57,12 +56,131 @@ def _normalize_search_dir(dir_name: str | None, context: dict[str, Any] | None =
 class AgentPlanner:
     """Deterministic and bounded plan synthesizer for assistant capabilities."""
 
-    def __init__(self, max_steps: int = 5) -> None:
+    def __init__(self, max_steps: int = 5, experience_store: Any | None = None) -> None:
         self.max_steps = max_steps
+        self.experience_store = experience_store
+
+    def resolve_continuation(self, prompt: str, context: dict[str, Any] | None = None) -> str:
+        """Resolve conversational anaphora/pronouns using recent context."""
+        if not context:
+            return prompt
+        clean = prompt.strip()
+        lower = clean.lower()
+        last_artifact = context.get("last_artifact") or context.get("last_path") or context.get("artifact_path")
+        last_url = context.get("last_url") or context.get("url")
+
+        # Pronoun resolution for files/artifacts
+        if last_artifact:
+            pat = r"\b(it|that|this|the\s+file|the\s+screenshot|the\s+image|the\s+document)\b"
+            if re.search(pat, lower):
+                resolved = re.sub(pat, str(last_artifact), clean, flags=re.IGNORECASE)
+                resolved = re.sub(r"^now\s+", "", resolved, flags=re.IGNORECASE)
+                return resolved
+
+        if last_url:
+            pat = r"\b(it|that|this|the\s+page|the\s+site|the\s+website|the\s+url)\b"
+            if re.search(pat, lower):
+                resolved = re.sub(pat, str(last_url), clean, flags=re.IGNORECASE)
+                resolved = re.sub(r"^now\s+", "", resolved, flags=re.IGNORECASE)
+                return resolved
+
+        return clean
+
+    def decompose_goal(self, prompt: str, context: dict[str, Any] | None = None) -> Goal:
+        """Decompose a high-level user prompt into a structured Goal with milestone GoalSegments."""
+        resolved_prompt = self.resolve_continuation(prompt, context)
+        now_ts = datetime.now(timezone.utc).isoformat()
+        goal = Goal(
+            user_goal=prompt,
+            normalized_goal=resolved_prompt.strip().lower(),
+            created_at=now_ts,
+            updated_at=now_ts,
+        )
+
+        # 1. If base planner already synthesizes a complete plan, use it
+        single_plan = self.create_plan(resolved_prompt, context)
+        if single_plan is not None:
+            verif_cond: dict[str, Any] = {}
+            for step in single_plan.steps:
+                cap = step.capability_name.lower()
+                args = step.arguments or {}
+                if "create_directory" in cap or "mkdir" in cap:
+                    if "path" in args:
+                        verif_cond["dir_exists"] = args["path"]
+                elif "write" in cap and "file" in cap:
+                    if "path" in args:
+                        verif_cond["file_exists"] = args["path"]
+                elif "navigate" in cap or "open_url" in cap:
+                    if "url" in args:
+                        verif_cond["url"] = args["url"]
+
+            goal.segments = [
+                GoalSegment(
+                    segment_id="seg_1",
+                    title=resolved_prompt,
+                    description=resolved_prompt,
+                    plan=single_plan,
+                    verification_condition=verif_cond,
+                )
+            ]
+            return goal
+
+        # 2. Check for multi-clause compound intent
+        split_pattern = r"\s+(?:and\s+then|then|after\s+that|afterward|afterwards|next)\s+|;\s*"
+        clauses = [c.strip() for c in re.split(split_pattern, resolved_prompt, flags=re.IGNORECASE) if c.strip()]
+
+        if len(clauses) > 1:
+            segments: list[GoalSegment] = []
+            segment_valid = True
+            for i, clause in enumerate(clauses):
+                seg_plan = self.create_plan(clause, context)
+                if seg_plan:
+                    verif_cond = {}
+                    for step in seg_plan.steps:
+                        cap = step.capability_name.lower()
+                        args = step.arguments or {}
+                        if "create_directory" in cap or "mkdir" in cap:
+                            if "path" in args:
+                                verif_cond["dir_exists"] = args["path"]
+                        elif "write" in cap and "file" in cap:
+                            if "path" in args:
+                                verif_cond["file_exists"] = args["path"]
+                        elif "navigate" in cap or "open_url" in cap:
+                            if "url" in args:
+                                verif_cond["url"] = args["url"]
+
+                    segments.append(
+                        GoalSegment(
+                            segment_id=f"seg_{i+1}",
+                            title=clause,
+                            description=f"Milestone {i+1}: {clause}",
+                            plan=seg_plan,
+                            verification_condition=verif_cond,
+                        )
+                    )
+                else:
+                    segment_valid = False
+                    break
+
+            if segment_valid and len(segments) > 1:
+                goal.segments = segments
+                return goal
+
+        # 3. Fallback: single segment with None plan
+        goal.segments = [
+            GoalSegment(
+                segment_id="seg_1",
+                title=resolved_prompt,
+                description=resolved_prompt,
+                plan=None,
+            )
+        ]
+        return goal
 
     def create_plan(self, prompt: str, context: dict[str, Any] | None = None) -> Plan | None:
         """Analyze a user prompt and generate an executable Plan, or return None if unhandled."""
-        clean = prompt.strip()
+        resolved_prompt = self.resolve_continuation(prompt, context)
+        clean = resolved_prompt.strip()
         lower = clean.lower()
 
         # -------------------------------------------------------------------
@@ -724,6 +842,27 @@ class AgentPlanner:
         # -------------------------------------------------------------------
         # 2. Single-step capability patterns
         # -------------------------------------------------------------------
+
+        # Single-step: Open local file (path with slash or extension)
+        open_file_match = re.match(
+            r"^(?:please\s+)?(?:open|view|show|display)(?:\s+(?:the|this|my))?\s+(?:file\s+)?([/~][^\s]+|[^\s]+\.(?:png|jpg|jpeg|pdf|txt|md|csv|py|json|html|log|sh))$",
+            clean,
+            re.IGNORECASE,
+        )
+        if open_file_match:
+            file_target = open_file_match.group(1)
+            return Plan(
+                user_goal=clean,
+                steps=[
+                    PlanStep(
+                        step_id=1,
+                        capability_name="desktop.open_file",
+                        arguments={"path": file_target},
+                        description=f"Open file {file_target}",
+                    )
+                ],
+                max_steps=self.max_steps,
+            )
 
         # Screenshot
         if re.match(

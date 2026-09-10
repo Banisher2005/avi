@@ -2,7 +2,6 @@
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from typing import Any
 
 from avi.storage.models import MemoryRecord, utc_now_iso

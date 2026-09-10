@@ -3,11 +3,10 @@
 from unittest.mock import MagicMock, patch
 
 from avi.browser.controller import BrowserController
-from avi.browser.extractor import extract_html_content, fetch_and_extract_url
+from avi.browser.extractor import extract_html_content
 from avi.capabilities.browser.extract import BrowserExtractCapability
 from avi.capabilities.models import ExecutionStatus
 from avi.capabilities.registry import create_default_capability_registry
-
 
 SAMPLE_HTML = """
 <!DOCTYPE html>

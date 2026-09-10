@@ -2,7 +2,7 @@
 
 import pytest
 
-from avi.apps.destinations import WEB_DESTINATIONS, resolve_web_destination
+from avi.apps.destinations import resolve_web_destination
 from avi.apps.resolver import ApplicationResolver
 from avi.assistant.intents import AssistantIntentType, detect_assistant_intent
 

@@ -1,21 +1,18 @@
 """Unit tests for AgentOrchestrator lifecycle, loop guard, event dispatching, and error handling."""
 
-import pytest
 from unittest.mock import MagicMock
 
+import pytest
+
 from avi.agent.context import TaskStatus
-from avi.agent.events import EventDispatcher, ProgressEvent, ProgressEventType
+from avi.agent.events import EventDispatcher, ProgressEventType
 from avi.agent.executor import AgentExecutor
-from avi.agent.loop_guard import LoopGuard
-from avi.agent.models import AssistantInput, Plan, PlanStep, StepStatus
+from avi.agent.models import Plan, PlanStep
 from avi.agent.orchestrator import AgentOrchestrator
 from avi.agent.planner import AgentPlanner
-from avi.agent.tool_selection import ToolSelector
 from avi.capabilities.models import CapabilityResult, ExecutionStatus
 from avi.capabilities.registry import CapabilityRegistry
-from avi.memory.models import Memory
 from avi.memory.retriever import MemoryRetriever
-from avi.safety.engine import SafetyEngine
 from avi.storage.database import Database
 
 

@@ -1,7 +1,9 @@
 """Unit tests for capability-aware ToolSelector."""
 
-import pytest
 from unittest.mock import MagicMock
+
+import pytest
+
 from avi.agent.tool_selection import ToolSelector
 from avi.capabilities.registry import CapabilityRegistry
 from avi.memory.models import Memory

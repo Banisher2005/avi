@@ -73,6 +73,7 @@ class OllamaProvider(BaseProvider):
         self.timeout = timeout
         self.temperature = temperature
         self.keep_alive = keep_alive
+        self.num_predict: int | None = 512
         self._last_metrics: ResponseMetrics | None = None
         self._last_context: list[int] | None = None
 
@@ -176,13 +177,17 @@ class OllamaProvider(BaseProvider):
     ) -> Iterator[str]:
         """Stream or yield text chunks from Ollama /api/generate."""
         url = f"{self.host}/api/generate"
+        options: dict[str, Any] = {
+            "temperature": self.temperature,
+        }
+        if self.num_predict is not None:
+            options["num_predict"] = self.num_predict
+
         payload: dict[str, Any] = {
             "model": self.model,
             "prompt": prompt,
             "stream": stream,
-            "options": {
-                "temperature": self.temperature,
-            },
+            "options": options,
             "keep_alive": self.keep_alive,
         }
         if system_prompt:

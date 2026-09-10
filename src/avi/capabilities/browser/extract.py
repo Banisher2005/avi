@@ -8,7 +8,6 @@ from typing import Any
 from avi.browser.controller import BrowserController
 from avi.browser.extractor import (
     ExtractedPageContent,
-    extract_html_content,
     fetch_and_extract_url,
 )
 from avi.capabilities.browser.navigate import sanitize_and_validate_url

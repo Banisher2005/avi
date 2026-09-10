@@ -1,6 +1,5 @@
 """Integration tests for AVI computer-use layer covering Scenarios A through K."""
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -132,7 +131,7 @@ class TestComputerUseScenarios:
         dummy_shot.write_text("png data")
 
         with patch("avi.capabilities.desktop.screenshot.ScreenshotCapability.execute") as mock_shot:
-            with patch("subprocess.Popen") as mock_open:
+            with patch("subprocess.Popen"):
                 mock_shot.return_value = CapabilityResult(
                     success=True,
                     status=ExecutionStatus.SUCCESS,
@@ -198,7 +197,7 @@ class TestComputerUseScenarios:
 
         rep_dir = tmp_path / "QuarterlyReports"
 
-        with patch("subprocess.Popen") as mock_open:
+        with patch("subprocess.Popen"):
             ctx = computer_use_orchestrator.run(
                 f"find newest pdf in {dl_dir}, create {rep_dir}, move it, open it"
             )

@@ -5,7 +5,6 @@ from unittest.mock import MagicMock
 from avi.browser.controller import BrowserController
 from avi.capabilities.browser.click import BrowserClickCapability
 from avi.capabilities.browser.navigate import BrowserNavigateCapability
-from avi.capabilities.desktop.window import WindowFocusCapability
 from avi.capabilities.models import CapabilityResult, ExecutionStatus
 from avi.capabilities.registry import create_default_capability_registry
 

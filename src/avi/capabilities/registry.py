@@ -4,6 +4,17 @@ import inspect
 from typing import Any, Iterator, Sequence
 
 from avi.apps.resolver import ApplicationResolver
+from avi.capabilities.browser import (
+    BrowserClickCapability,
+    BrowserDownloadCapability,
+    BrowserExtractCapability,
+    BrowserNavigateCapability,
+    BrowserObserveCapability,
+    BrowserPressKeyCapability,
+    BrowserScrollCapability,
+    BrowserTabsCapability,
+    BrowserTypeCapability,
+)
 from avi.capabilities.desktop.app_launcher import (
     LaunchAppCapability,
     OpenDirectoryCapability,
@@ -41,17 +52,6 @@ from avi.capabilities.models import (
     CapabilityResult,
     ExecutionStatus,
     ToolCapabilityAdapter,
-)
-from avi.capabilities.browser import (
-    BrowserClickCapability,
-    BrowserDownloadCapability,
-    BrowserExtractCapability,
-    BrowserNavigateCapability,
-    BrowserObserveCapability,
-    BrowserPressKeyCapability,
-    BrowserScrollCapability,
-    BrowserTabsCapability,
-    BrowserTypeCapability,
 )
 from avi.capabilities.web.search import (
     YouTubeSearchCapability,
@@ -264,7 +264,7 @@ def create_default_capability_registry(
 
     # 2. Desktop Capabilities
     app_resolver = resolver or ApplicationResolver()
-    
+
     shot_cap = ScreenshotCapability()
     shot_cap.tags = ("desktop", "screen", "capture", "image")
     registry.register(shot_cap, aliases=["screenshot", "take_screenshot"])

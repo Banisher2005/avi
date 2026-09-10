@@ -1,14 +1,11 @@
 """Unit tests for Phase 15 Modular Skills Framework."""
 
-import pytest
 from unittest.mock import MagicMock, patch
 
 from avi.skills.builtin import (
-    ApplicationSkill,
     BrowserSkill,
     FilesystemSkill,
     MediaSkill,
-    ScreenshotSkill,
     SystemControlsSkill,
     TerminalSkill,
 )

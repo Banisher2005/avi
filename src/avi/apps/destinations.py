@@ -7,7 +7,7 @@ import re
 import urllib.parse
 from typing import Any
 
-from avi.apps.models import ApplicationResolution, DestinationResolution, DestinationType
+from avi.apps.models import DestinationResolution, DestinationType
 from avi.apps.resolver import DEFAULT_ALIASES, ApplicationResolver
 
 # Known web destinations with aliases, search URLs, and typo variations

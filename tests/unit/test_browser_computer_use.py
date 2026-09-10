@@ -1,23 +1,20 @@
 """Comprehensive unit tests for AVI Phase 5 - Real Browser Computer Use."""
 
-from unittest.mock import MagicMock, patch
-import pytest
+from unittest.mock import MagicMock
 
 from avi.agent.executor import AgentExecutor
-from avi.agent.models import Plan, PlanStep, StepStatus
+from avi.agent.models import PlanStep
 from avi.agent.planner import AgentPlanner
 from avi.browser.controller import BrowserController
 from avi.browser.models import (
     BrowserObservation,
-    BrowserState,
     InteractiveElement,
     TabInfo,
 )
 from avi.capabilities.browser.click import BrowserClickCapability
-from avi.capabilities.browser.keyboard import BrowserPressKeyCapability
 from avi.capabilities.browser.input import BrowserTypeCapability
+from avi.capabilities.browser.keyboard import BrowserPressKeyCapability
 from avi.capabilities.browser.navigate import BrowserNavigateCapability
-from avi.capabilities.browser.observe import BrowserObserveCapability
 from avi.capabilities.browser.scroll import BrowserScrollCapability
 from avi.capabilities.browser.tabs import BrowserTabsCapability
 from avi.capabilities.models import ExecutionStatus

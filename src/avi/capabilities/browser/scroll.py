@@ -81,8 +81,6 @@ class BrowserScrollCapability(BaseCapability):
                 message=f"Unknown scroll direction: {direction}",
             )
 
-        cdp_used = False
-
         # 1. Try CDP smooth scroll
         if self.controller.cdp.is_available():
             try:
@@ -117,7 +115,6 @@ class BrowserScrollCapability(BaseCapability):
                 )
                 res = self.controller.cdp.evaluate(js_scroll)
                 if isinstance(res, dict) and res.get("success"):
-                    cdp_used = True
                     obs = self.controller.observe()
                     return CapabilityResult(
                         success=True,

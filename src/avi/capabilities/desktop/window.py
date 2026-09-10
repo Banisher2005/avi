@@ -1,7 +1,6 @@
 """Window management capabilities for AVI Agent Runtime."""
 
 import logging
-import re
 import shutil
 import subprocess
 from typing import Any

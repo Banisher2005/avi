@@ -32,10 +32,12 @@ class AgentExecutor:
         self.step_timeout = step_timeout
         self.verification_timeout = verification_timeout
         from avi.agent.diagnosis import FailureDiagnoser
+        from avi.agent.idempotency import IdempotencyChecker
         from avi.agent.verification import StateChangeDetector
 
         self.diagnoser = FailureDiagnoser()
         self.change_detector = StateChangeDetector()
+        self.idempotency_checker = IdempotencyChecker()
 
     def _run_with_timeout(
         self,
@@ -208,31 +210,37 @@ class AgentExecutor:
             # 3. Check safety / confirmation
             step.status = StepStatus.RUNNING
             t_act0 = time.perf_counter()
-            try:
-                res = self._run_with_timeout(
-                    self.registry.execute_safe,
-                    args=(step.capability_name,),
-                    kwargs={
-                        "args": step.arguments,
-                        "safety_engine": self.safety_engine,
-                        "confirmed": confirmed,
-                    },
-                    timeout=self.step_timeout,
-                )
-            except TimeoutError as te:
-                res = CapabilityResult(
-                    success=False,
-                    status=ExecutionStatus.FAILED,
-                    error=str(te),
-                    message=f"Step execution timed out after {self.step_timeout:.1f}s",
-                )
-            except Exception as exc:
-                res = CapabilityResult(
-                    success=False,
-                    status=ExecutionStatus.FAILED,
-                    error=str(exc),
-                    message=f"Step execution error: {exc}",
-                )
+            already_satisfied = self.idempotency_checker.check_already_satisfied(
+                step.capability_name, step.arguments
+            )
+            if already_satisfied is not None:
+                res = already_satisfied
+            else:
+                try:
+                    res = self._run_with_timeout(
+                        self.registry.execute_safe,
+                        args=(step.capability_name,),
+                        kwargs={
+                            "args": step.arguments,
+                            "safety_engine": self.safety_engine,
+                            "confirmed": confirmed,
+                        },
+                        timeout=self.step_timeout,
+                    )
+                except TimeoutError as te:
+                    res = CapabilityResult(
+                        success=False,
+                        status=ExecutionStatus.FAILED,
+                        error=str(te),
+                        message=f"Step execution timed out after {self.step_timeout:.1f}s",
+                    )
+                except Exception as exc:
+                    res = CapabilityResult(
+                        success=False,
+                        status=ExecutionStatus.FAILED,
+                        error=str(exc),
+                        message=f"Step execution error: {exc}",
+                    )
             dur_act_ms = (time.perf_counter() - t_act0) * 1000.0
             total_act_duration_ms += dur_act_ms
             step.result = res

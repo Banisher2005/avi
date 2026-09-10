@@ -10,7 +10,7 @@ from avi.agent.executor import AgentExecutor
 from avi.agent.models import Plan, PlanStep, StepStatus
 from avi.agent.tool_selection import ToolSelector
 from avi.browser.controller import BrowserController
-from avi.browser.downloads import DownloadInfo, DownloadsWatcher
+from avi.browser.downloads import DownloadsWatcher
 from avi.browser.models import BrowserState
 from avi.capabilities.browser.click import BrowserClickCapability
 from avi.capabilities.browser.download import BrowserDownloadCapability

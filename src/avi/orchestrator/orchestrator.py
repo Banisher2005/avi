@@ -13,8 +13,6 @@ import logging
 import time
 from typing import Any
 
-logger = logging.getLogger(__name__)
-
 from avi.actions.system import OpenAppAction, OpenDirAction, OpenFileAction, OpenUrlAction
 from avi.actions.timer import TimerAction
 from avi.apps.resolver import ApplicationResolver
@@ -41,6 +39,8 @@ from avi.retrieval.youtube import validate_youtube_url
 from avi.safety.engine import SafetyEngine
 from avi.storage.database import Database
 from avi.tools.registry import ToolRegistry, create_default_registry
+
+logger = logging.getLogger(__name__)
 
 
 class AssistantOrchestrator:

@@ -2,7 +2,7 @@
 
 import logging
 import re
-from typing import Any, Sequence
+from typing import Sequence
 
 from avi.memory.manager import MemoryManager
 from avi.memory.models import Memory
@@ -50,7 +50,6 @@ class MemoryRetriever:
             return [Memory.from_record(r) for r in records]
 
         keywords = self.extract_keywords(clean_q)
-        search_terms = [clean_q] + keywords
 
         candidates: dict[str, Memory] = {}
 

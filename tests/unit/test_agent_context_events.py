@@ -1,9 +1,7 @@
 """Unit tests for agent context and events."""
 
-import pytest
 from avi.agent.context import OrchestrationContext, StepRecord, TaskStatus
 from avi.agent.events import EventDispatcher, ProgressEvent, ProgressEventType
-from avi.memory.models import Memory
 
 
 def test_orchestration_context_initialization():
@@ -106,6 +104,7 @@ def test_step_record_structured_fields():
 
 def test_agent_executor_verification_contracts(tmp_path):
     from unittest.mock import MagicMock
+
     from avi.agent.executor import AgentExecutor
     from avi.agent.models import PlanStep
     from avi.capabilities.models import CapabilityResult, ExecutionStatus

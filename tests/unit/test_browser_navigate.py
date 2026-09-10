@@ -1,6 +1,7 @@
 """Unit tests for Browser Navigation Capability."""
 
 from unittest.mock import MagicMock, patch
+
 import pytest
 
 from avi.browser.controller import BrowserController

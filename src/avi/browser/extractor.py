@@ -167,7 +167,7 @@ class SimpleHtmlParser(HTMLParser):
             btn_text = self._current_button_text.strip()
             eid = len(self.elements) + 1
             btn_id = self._current_button_attrs.get("id")
-            sel = f"#{btn_id}" if btn_id else f"button"
+            sel = f"#{btn_id}" if btn_id else "button"
             self.elements.append(
                 InteractiveElement(
                     element_id=eid,

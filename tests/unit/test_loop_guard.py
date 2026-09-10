@@ -1,8 +1,7 @@
 """Unit tests for Phase 4 Agent Loop Guard."""
 
-import pytest
 
-from avi.agent.loop_guard import Invocation, LoopDetectionResult, LoopGuard, LoopGuardConfig
+from avi.agent.loop_guard import Invocation, LoopGuard, LoopGuardConfig
 from avi.capabilities.models import CapabilityResult, ExecutionStatus
 
 

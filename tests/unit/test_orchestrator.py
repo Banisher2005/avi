@@ -320,7 +320,6 @@ class TestAssistantOrchestrator:
 
     def test_cross_process_clarification_continuity(self, tmp_path):
         """Verify cross-process persistence of PendingClarification across separate orchestrator instances."""
-        from avi.session.state import get_default_state_path
 
         state_file = tmp_path / "session_state.json"
         with patch("avi.session.state.get_default_state_path", return_value=state_file):

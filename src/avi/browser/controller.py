@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-import re
 import subprocess
 import time
 from typing import Any
@@ -489,7 +487,7 @@ class BrowserController:
                 "  return {success: true, key: k};"
                 "})()"
             )
-            res = self.cdp.evaluate(js_key)
+            self.cdp.evaluate(js_key)
             if wait_seconds > 0:
                 time.sleep(wait_seconds)
             post_obs = self.observe()

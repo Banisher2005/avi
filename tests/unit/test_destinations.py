@@ -1,16 +1,17 @@
 """Unit tests for the smart destination-resolution layer and planning integration."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
+
 import pytest
 
+from avi.actions.base import ActionResult
+from avi.agent.planner import AgentPlanner
 from avi.apps.destinations import DestinationResolver
 from avi.apps.models import DestinationType
 from avi.assistant.intents import AssistantIntentType, detect_assistant_intent
+from avi.browser.models import BrowserState
 from avi.config import Config
 from avi.orchestrator.orchestrator import AssistantOrchestrator
-from avi.agent.planner import AgentPlanner
-from avi.actions.base import ActionResult
-from avi.browser.models import BrowserState
 
 
 class TestDestinationResolver:

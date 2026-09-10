@@ -1,18 +1,17 @@
 """Unit tests for Phase 15 Agent Core: planning, task state, observe-act-verify loop, and memory integration."""
 
-import pytest
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from avi.agent.executor import AgentExecutor
-from avi.agent.models import Plan, PlanStep, StepStatus, TaskState
+from avi.agent.models import Plan, PlanStep
 from avi.agent.planner import AgentPlanner
 from avi.capabilities.models import CapabilityResult, ExecutionStatus
 from avi.capabilities.registry import CapabilityRegistry
 from avi.config import Config
 from avi.memory.manager import MemoryManager
 from avi.orchestrator.orchestrator import AssistantOrchestrator
-from avi.safety.engine import SafetyEngine
 from avi.storage.database import Database
 
 

@@ -15,8 +15,11 @@ class TaskStatus(str, Enum):
     IDLE = "idle"
     PLANNING = "planning"
     EXECUTING = "executing"
+    RUNNING = "running"
     VERIFYING = "verifying"
+    PAUSED = "paused"
     PAUSED_FOR_CONFIRMATION = "paused_for_confirmation"
+    WAITING_CONFIRMATION = "waiting_confirmation"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
@@ -95,6 +98,8 @@ class OrchestrationContext:
     attempted_strategies: list[dict[str, Any]] = field(default_factory=list)
     observation_history: list[dict[str, Any]] = field(default_factory=list)
     state_snapshots: list[dict[str, Any]] = field(default_factory=list)
+    goal: Any | None = None
+    durable_task_id: str = ""
 
     def current_step(self) -> StepRecord | None:
         """Return the current step being executed, or None if out of bounds."""
@@ -117,6 +122,8 @@ class OrchestrationContext:
             TaskStatus.FAILED,
             TaskStatus.CANCELLED,
             TaskStatus.PAUSED_FOR_CONFIRMATION,
+            TaskStatus.PAUSED,
+            TaskStatus.WAITING_CONFIRMATION,
         )
 
     def record_error(self, message: str) -> None:
@@ -129,6 +136,7 @@ class OrchestrationContext:
         """Serialize complete context to dictionary for observability and logging."""
         return {
             "task_id": self.task_id,
+            "durable_task_id": self.durable_task_id,
             "session_id": self.session_id,
             "user_prompt": self.user_prompt,
             "status": self.status.value,
@@ -145,4 +153,5 @@ class OrchestrationContext:
             "attempted_strategies": self.attempted_strategies,
             "observation_history": self.observation_history,
             "state_snapshots": self.state_snapshots,
+            "goal": self.goal.to_dict() if self.goal and hasattr(self.goal, "to_dict") else None,
         }

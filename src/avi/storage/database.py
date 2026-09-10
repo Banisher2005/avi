@@ -6,14 +6,16 @@ import os
 import re
 import sqlite3
 import threading
+import uuid
 from pathlib import Path
 from typing import Any
 
 from avi.storage.models import (
     ActionRecord,
     AliasRecord,
+    DurableTaskRecord,
+    ExperienceRecord,
     MemoryRecord,
-    PreferenceRecord,
     TaskRecord,
     utc_now_iso,
 )
@@ -30,6 +32,39 @@ _SENSITIVE_PATTERNS = [
     re.compile(r"\b(?:sk-[a-zA-Z0-9]{15,}|ghp_[a-zA-Z0-9]{15,}|gho_[a-zA-Z0-9]{15,}|glpat-[a-zA-Z0-9_\-]{15,})\b"),
     re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
 ]
+
+_REDACT_REPLACEMENTS = [
+    (re.compile(r"((?:\b[a-zA-Z0-9_]*(?:password|passwd|secret|api[_-]?key|token)\b)(?:\s*[:=]|\s+is)\s*['\"]?)[a-zA-Z0-9_\-\.]{4,}", re.IGNORECASE), r"\1[REDACTED]"),
+    (re.compile(r"(\b(?:password|passwd|secret)\s*[:=]\s*['\"]?)[^\s'\"]+", re.IGNORECASE), r"\1[REDACTED]"),
+    (re.compile(r"\b(?:sk-[a-zA-Z0-9]{15,}|ghp_[a-zA-Z0-9]{15,}|gho_[a-zA-Z0-9]{15,}|glpat-[a-zA-Z0-9_\-]{15,})\b"), "[REDACTED_SECRET]"),
+    (re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"), "[REDACTED_PRIVATE_KEY]"),
+    (re.compile(r"\bBearer\s+[a-zA-Z0-9_\-\.]{15,}\b", re.IGNORECASE), "Bearer [REDACTED]"),
+]
+
+
+def redact_sensitive_data(data: Any) -> Any:
+    """Recursively redact passwords, auth tokens, bearer headers, and private keys."""
+    if isinstance(data, str):
+        cleaned = data
+        for pat, repl in _REDACT_REPLACEMENTS:
+            cleaned = pat.sub(repl, cleaned)
+        return cleaned
+    elif isinstance(data, dict):
+        sanitized: dict[str, Any] = {}
+        for k, v in data.items():
+            k_lower = str(k).lower()
+            if any(s in k_lower for s in ("password", "passwd", "secret", "api_key", "apikey", "auth_token", "cookie")):
+                sanitized[k] = "[REDACTED]"
+            elif k_lower in ("html", "page_source", "outer_html", "inner_html") and isinstance(v, str) and len(v) > 500:
+                sanitized[k] = v[:500] + "... [TRUNCATED_HTML]"
+            else:
+                sanitized[k] = redact_sensitive_data(v)
+        return sanitized
+    elif isinstance(data, list):
+        return [redact_sensitive_data(item) for item in data]
+    elif isinstance(data, tuple):
+        return tuple(redact_sensitive_data(item) for item in data)
+    return data
 
 
 def screen_for_sensitive_data(text: str) -> None:
@@ -150,6 +185,41 @@ class Database:
 
                     CREATE INDEX IF NOT EXISTS idx_actions_task ON action_history(task_id);
                     CREATE INDEX IF NOT EXISTS idx_actions_executed ON action_history(executed_at);
+
+                    CREATE TABLE IF NOT EXISTS durable_tasks (
+                        task_id TEXT PRIMARY KEY,
+                        session_id TEXT NOT NULL DEFAULT '',
+                        goal TEXT NOT NULL,
+                        normalized_goal TEXT NOT NULL DEFAULT '',
+                        status TEXT NOT NULL,
+                        strategy_name TEXT NOT NULL DEFAULT 'primary',
+                        schema_version INTEGER NOT NULL DEFAULT 1,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        completed_at TEXT,
+                        data_json TEXT NOT NULL DEFAULT '{}'
+                    );
+
+                    CREATE INDEX IF NOT EXISTS idx_durable_tasks_status ON durable_tasks(status);
+                    CREATE INDEX IF NOT EXISTS idx_durable_tasks_session ON durable_tasks(session_id);
+                    CREATE INDEX IF NOT EXISTS idx_durable_tasks_updated ON durable_tasks(updated_at);
+
+                    CREATE TABLE IF NOT EXISTS execution_experiences (
+                        experience_id TEXT PRIMARY KEY,
+                        goal_pattern TEXT NOT NULL,
+                        normalized_goal TEXT NOT NULL,
+                        strategy_name TEXT NOT NULL,
+                        capability_used TEXT NOT NULL,
+                        success INTEGER NOT NULL,
+                        failure_category TEXT,
+                        working_recovery TEXT,
+                        context_tags_json TEXT NOT NULL DEFAULT '[]',
+                        verification_result INTEGER,
+                        created_at TEXT NOT NULL
+                    );
+
+                    CREATE INDEX IF NOT EXISTS idx_experiences_pattern ON execution_experiences(goal_pattern);
+                    CREATE INDEX IF NOT EXISTS idx_experiences_success ON execution_experiences(success);
                     """
                 )
 
@@ -610,6 +680,327 @@ class Database:
                     )
                 )
             return res
+
+    # -----------------------------------------------------------------------
+    # Durable Task Persistence (Phase 7)
+    # -----------------------------------------------------------------------
+
+    def save_durable_task(self, record: DurableTaskRecord | dict[str, Any]) -> None:
+        """Persist or update a durable, versioned task state checkpoint."""
+        if isinstance(record, dict):
+            task_id = record.get("task_id", "")
+            goal = record.get("goal", "")
+            norm_goal = record.get("normalized_goal", "")
+            status = record.get("status", "pending")
+            strategy_name = record.get("strategy_name", "primary")
+            session_id = record.get("session_id", "")
+            schema_version = record.get("schema_version", 1)
+            created_at = record.get("created_at", utc_now_iso())
+            updated_at = record.get("updated_at", utc_now_iso())
+            completed_at = record.get("completed_at")
+            data = record.get("data", {})
+        else:
+            task_id = record.task_id
+            goal = record.goal
+            norm_goal = record.normalized_goal
+            status = record.status
+            strategy_name = record.strategy_name
+            session_id = record.session_id
+            schema_version = record.schema_version
+            created_at = record.created_at
+            updated_at = record.updated_at
+            completed_at = record.completed_at
+            data = record.data
+
+        # Screen & redact sensitive information before saving
+        sanitized_data = redact_sensitive_data(data)
+        data_json = json.dumps(sanitized_data)
+
+        with self._lock:
+            conn = self._get_connection()
+            with conn:
+                conn.execute(
+                    """
+                    INSERT INTO durable_tasks (
+                        task_id, session_id, goal, normalized_goal, status,
+                        strategy_name, schema_version, created_at, updated_at,
+                        completed_at, data_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(task_id) DO UPDATE SET
+                        session_id = excluded.session_id,
+                        status = excluded.status,
+                        strategy_name = excluded.strategy_name,
+                        schema_version = excluded.schema_version,
+                        updated_at = excluded.updated_at,
+                        completed_at = excluded.completed_at,
+                        data_json = excluded.data_json
+                    """,
+                    (
+                        task_id,
+                        session_id,
+                        goal,
+                        norm_goal,
+                        status,
+                        strategy_name,
+                        schema_version,
+                        created_at,
+                        updated_at,
+                        completed_at,
+                        data_json,
+                    ),
+                )
+
+    def get_durable_task(self, task_id: str) -> DurableTaskRecord | None:
+        """Retrieve a durable task record by task ID."""
+        with self._lock:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT task_id, session_id, goal, normalized_goal, status,
+                       strategy_name, schema_version, created_at, updated_at,
+                       completed_at, data_json
+                FROM durable_tasks WHERE task_id = ?
+                """,
+                (task_id,),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            try:
+                data_dict = json.loads(row["data_json"])
+            except Exception:
+                data_dict = {}
+            return DurableTaskRecord(
+                task_id=row["task_id"],
+                session_id=row["session_id"],
+                goal=row["goal"],
+                normalized_goal=row["normalized_goal"],
+                status=row["status"],
+                strategy_name=row["strategy_name"],
+                schema_version=int(row["schema_version"]),
+                created_at=row["created_at"],
+                updated_at=row["updated_at"],
+                completed_at=row["completed_at"],
+                data=data_dict,
+            )
+
+    def list_durable_tasks(
+        self,
+        status: str | None = None,
+        session_id: str | None = None,
+        limit: int = 50,
+    ) -> list[DurableTaskRecord]:
+        """List durable tasks with optional status or session filtering."""
+        with self._lock:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            query = (
+                "SELECT task_id, session_id, goal, normalized_goal, status, "
+                "strategy_name, schema_version, created_at, updated_at, completed_at, data_json "
+                "FROM durable_tasks WHERE 1=1"
+            )
+            params: list[Any] = []
+            if status:
+                query += " AND status = ?"
+                params.append(status)
+            if session_id:
+                query += " AND session_id = ?"
+                params.append(session_id)
+            query += " ORDER BY updated_at DESC LIMIT ?"
+            params.append(limit)
+
+            cursor.execute(query, params)
+            res = []
+            for row in cursor.fetchall():
+                try:
+                    data_dict = json.loads(row["data_json"])
+                except Exception:
+                    data_dict = {}
+                res.append(
+                    DurableTaskRecord(
+                        task_id=row["task_id"],
+                        session_id=row["session_id"],
+                        goal=row["goal"],
+                        normalized_goal=row["normalized_goal"],
+                        status=row["status"],
+                        strategy_name=row["strategy_name"],
+                        schema_version=int(row["schema_version"]),
+                        created_at=row["created_at"],
+                        updated_at=row["updated_at"],
+                        completed_at=row["completed_at"],
+                        data=data_dict,
+                    )
+                )
+            return res
+
+    def update_durable_task_status(
+        self,
+        task_id: str,
+        status: str,
+        final_response: str = "",
+    ) -> bool:
+        """Update the lifecycle status of a durable task."""
+        with self._lock:
+            conn = self._get_connection()
+            now = utc_now_iso()
+            completed_at = now if status in ("completed", "failed", "cancelled") else None
+            with conn:
+                if completed_at:
+                    cursor = conn.execute(
+                        """
+                        UPDATE durable_tasks
+                        SET status = ?, updated_at = ?, completed_at = ?
+                        WHERE task_id = ?
+                        """,
+                        (status, now, completed_at, task_id),
+                    )
+                else:
+                    cursor = conn.execute(
+                        """
+                        UPDATE durable_tasks
+                        SET status = ?, updated_at = ?
+                        WHERE task_id = ?
+                        """,
+                        (status, now, task_id),
+                    )
+                return cursor.rowcount > 0
+
+    def archive_durable_task(self, task_id: str) -> bool:
+        """Archive or delete a durable task."""
+        with self._lock:
+            conn = self._get_connection()
+            with conn:
+                cursor = conn.execute("DELETE FROM durable_tasks WHERE task_id = ?", (task_id,))
+                return cursor.rowcount > 0
+
+    # -----------------------------------------------------------------------
+    # Execution Experiences Store (Phase 7)
+    # -----------------------------------------------------------------------
+
+    def save_experience(self, record: ExperienceRecord | dict[str, Any]) -> None:
+        """Store a structured execution experience record."""
+        if isinstance(record, dict):
+            experience_id = record.get("experience_id", str(uuid.uuid4()))
+            goal_pattern = record.get("goal_pattern", "")
+            normalized_goal = record.get("normalized_goal", "")
+            strategy_name = record.get("strategy_name", "")
+            capability_used = record.get("capability_used", "")
+            success = bool(record.get("success", True))
+            failure_category = record.get("failure_category")
+            working_recovery = record.get("working_recovery")
+            context_tags = record.get("context_tags", [])
+            verification_result = record.get("verification_result")
+            created_at = record.get("created_at", utc_now_iso())
+        else:
+            experience_id = record.experience_id
+            goal_pattern = record.goal_pattern
+            normalized_goal = record.normalized_goal
+            strategy_name = record.strategy_name
+            capability_used = record.capability_used
+            success = record.success
+            failure_category = record.failure_category
+            working_recovery = record.working_recovery
+            context_tags = record.context_tags
+            verification_result = record.verification_result
+            created_at = record.created_at
+
+        # Redact any accidental secrets
+        clean_recovery = redact_sensitive_data(working_recovery) if working_recovery else None
+        clean_tags = redact_sensitive_data(context_tags)
+
+        with self._lock:
+            conn = self._get_connection()
+            with conn:
+                conn.execute(
+                    """
+                    INSERT INTO execution_experiences (
+                        experience_id, goal_pattern, normalized_goal, strategy_name,
+                        capability_used, success, failure_category, working_recovery,
+                        context_tags_json, verification_result, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(experience_id) DO UPDATE SET
+                        success = excluded.success,
+                        failure_category = excluded.failure_category,
+                        working_recovery = excluded.working_recovery,
+                        context_tags_json = excluded.context_tags_json,
+                        verification_result = excluded.verification_result
+                    """,
+                    (
+                        experience_id,
+                        goal_pattern,
+                        normalized_goal,
+                        strategy_name,
+                        capability_used,
+                        1 if success else 0,
+                        failure_category,
+                        clean_recovery,
+                        json.dumps(clean_tags),
+                        1 if verification_result is True else (0 if verification_result is False else None),
+                        created_at,
+                    ),
+                )
+
+    def search_experiences(
+        self,
+        query: str,
+        limit: int = 10,
+    ) -> list[ExperienceRecord]:
+        """Search execution experiences by goal pattern, normalized goal, or strategy."""
+        clean = query.strip().lower()
+        with self._lock:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            sql = (
+                "SELECT experience_id, goal_pattern, normalized_goal, strategy_name, "
+                "capability_used, success, failure_category, working_recovery, "
+                "context_tags_json, verification_result, created_at "
+                "FROM execution_experiences WHERE 1=1"
+            )
+            params: list[Any] = []
+            if clean:
+                sql += (
+                    " AND (goal_pattern LIKE ? OR normalized_goal LIKE ? OR strategy_name LIKE ? "
+                    "OR capability_used LIKE ?)"
+                )
+                like_arg = f"%{clean}%"
+                params.extend([like_arg, like_arg, like_arg, like_arg])
+            sql += " ORDER BY created_at DESC LIMIT ?"
+            params.append(limit)
+
+            cursor.execute(sql, params)
+            res = []
+            for row in cursor.fetchall():
+                try:
+                    tags = json.loads(row["context_tags_json"])
+                except Exception:
+                    tags = []
+                v_res = None
+                if row["verification_result"] is not None:
+                    v_res = bool(row["verification_result"])
+                res.append(
+                    ExperienceRecord(
+                        experience_id=row["experience_id"],
+                        goal_pattern=row["goal_pattern"],
+                        normalized_goal=row["normalized_goal"],
+                        strategy_name=row["strategy_name"],
+                        capability_used=row["capability_used"],
+                        success=bool(row["success"]),
+                        failure_category=row["failure_category"],
+                        working_recovery=row["working_recovery"],
+                        context_tags=tags,
+                        verification_result=v_res,
+                        created_at=row["created_at"],
+                    )
+                )
+            return res
+
+    def get_strategy_recommendations(
+        self,
+        normalized_goal: str,
+    ) -> list[ExperienceRecord]:
+        """Get past strategy experience relevant to the normalized goal."""
+        return self.search_experiences(normalized_goal, limit=5)
 
     def close(self) -> None:
         """Close current thread connection."""

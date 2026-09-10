@@ -288,7 +288,7 @@ def execute_type_text(
     except Exception as err:
         logger.debug("Final clipboard fallback failed: %s", err)
 
-    return False, f"Failed to type text: no working input backend available."
+    return False, "Failed to type text: no working input backend available."
 
 
 class TypeTextCapability(BaseCapability):

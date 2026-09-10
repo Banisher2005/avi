@@ -861,8 +861,9 @@ class AviWindow:
                 play_btn.add_css_class("avi-row-open-btn")
                 play_btn.add_css_class("avi-play-btn")
                 play_btn.add_css_class("avi-action-btn")
-                play_btn.set_valign(Gtk.Align.CENTER)
-                _act = lambda _u=url: self._open_local_path(_u)
+                def _act(_u=url):
+                    self._open_local_path(_u)
+
                 play_btn.connect("clicked", lambda _b, _fn=_act: _fn())
                 best_card.append(play_btn)
                 self._current_search_rows.append({"widget": best_card, "action": _act})
@@ -927,8 +928,9 @@ class AviWindow:
                 open_btn = Gtk.Button(label="Open")
                 open_btn.add_css_class("avi-row-open-btn")
                 open_btn.add_css_class("avi-action-btn")
-                open_btn.set_valign(Gtk.Align.CENTER)
-                _act = lambda _u=url: self._open_local_path(_u)
+                def _act(_u=url):
+                    self._open_local_path(_u)
+
                 open_btn.connect("clicked", lambda _b, _fn=_act: _fn())
                 card.append(open_btn)
                 self._current_search_rows.append({"widget": card, "action": _act})
