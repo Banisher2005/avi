@@ -12,7 +12,7 @@ import json
 import logging
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Sequence
+from typing import Any
 
 from avi.capabilities.models import CapabilityResult
 
@@ -66,7 +66,9 @@ class LoopDetectionResult:
 
     is_loop: bool
     reason: str | None = None
-    loop_type: str | None = None  # identical_call, ping_pong, excessive_calls, repeated_failure, max_turns
+    loop_type: str | None = (
+        None  # identical_call, ping_pong, excessive_calls, repeated_failure, max_turns
+    )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -86,6 +88,8 @@ class LoopGuard:
         self._results: list[CapabilityResult] = []
         self._turn_count: int = 0
         self._consecutive_failures: int = 0
+        self._attempted_strategies: list[str] = []
+        self._failed_strategies: set[str] = set()
 
     @property
     def total_invocations(self) -> int:
@@ -98,6 +102,19 @@ class LoopGuard:
     def increment_turn(self) -> None:
         """Advance the turn counter."""
         self._turn_count += 1
+
+    def record_strategy(self, strategy_name: str, success: bool = False) -> None:
+        """Record an attempted strategy and whether it succeeded."""
+        if strategy_name:
+            self._attempted_strategies.append(strategy_name)
+            if not success:
+                self._failed_strategies.add(strategy_name)
+            else:
+                self._failed_strategies.discard(strategy_name)
+
+    def is_strategy_forbidden(self, strategy_name: str) -> bool:
+        """Check if strategy has already failed and should not be repeated."""
+        return bool(strategy_name and strategy_name in self._failed_strategies)
 
     def check_invocation(self, invocation: Invocation) -> LoopDetectionResult:
         """Check if an upcoming invocation would violate loop boundaries."""
@@ -200,3 +217,5 @@ class LoopGuard:
         self._results.clear()
         self._turn_count = 0
         self._consecutive_failures = 0
+        self._attempted_strategies.clear()
+        self._failed_strategies.clear()

@@ -239,10 +239,15 @@ class AssistantOrchestrator:
                     pending.original_prompt,
                     target_cmd,
                 )
+                is_conf = (
+                    pending.clarification_type in ("confirmation", "high_risk_action")
+                    or bool(pending.metadata.get("confirmed"))
+                )
                 return self.handle(
                     target_cmd,
                     context=context,
                     auto_execute_actions=auto_execute_actions,
+                    confirmed=is_conf,
                 )
             elif conf is False:
                 self.pending_clarification = None
@@ -984,6 +989,14 @@ class AssistantOrchestrator:
                         if agent_ctx.steps or (agent_ctx.final_response and agent_ctx.final_response != "I couldn't find a matching action or plan for that request."):
                             from avi.agent.context import TaskStatus
                             req_confirm = agent_ctx.status == TaskStatus.PAUSED_FOR_CONFIRMATION
+                            if req_confirm:
+                                self.pending_clarification = PendingClarification(
+                                    original_prompt=normalized_prompt,
+                                    proposed_interpretation=normalized_prompt,
+                                    clarification_type="confirmation",
+                                    created_at=time.time(),
+                                    metadata={"task_id": agent_ctx.task_id, "confirmed": True},
+                                )
                             result = OrchestratorResult(
                                 text=agent_ctx.final_response,
                                 requires_confirmation=req_confirm,
@@ -991,6 +1004,7 @@ class AssistantOrchestrator:
                                     total_duration_ms=(time.perf_counter() - t0) * 1000.0,
                                 ),
                                 context=context,
+                                pending_clarification=self.pending_clarification if req_confirm else None,
                             )
 
         # ── Step 2.5: Desktop and application domain boundary ───────────

@@ -31,6 +31,11 @@ class AgentExecutor:
         self.event_dispatcher = event_dispatcher
         self.step_timeout = step_timeout
         self.verification_timeout = verification_timeout
+        from avi.agent.diagnosis import FailureDiagnoser
+        from avi.agent.verification import StateChangeDetector
+
+        self.diagnoser = FailureDiagnoser()
+        self.change_detector = StateChangeDetector()
 
     def _run_with_timeout(
         self,
@@ -41,6 +46,7 @@ class AgentExecutor:
     ) -> Any:
         """Execute a callable with a hard bounded timeout, preventing infinite blocking."""
         import concurrent.futures
+
         kwargs = kwargs or {}
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         try:
@@ -93,7 +99,11 @@ class AgentExecutor:
                     )
 
                 if step.pipe_arg_name in ("path", "file", "source", "target", "destination"):
-                    piped_path = dep_res.data.get("path") or dep_res.data.get("destination") or dep_res.data.get("file")
+                    piped_path = (
+                        dep_res.data.get("path")
+                        or dep_res.data.get("destination")
+                        or dep_res.data.get("file")
+                    )
                     if not piped_path and "results" in dep_res.data:
                         r_list = dep_res.data.get("results", [])
                         if r_list and isinstance(r_list[0], dict):
@@ -102,7 +112,9 @@ class AgentExecutor:
                         m_list = dep_res.data.get("matches", [])
                         if m_list:
                             first_m = m_list[0]
-                            piped_path = first_m.get("path") if isinstance(first_m, dict) else str(first_m)
+                            piped_path = (
+                                first_m.get("path") if isinstance(first_m, dict) else str(first_m)
+                            )
                     if not piped_path:
                         step.status = StepStatus.FAILED
                         failed_steps.append(step)
@@ -157,6 +169,7 @@ class AgentExecutor:
                     task_state.failed_steps = failed_steps
                     if self.event_dispatcher:
                         from avi.agent.events import ProgressEvent, ProgressEventType
+
                         self.event_dispatcher.emit(
                             ProgressEvent(
                                 event_type=ProgressEventType.STEP_FAILED,
@@ -180,6 +193,7 @@ class AgentExecutor:
 
             if self.event_dispatcher:
                 from avi.agent.events import ProgressEvent, ProgressEventType
+
                 self.event_dispatcher.emit(
                     ProgressEvent(
                         event_type=ProgressEventType.STEP_STARTED,
@@ -227,12 +241,18 @@ class AgentExecutor:
             if self.database and hasattr(self.database, "record_action"):
                 try:
                     from avi.storage.models import ActionRecord
+
                     self.database.record_action(
                         ActionRecord(
                             action_id=str(uuid.uuid4()),
                             task_id=task_state.task_id,
                             action_name=step.capability_name,
-                            target=str(step.arguments.get("target") or step.arguments.get("path") or step.arguments.get("url") or ""),
+                            target=str(
+                                step.arguments.get("target")
+                                or step.arguments.get("path")
+                                or step.arguments.get("url")
+                                or ""
+                            ),
                             arguments=step.arguments,
                             success=res.success,
                             error=res.error,
@@ -247,6 +267,7 @@ class AgentExecutor:
                 task_state.status = "confirmation_required"
                 if self.event_dispatcher:
                     from avi.agent.events import ProgressEvent, ProgressEventType
+
                     self.event_dispatcher.emit(
                         ProgressEvent(
                             event_type=ProgressEventType.CONFIRMATION_REQUIRED,
@@ -254,7 +275,9 @@ class AgentExecutor:
                             step_index=step.step_id,
                             capability_name=step.capability_name,
                             message=res.message or "Confirmation required before proceeding.",
-                            data={"pending_step": step.to_dict() if hasattr(step, "to_dict") else {}},
+                            data={
+                                "pending_step": step.to_dict() if hasattr(step, "to_dict") else {}
+                            },
                         )
                     )
                 return PlanExecutionResult(
@@ -275,6 +298,7 @@ class AgentExecutor:
             t_ver0 = time.perf_counter()
             if self.event_dispatcher:
                 from avi.agent.events import ProgressEvent, ProgressEventType
+
                 self.event_dispatcher.emit(
                     ProgressEvent(
                         event_type=ProgressEventType.VERIFICATION_STARTED,
@@ -304,6 +328,7 @@ class AgentExecutor:
 
             if self.event_dispatcher:
                 from avi.agent.events import ProgressEvent, ProgressEventType
+
                 self.event_dispatcher.emit(
                     ProgressEvent(
                         event_type=ProgressEventType.VERIFICATION_COMPLETED,
@@ -315,12 +340,75 @@ class AgentExecutor:
                     )
                 )
 
+            # State change detection
+            post_obs = (
+                res.data.get("observation") if (res.data and isinstance(res.data, dict)) else None
+            )
+            state_res = self.change_detector.detect_change(
+                step.capability_name,
+                step.arguments,
+                res,
+                pre_observation=getattr(step, "pre_observation", None),
+                post_observation=post_obs,
+            )
+            if state_res.changed and self.event_dispatcher:
+                from avi.agent.events import ProgressEvent, ProgressEventType
+
+                self.event_dispatcher.emit(
+                    ProgressEvent(
+                        event_type=ProgressEventType.STATE_CHANGE_VERIFIED,
+                        task_id=task_state.task_id,
+                        step_index=step.step_id,
+                        capability_name=step.capability_name,
+                        message=state_res.description,
+                        data=state_res.details,
+                    )
+                )
+
             if not res.success or not verified:
-                # Single bounded retry recovery (skip retry if execution timed out)
+                # Diagnose failure
+                diag = self.diagnoser.diagnose(
+                    step,
+                    res,
+                    pre_observation=getattr(step, "pre_observation", None),
+                    post_observation=post_obs,
+                    consecutive_failures=task_state.retry_counts.get(step.step_id, 0),
+                )
+                step.failure_category = diag.category
+                setattr(step, "_last_diagnosis", diag.to_dict())
+
+                if self.event_dispatcher:
+                    from avi.agent.events import ProgressEvent, ProgressEventType
+
+                    self.event_dispatcher.emit(
+                        ProgressEvent(
+                            event_type=ProgressEventType.FAILURE_DIAGNOSED,
+                            task_id=task_state.task_id,
+                            step_index=step.step_id,
+                            capability_name=step.capability_name,
+                            message=f"Failure diagnosed: {diag.category.value} - {diag.root_cause}",
+                            data=diag.to_dict(),
+                        )
+                    )
+
+                # Single bounded retry recovery (skip retry if execution timed out or unrecoverable)
                 is_timeout = "timed out" in (res.error or "").lower()
                 retries = task_state.retry_counts.get(step.step_id, 0)
-                if retries < 1 and not is_timeout:
+                if retries < 1 and not is_timeout and diag.recoverable:
                     task_state.retry_counts[step.step_id] = retries + 1
+                    if self.event_dispatcher:
+                        from avi.agent.events import ProgressEvent, ProgressEventType
+
+                        self.event_dispatcher.emit(
+                            ProgressEvent(
+                                event_type=ProgressEventType.RECOVERY_ATTEMPTED,
+                                task_id=task_state.task_id,
+                                step_index=step.step_id,
+                                capability_name=step.capability_name,
+                                message=f"Attempting bounded recovery for step {step.step_id} ({diag.suggested_recovery})...",
+                                data={"recovery_strategy": diag.suggested_recovery},
+                            )
+                        )
                     t_act_r = time.perf_counter()
                     try:
                         retry_res = self._run_with_timeout(
@@ -361,6 +449,7 @@ class AgentExecutor:
                         task_state.failed_steps = failed_steps
                         if self.event_dispatcher:
                             from avi.agent.events import ProgressEvent, ProgressEventType
+
                             self.event_dispatcher.emit(
                                 ProgressEvent(
                                     event_type=ProgressEventType.STEP_FAILED,
@@ -371,7 +460,11 @@ class AgentExecutor:
                                 )
                             )
                         return self._build_failure_result(
-                            plan, completed_steps, step, res, task_state,
+                            plan,
+                            completed_steps,
+                            step,
+                            res,
+                            task_state,
                             action_duration_ms=total_act_duration_ms,
                             verification_duration_ms=total_ver_duration_ms,
                         )
@@ -382,6 +475,7 @@ class AgentExecutor:
                     task_state.failed_steps = failed_steps
                     if self.event_dispatcher:
                         from avi.agent.events import ProgressEvent, ProgressEventType
+
                         self.event_dispatcher.emit(
                             ProgressEvent(
                                 event_type=ProgressEventType.STEP_FAILED,
@@ -392,7 +486,11 @@ class AgentExecutor:
                             )
                         )
                     return self._build_failure_result(
-                        plan, completed_steps, step, res, task_state,
+                        plan,
+                        completed_steps,
+                        step,
+                        res,
+                        task_state,
                         action_duration_ms=total_act_duration_ms,
                         verification_duration_ms=total_ver_duration_ms,
                     )
@@ -403,6 +501,7 @@ class AgentExecutor:
 
             if self.event_dispatcher:
                 from avi.agent.events import ProgressEvent, ProgressEventType
+
                 self.event_dispatcher.emit(
                     ProgressEvent(
                         event_type=ProgressEventType.STEP_COMPLETED,
@@ -430,6 +529,7 @@ class AgentExecutor:
         if self.database and hasattr(self.database, "record_task"):
             try:
                 from avi.storage.models import TaskRecord, utc_now_iso
+
                 self.database.record_task(
                     TaskRecord(
                         task_id=task_state.task_id,
@@ -484,7 +584,9 @@ class AgentExecutor:
 
         # 3. Filesystem copy verification: destination exists
         if cap in ("filesystem.copy", "filesystem.copy_file", "copy_file"):
-            dest = (res.data.get("destination") if res.data else None) or step.arguments.get("destination")
+            dest = (res.data.get("destination") if res.data else None) or step.arguments.get(
+                "destination"
+            )
             if not dest:
                 return False
             dest_p = Path(dest)
@@ -498,7 +600,9 @@ class AgentExecutor:
 
         # 4. Filesystem move verification: destination exists and source removed
         if cap in ("filesystem.move", "filesystem.move_file", "move_file"):
-            dest = (res.data.get("destination") if res.data else None) or step.arguments.get("destination")
+            dest = (res.data.get("destination") if res.data else None) or step.arguments.get(
+                "destination"
+            )
             src = (res.data.get("source") if res.data else None) or step.arguments.get("source")
             if not dest:
                 return False
@@ -558,19 +662,31 @@ class AgentExecutor:
 
         # 11. Browser capabilities verification
         if cap in ("browser.observe", "browser.state", "observe_browser"):
-            return res.data is not None and ("status" in res.data or "url" in res.data or "observation" in res.data)
+            return res.data is not None and (
+                "status" in res.data or "url" in res.data or "observation" in res.data
+            )
         if cap in ("browser.navigate", "navigate", "browser.go"):
             return res.data is not None and "url" in res.data
         if cap in ("browser.extract", "browser.read", "read_page"):
             return res.data is not None and "text" in res.data
         if cap in ("browser.type", "browser.input"):
-            return res.data is not None and ("text" in res.data or "element_info" in res.data or "typed" in res.data)
+            return res.data is not None and (
+                "text" in res.data or "element_info" in res.data or "typed" in res.data
+            )
         if cap in ("browser.click", "click_element"):
-            return res.data is not None and ("clicked_element" in res.data or "observation" in res.data or "selector" in res.data or "element_id" in res.data)
+            return res.data is not None and (
+                "clicked_element" in res.data
+                or "observation" in res.data
+                or "selector" in res.data
+                or "element_id" in res.data
+                or "clicked" in res.data
+            )
         if cap in ("browser.press_key", "press_browser_key"):
             return res.data is not None and "key" in res.data
         if cap in ("browser.tabs", "tabs", "manage_tabs"):
-            return res.data is not None and ("action" in res.data or "tabs" in res.data or "tab_id" in res.data)
+            return res.data is not None and (
+                "action" in res.data or "tabs" in res.data or "tab_id" in res.data
+            )
         if cap in ("browser.scroll", "scroll_page"):
             return res.data is not None and "direction" in res.data
         if cap in ("browser.download", "browser.downloads", "detect_download"):
@@ -591,7 +707,9 @@ class AgentExecutor:
         if completed_steps:
             first_desc = completed_steps[0].description or completed_steps[0].capability_name
             step_desc = step.description or step.capability_name
-            final_msg = f"Completed '{first_desc}', but failed to '{step_desc}': {res.error or res.message}"
+            final_msg = (
+                f"Completed '{first_desc}', but failed to '{step_desc}': {res.error or res.message}"
+            )
             return PlanExecutionResult(
                 success=False,
                 status=ExecutionStatus.PARTIAL_SUCCESS,
@@ -599,7 +717,13 @@ class AgentExecutor:
                 completed_steps=completed_steps,
                 final_message=final_msg,
                 error=res.error or res.message,
-                data={"failed_step": step.step_id},
+                data={
+                    "failed_step": step.step_id,
+                    "failure_category": step.failure_category.value
+                    if step.failure_category
+                    else None,
+                    "diagnosis": getattr(step, "_last_diagnosis", None),
+                },
                 task_state=task_state,
                 action_duration_ms=action_duration_ms,
                 verification_duration_ms=verification_duration_ms,
@@ -611,7 +735,11 @@ class AgentExecutor:
             completed_steps=[],
             final_message=res.message or res.error or "Action failed.",
             error=res.error or res.message,
-            data={"failed_step": step.step_id},
+            data={
+                "failed_step": step.step_id,
+                "failure_category": step.failure_category.value if step.failure_category else None,
+                "diagnosis": getattr(step, "_last_diagnosis", None),
+            },
             task_state=task_state,
             action_duration_ms=action_duration_ms,
             verification_duration_ms=verification_duration_ms,
@@ -622,8 +750,15 @@ class AgentExecutor:
             return "Task completed."
         if plan.is_single_step:
             if steps[0].capability_name == "desktop.screenshot":
-                path = steps[0].result.data.get("path", "") if steps[0].result and steps[0].result.data else ""
-                if any(term in plan.user_goal.lower() for term in ("where", "tell me", "location", "path", "saved")):
+                path = (
+                    steps[0].result.data.get("path", "")
+                    if steps[0].result and steps[0].result.data
+                    else ""
+                )
+                if any(
+                    term in plan.user_goal.lower()
+                    for term in ("where", "tell me", "location", "path", "saved")
+                ):
                     return f"Captured screenshot and saved it to {path}."
             if steps[0].result and steps[0].result.message:
                 return steps[0].result.message

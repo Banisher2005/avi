@@ -2,19 +2,17 @@
 
 import logging
 import re
-import time
 from typing import Any
 
 from avi.agent.context import OrchestrationContext, StepRecord, TaskStatus
 from avi.agent.events import EventDispatcher, ProgressEvent, ProgressEventType
 from avi.agent.executor import AgentExecutor
 from avi.agent.loop_guard import LoopGuard
-from avi.agent.models import AssistantInput, Plan, PlanStep, StepStatus
+from avi.agent.models import AssistantInput, FailureCategory, Plan, PlanStep
 from avi.agent.planner import AgentPlanner
 from avi.agent.tool_selection import ToolSelector
 from avi.capabilities import CapabilityRegistry, create_default_capability_registry
-from avi.capabilities.models import ExecutionStatus
-from avi.memory.manager import MemoryManager
+from avi.capabilities.models import CapabilityResult, ExecutionStatus
 from avi.memory.retriever import MemoryRetriever
 from avi.safety.engine import SafetyEngine
 from avi.storage.database import Database
@@ -42,15 +40,23 @@ class AgentOrchestrator:
         self.registry = registry if registry is not None else create_default_capability_registry()
         self.events = event_dispatcher if event_dispatcher is not None else EventDispatcher()
         self.loop_guard = loop_guard if loop_guard is not None else LoopGuard()
-        self.memory = memory_retriever if memory_retriever is not None else MemoryRetriever(database=self.db)
+        self.memory = (
+            memory_retriever if memory_retriever is not None else MemoryRetriever(database=self.db)
+        )
         self.planner = planner if planner is not None else AgentPlanner()
-        self.tool_selector = tool_selector if tool_selector is not None else ToolSelector(registry=self.registry)
-        self.executor = executor if executor is not None else AgentExecutor(
-            registry=self.registry,
-            safety_engine=self.safety_engine,
-            database=self.db,
-            loop_guard=self.loop_guard,
-            event_dispatcher=self.events,
+        self.tool_selector = (
+            tool_selector if tool_selector is not None else ToolSelector(registry=self.registry)
+        )
+        self.executor = (
+            executor
+            if executor is not None
+            else AgentExecutor(
+                registry=self.registry,
+                safety_engine=self.safety_engine,
+                database=self.db,
+                loop_guard=self.loop_guard,
+                event_dispatcher=self.events,
+            )
         )
 
     def can_handle(self, prompt: str) -> bool:
@@ -133,11 +139,25 @@ class AgentOrchestrator:
 
             # B. Check dynamic tool selection if deterministic planner has no match
             if plan is None:
-                selected_tools = self.tool_selector.select_capabilities(clean_prompt, memories=retrieved_memories, limit=3)
+                selected_tools = self.tool_selector.select_capabilities(
+                    clean_prompt, memories=retrieved_memories, limit=3
+                )
                 # Check if any top tool matches specific intent keywords
                 lower_p = clean_prompt.lower()
                 if selected_tools and any(
-                    term in lower_p for term in ("search", "find", "screenshot", "volume", "sound", "file", "folder", "window", "launch", "open")
+                    term in lower_p
+                    for term in (
+                        "search",
+                        "find",
+                        "screenshot",
+                        "volume",
+                        "sound",
+                        "file",
+                        "folder",
+                        "window",
+                        "launch",
+                        "open",
+                    )
                 ):
                     top_tool = selected_tools[0]
                     top_name = top_tool.get("name", "")
@@ -167,7 +187,9 @@ class AgentOrchestrator:
             if plan is None:
                 # Unhandled prompt or conversational query
                 context.status = TaskStatus.COMPLETED
-                context.final_response = "I couldn't find a matching action or plan for that request."
+                context.final_response = (
+                    "I couldn't find a matching action or plan for that request."
+                )
                 self.events.emit(
                     ProgressEvent(
                         event_type=ProgressEventType.TASK_COMPLETED,
@@ -212,68 +234,159 @@ class AgentOrchestrator:
                 )
                 return context
 
-            # 5. Execution Loop
+            # 5. Adaptive Execution & Replanning Loop
             context.status = TaskStatus.EXECUTING
-            plan_res = self.executor.execute_plan(plan, confirmed=confirmed)
+            current_plan = plan
+            cumulative_completed_steps: list[PlanStep] = []
 
-            # Sync step records with executor outcomes
-            for i, step in enumerate(plan.steps):
-                if i < len(context.steps):
-                    context.steps[i].status = step.status.value
-                    context.steps[i].input_data = step.arguments
-                    if step.result:
-                        context.steps[i].output_data = step.result.data if isinstance(step.result.data, dict) else {}
-                        context.steps[i].observation = step.result.data
-                        context.steps[i].error = step.result.error
-                    context.steps[i].verification_result = getattr(step, "verified", None)
-                    context.steps[i].duration_ms = getattr(step, "duration_ms", 0.0)
-                    art = getattr(step, "artifact_path", None)
-                    if art:
-                        context.steps[i].artifact_path = art
-                        if art not in context.steps[i].artifacts:
-                            context.steps[i].artifacts.append(art)
+            while True:
+                plan_res = self.executor.execute_plan(current_plan, confirmed=confirmed)
 
-            if plan_res.status == ExecutionStatus.CONFIRMATION_REQUIRED:
-                context.status = TaskStatus.PAUSED_FOR_CONFIRMATION
-                context.final_response = plan_res.final_message
-                self.events.emit(
-                    ProgressEvent(
-                        event_type=ProgressEventType.PAUSED_FOR_CONFIRMATION,
-                        task_id=context.task_id,
-                        message=plan_res.final_message,
-                    )
-                )
-                return context
+                # Sync step records with executor outcomes
+                for s in current_plan.steps:
+                    idx = s.step_id - 1
+                    if 0 <= idx < len(context.steps):
+                        context.steps[idx].status = s.status.value
+                        context.steps[idx].input_data = s.arguments
+                        if s.result:
+                            context.steps[idx].output_data = (
+                                s.result.data if isinstance(s.result.data, dict) else {}
+                            )
+                            context.steps[idx].observation = s.result.data
+                            context.steps[idx].error = s.result.error
+                        context.steps[idx].verification_result = getattr(s, "verified", None)
+                        context.steps[idx].duration_ms = getattr(s, "duration_ms", 0.0)
+                        art = getattr(s, "artifact_path", None)
+                        if art:
+                            context.steps[idx].artifact_path = art
+                            if art not in context.steps[idx].artifacts:
+                                context.steps[idx].artifacts.append(art)
 
-            if not plan_res.success:
-                # Bounded replanning attempt
-                if context.replan_count < context.max_replans:
-                    context.replan_count += 1
+                if plan_res.status == ExecutionStatus.CONFIRMATION_REQUIRED:
+                    context.status = TaskStatus.PAUSED_FOR_CONFIRMATION
+                    context.final_response = plan_res.final_message
                     self.events.emit(
                         ProgressEvent(
-                            event_type=ProgressEventType.REPLANNING,
+                            event_type=ProgressEventType.PAUSED_FOR_CONFIRMATION,
                             task_id=context.task_id,
-                            message="Plan failed; attempting bounded self-correction...",
+                            message=plan_res.final_message,
+                            data={
+                                "pending_step": plan_res.pending_step.to_dict()
+                                if plan_res.pending_step
+                                else {}
+                            },
                         )
                     )
-                    # Check if loop guard prevents further execution
-                    if "Loop detected" in str(plan_res.error):
-                        context.status = TaskStatus.FAILED
-                        context.record_error(str(plan_res.error))
-                        context.final_response = f"Execution stopped: {plan_res.error}"
-                    else:
-                        context.status = TaskStatus.FAILED
-                        err_str = plan_res.error or plan_res.final_message or "Task failed."
-                        context.record_error(err_str)
-                        context.final_response = plan_res.final_message or plan_res.error or "Task failed."
-                else:
+                    return context
+
+                if plan_res.success:
+                    cumulative_completed_steps.extend(plan_res.completed_steps)
+                    context.status = TaskStatus.COMPLETED
+                    context.final_response = plan_res.final_message
+                    break
+
+                # Execution failed: track partial progress
+                cumulative_completed_steps.extend(plan_res.completed_steps)
+                err_str = plan_res.error or plan_res.final_message or "Task failed."
+                context.record_error(err_str)
+
+                # If loop detected or max replans reached, halt safely
+                if "Loop detected" in str(plan_res.error):
                     context.status = TaskStatus.FAILED
-                    err_str = plan_res.error or plan_res.final_message or "Task failed."
-                    context.record_error(err_str)
-                    context.final_response = plan_res.final_message or plan_res.error or "Task failed."
-            else:
-                context.status = TaskStatus.COMPLETED
-                context.final_response = plan_res.final_message
+                    context.final_response = f"Execution stopped: {plan_res.error}"
+                    break
+
+                if context.replan_count >= context.max_replans:
+                    context.status = TaskStatus.FAILED
+                    context.final_response = plan_res.final_message or err_str
+                    break
+
+                # Attempt bounded adaptive replanning
+                context.replan_count += 1
+                self.events.emit(
+                    ProgressEvent(
+                        event_type=ProgressEventType.REPLANNING,
+                        task_id=context.task_id,
+                        message="Plan failed; attempting bounded self-correction...",
+                        data={"replan_count": context.replan_count},
+                    )
+                )
+
+                failed_step_id = plan_res.data.get("failed_step") if plan_res.data else None
+                failed_step = next(
+                    (s for s in current_plan.steps if s.step_id == failed_step_id),
+                    current_plan.steps[-1] if current_plan.steps else None,
+                )
+                if not failed_step:
+                    context.status = TaskStatus.FAILED
+                    context.final_response = plan_res.final_message or err_str
+                    break
+
+                from avi.agent.diagnosis import DiagnosisResult, FailureDiagnoser
+
+                diag_data = (plan_res.data or {}).get("diagnosis")
+                if diag_data and isinstance(diag_data, dict):
+                    diagnosis = DiagnosisResult(
+                        category=FailureCategory(diag_data.get("category", "execution_error")),
+                        root_cause=diag_data.get("root_cause", ""),
+                        suggested_recovery=diag_data.get("suggested_recovery", ""),
+                        recoverable=diag_data.get("recoverable", True),
+                    )
+                else:
+                    diagnosis = FailureDiagnoser().diagnose(
+                        failed_step,
+                        failed_step.result
+                        or CapabilityResult(
+                            success=False, status=ExecutionStatus.FAILED, error=err_str
+                        ),
+                    )
+
+                attempted_strategies = [
+                    s.get("strategy") for s in context.attempted_strategies if isinstance(s, dict)
+                ]
+                new_plan = self.planner.replan(
+                    goal=context.user_prompt,
+                    completed_steps=cumulative_completed_steps,
+                    failed_step=failed_step,
+                    diagnosis=diagnosis,
+                    attempted_strategies=attempted_strategies,
+                )
+
+                if (
+                    not isinstance(new_plan, Plan)
+                    or not new_plan.steps
+                    or not all(isinstance(s, PlanStep) for s in new_plan.steps)
+                ):
+                    context.status = TaskStatus.FAILED
+                    context.final_response = plan_res.final_message or err_str
+                    break
+
+                # Register adapted plan and append steps to context
+                context.attempted_strategies.append(
+                    {
+                        "strategy": new_plan.strategy_name,
+                        "replan_count": context.replan_count,
+                    }
+                )
+                self.events.emit(
+                    ProgressEvent(
+                        event_type=ProgressEventType.PLAN_ADAPTED,
+                        task_id=context.task_id,
+                        message=f"Adapted plan generated using strategy '{new_plan.strategy_name}' ({len(new_plan.steps)} steps).",
+                        data=new_plan.to_dict(),
+                    )
+                )
+                for s in new_plan.steps:
+                    context.steps.append(
+                        StepRecord(
+                            step_index=s.step_id,
+                            capability_name=s.capability_name,
+                            args=s.arguments,
+                            description=s.description,
+                            status="pending",
+                        )
+                    )
+                current_plan = new_plan
 
             # 6. Lifecycle completion
             term_event_type = (

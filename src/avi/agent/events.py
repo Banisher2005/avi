@@ -1,10 +1,10 @@
 """Event-driven progress reporting and streaming updates for agent orchestration."""
 
+import logging
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-import logging
-import time
 from typing import Any
 
 logger = logging.getLogger("avi.agent.events")
@@ -12,6 +12,7 @@ logger = logging.getLogger("avi.agent.events")
 
 class ProgressEventType(str, Enum):
     """Standard lifecycle event types emitted by AgentOrchestrator."""
+
     TASK_STARTED = "task_started"
     PLANNING = "planning"
     CAPABILITY_SELECTED = "capability_selected"
@@ -20,7 +21,12 @@ class ProgressEventType(str, Enum):
     STEP_FAILED = "step_failed"
     VERIFICATION_STARTED = "verification_started"
     VERIFICATION_COMPLETED = "verification_completed"
+    STATE_CHANGE_VERIFIED = "state_change_verified"
+    OBSERVATION_CAPTURED = "observation_captured"
+    FAILURE_DIAGNOSED = "failure_diagnosed"
+    RECOVERY_ATTEMPTED = "recovery_attempted"
     REPLANNING = "replanning"
+    PLAN_ADAPTED = "plan_adapted"
     CONFIRMATION_REQUIRED = "confirmation_required"
     PAUSED_FOR_CONFIRMATION = "paused_for_confirmation"
     TASK_COMPLETED = "task_completed"
@@ -31,6 +37,7 @@ class ProgressEventType(str, Enum):
 @dataclass
 class ProgressEvent:
     """An event emitted during agent orchestration for UI and CLI progress display."""
+
     event_type: ProgressEventType
     task_id: str
     message: str

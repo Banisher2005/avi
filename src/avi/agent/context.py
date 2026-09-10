@@ -1,16 +1,17 @@
 """Task context and state machine representation for agent orchestration."""
 
+import time
+import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-import time
 from typing import Any
-import uuid
 
 from avi.memory.models import Memory
 
 
 class TaskStatus(str, Enum):
     """Execution status for agent tasks."""
+
     IDLE = "idle"
     PLANNING = "planning"
     EXECUTING = "executing"
@@ -24,6 +25,7 @@ class TaskStatus(str, Enum):
 @dataclass
 class StepRecord:
     """Record of an individual step in an execution plan."""
+
     step_index: int
     capability_name: str
     args: dict[str, Any] = field(default_factory=dict)
@@ -41,6 +43,11 @@ class StepRecord:
     retry_count: int = 0
     artifact_path: str | None = None
     artifacts: list[str] = field(default_factory=list)
+    expected_outcome: str = ""
+    failure_category: str | None = None
+    pre_observation: dict[str, Any] | None = None
+    post_observation: dict[str, Any] | None = None
+    state_changed: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -61,12 +68,16 @@ class StepRecord:
             "retry_count": self.retry_count,
             "artifact_path": self.artifact_path,
             "artifacts": self.artifacts,
+            "expected_outcome": self.expected_outcome,
+            "failure_category": self.failure_category,
+            "state_changed": self.state_changed,
         }
 
 
 @dataclass
 class OrchestrationContext:
     """Unified, serializable execution context for agent tasks."""
+
     user_prompt: str
     task_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     session_id: str = ""
@@ -75,12 +86,15 @@ class OrchestrationContext:
     steps: list[StepRecord] = field(default_factory=list)
     current_step_index: int = 0
     replan_count: int = 0
-    max_replans: int = 1
+    max_replans: int = 2
     retry_counts: dict[int, int] = field(default_factory=dict)
     error_details: list[str] = field(default_factory=list)
     final_response: str = ""
     start_time: float = field(default_factory=time.time)
     metadata: dict[str, Any] = field(default_factory=dict)
+    attempted_strategies: list[dict[str, Any]] = field(default_factory=list)
+    observation_history: list[dict[str, Any]] = field(default_factory=list)
+    state_snapshots: list[dict[str, Any]] = field(default_factory=list)
 
     def current_step(self) -> StepRecord | None:
         """Return the current step being executed, or None if out of bounds."""
@@ -128,4 +142,7 @@ class OrchestrationContext:
             "final_response": self.final_response,
             "elapsed_seconds": round(time.time() - self.start_time, 3),
             "metadata": self.metadata,
+            "attempted_strategies": self.attempted_strategies,
+            "observation_history": self.observation_history,
+            "state_snapshots": self.state_snapshots,
         }

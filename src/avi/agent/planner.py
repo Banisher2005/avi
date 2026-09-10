@@ -6,12 +6,37 @@ from typing import Any
 from avi.agent.models import Plan, PlanStep
 
 
-def _normalize_search_dir(dir_name: str | None) -> str:
-    """Expand conversational directory names to standard user home directory paths."""
+def _normalize_search_dir(dir_name: str | None, context: dict[str, Any] | None = None) -> str:
+    """Expand conversational directory names to standard user home directory paths, respecting memory preferences."""
     if not dir_name:
         return "~/Downloads"
     d = dir_name.strip()
     d_lower = d.lower()
+
+    # Check context memories for folder preferences
+    if context:
+        prefs = context.get("preferences", {})
+        if isinstance(prefs, dict):
+            if d_lower in ("projects", "project", "code") and "projects" in prefs:
+                return str(prefs["projects"])
+            if d_lower in ("notes", "note") and "notes" in prefs:
+                return str(prefs["notes"])
+            if d_lower in ("documents", "docs") and "documents" in prefs:
+                return str(prefs["documents"])
+            if d_lower in ("downloads",) and "downloads" in prefs:
+                return str(prefs["downloads"])
+        for m in context.get("memories", []):
+            if hasattr(m, "metadata") and isinstance(m.metadata, dict):
+                f_type = m.metadata.get("folder")
+                f_path = m.metadata.get("path")
+                if f_type and f_path:
+                    if d_lower in (
+                        f_type.lower(),
+                        f"{f_type.lower()}s",
+                        f_type.lower().rstrip("s"),
+                    ):
+                        return str(f_path)
+
     if d_lower == "downloads":
         return "~/Downloads"
     if d_lower in ("documents", "docs"):
@@ -22,6 +47,10 @@ def _normalize_search_dir(dir_name: str | None) -> str:
         return "~/Pictures"
     if d_lower in ("videos", "vids"):
         return "~/Videos"
+    if d_lower in ("projects", "project", "code"):
+        return "~/Projects"
+    if d_lower in ("notes", "note"):
+        return "~/Notes"
     return d
 
 
@@ -169,7 +198,9 @@ class AgentPlanner:
                 or creator_or_query
             )
             if is_yt_req:
-                yt_query = f"{creator_or_query.strip()} latest" if creator_or_query else "trending videos"
+                yt_query = (
+                    f"{creator_or_query.strip()} latest" if creator_or_query else "trending videos"
+                )
                 steps = [
                     PlanStep(
                         step_id=1,
@@ -200,7 +231,9 @@ class AgentPlanner:
         )
         if yt_search_play_match:
             yt_query = yt_search_play_match.group(1).strip()
-            yt_query = re.sub(r"\s+(?:on\s+youtube|on\s+yt)$", "", yt_query, flags=re.IGNORECASE).strip()
+            yt_query = re.sub(
+                r"\s+(?:on\s+youtube|on\s+yt)$", "", yt_query, flags=re.IGNORECASE
+            ).strip()
             if yt_query:
                 steps = [
                     PlanStep(
@@ -493,7 +526,9 @@ class AgentPlanner:
                 elif t_clean.startswith(("#", ".", "[")):
                     args["selector"] = t_clean
                 else:
-                    args["selector"] = f"input[placeholder*='{t_clean}' i], input[name*='{t_clean}' i]"
+                    args["selector"] = (
+                        f"input[placeholder*='{t_clean}' i], input[name*='{t_clean}' i]"
+                    )
             steps = [
                 PlanStep(
                     step_id=1,
@@ -943,8 +978,16 @@ class AgentPlanner:
         # -------------------------------------------------------------------
 
         # Clipboard set
-        if re.search(r"\b(?:copy|set)\s+(.+?)\s+(?:to|in|into)\s+(?:the\s+)?clipboard\b", clean, re.IGNORECASE) or re.search(r"\bcopy\s+to\s+clipboard\s+(.+)$", clean, re.IGNORECASE):
-            clip_match = re.search(r"\b(?:copy|set)\s+(.+?)\s+(?:to|in|into)\s+(?:the\s+)?clipboard\b", clean, re.IGNORECASE)
+        if re.search(
+            r"\b(?:copy|set)\s+(.+?)\s+(?:to|in|into)\s+(?:the\s+)?clipboard\b",
+            clean,
+            re.IGNORECASE,
+        ) or re.search(r"\bcopy\s+to\s+clipboard\s+(.+)$", clean, re.IGNORECASE):
+            clip_match = re.search(
+                r"\b(?:copy|set)\s+(.+?)\s+(?:to|in|into)\s+(?:the\s+)?clipboard\b",
+                clean,
+                re.IGNORECASE,
+            )
             if not clip_match:
                 clip_match = re.search(r"\bcopy\s+to\s+clipboard\s+(.+)$", clean, re.IGNORECASE)
             text_to_copy = clip_match.group(1).strip().strip("\"'")
@@ -1075,7 +1118,15 @@ class AgentPlanner:
             q_or_ext = fs_search_match.group(1).strip()
             target_dir = _normalize_search_dir(fs_search_match.group(2))
             args = {"path": target_dir, "limit": 10}
-            if q_or_ext.startswith(".") or q_or_ext.lower() in ("pdf", "png", "jpg", "txt", "py", "md", "csv"):
+            if q_or_ext.startswith(".") or q_or_ext.lower() in (
+                "pdf",
+                "png",
+                "jpg",
+                "txt",
+                "py",
+                "md",
+                "csv",
+            ):
                 args["extension"] = q_or_ext.lstrip(".")
             else:
                 args["query"] = q_or_ext
@@ -1093,3 +1144,25 @@ class AgentPlanner:
             )
 
         return None
+
+    def replan(
+        self,
+        goal: str,
+        completed_steps: list[PlanStep],
+        failed_step: PlanStep,
+        diagnosis: Any,
+        current_observation: dict[str, Any] | None = None,
+        attempted_strategies: list[str] | None = None,
+    ) -> Plan | None:
+        """Synthesize an adaptive recovery plan for the remaining goal."""
+        from avi.agent.adaptive_planner import AdaptivePlanner
+
+        adaptive = AdaptivePlanner(base_planner=self)
+        return adaptive.replan(
+            goal=goal,
+            completed_steps=completed_steps,
+            failed_step=failed_step,
+            diagnosis=diagnosis,
+            current_observation=current_observation,
+            attempted_strategies=attempted_strategies,
+        )

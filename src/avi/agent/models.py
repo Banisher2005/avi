@@ -41,6 +41,19 @@ class StepStatus(str, Enum):
     CONFIRMATION_REQUIRED = "confirmation_required"
 
 
+class FailureCategory(str, Enum):
+    """Categorization of step execution failures for adaptive recovery."""
+
+    TEMPORARY_LOADING = "temporary_loading"
+    STALE_STATE = "stale_state"
+    WRONG_ASSUMPTION = "wrong_assumption"
+    NAVIGATION_FAILURE = "navigation_failure"
+    CONFIRMATION_REQUIRED = "confirmation_required"
+    UNSUPPORTED_CAPABILITY = "unsupported_capability"
+    REPEATED_FAILURE = "repeated_failure"
+    EXECUTION_ERROR = "execution_error"
+
+
 @dataclass
 class PlanStep:
     """A discrete capability invocation step in an execution plan."""
@@ -56,6 +69,13 @@ class PlanStep:
     verified: bool | None = None
     duration_ms: float = 0.0
     artifact_path: str | None = None
+    expected_outcome: str = ""
+    verification_condition: dict[str, Any] = field(default_factory=dict)
+    fallback_capability: str | None = None
+    fallback_arguments: dict[str, Any] | None = None
+    retry_count: int = 0
+    failure_category: FailureCategory | None = None
+    requires_observation_before: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -69,6 +89,10 @@ class PlanStep:
             "verified": self.verified,
             "duration_ms": self.duration_ms,
             "artifact_path": self.artifact_path,
+            "expected_outcome": self.expected_outcome,
+            "fallback_capability": self.fallback_capability,
+            "retry_count": self.retry_count,
+            "failure_category": self.failure_category.value if self.failure_category else None,
         }
 
 
@@ -82,6 +106,17 @@ class Plan:
     max_steps: int = 5
     requires_confirmation: bool = False
     confirmation_prompt: str = ""
+    strategy_name: str = "primary"
+    attempted_strategies: list[str] = field(default_factory=list)
+    context_data: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def goal(self) -> str:
+        return self.user_goal
+
+    @goal.setter
+    def goal(self, val: str) -> None:
+        self.user_goal = val
 
     @property
     def is_single_step(self) -> bool:
@@ -94,6 +129,8 @@ class Plan:
             "steps": [s.to_dict() for s in self.steps],
             "max_steps": self.max_steps,
             "requires_confirmation": self.requires_confirmation,
+            "strategy_name": self.strategy_name,
+            "attempted_strategies": self.attempted_strategies,
         }
 
 
@@ -110,6 +147,9 @@ class TaskState:
     final_result: Any = None
     retry_counts: dict[int, int] = field(default_factory=dict)
     task_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    attempted_strategies: list[dict[str, Any]] = field(default_factory=list)
+    observation_history: list[dict[str, Any]] = field(default_factory=list)
+    state_snapshots: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -121,6 +161,9 @@ class TaskState:
             "failed_steps": [s.to_dict() for s in self.failed_steps],
             "pending_steps": [s.to_dict() for s in self.pending_steps],
             "final_result": self.final_result,
+            "attempted_strategies": self.attempted_strategies,
+            "observation_history": self.observation_history,
+            "state_snapshots": self.state_snapshots,
         }
 
 
@@ -157,4 +200,3 @@ class PlanExecutionResult:
             "action_duration_ms": self.action_duration_ms,
             "verification_duration_ms": self.verification_duration_ms,
         }
-

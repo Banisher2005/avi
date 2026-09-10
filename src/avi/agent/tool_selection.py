@@ -10,11 +10,51 @@ from avi.memory.models import Memory
 logger = logging.getLogger("avi.agent.tool_selection")
 
 _STOPWORDS = {
-    "a", "an", "the", "in", "on", "at", "to", "for", "of", "with", "by", "from",
-    "is", "are", "was", "were", "be", "been", "being", "have", "has", "had",
-    "do", "does", "did", "can", "could", "will", "would", "should",
-    "i", "me", "my", "myself", "we", "our", "you", "your", "it", "its",
-    "please", "avi", "help", "want", "need",
+    "a",
+    "an",
+    "the",
+    "in",
+    "on",
+    "at",
+    "to",
+    "for",
+    "of",
+    "with",
+    "by",
+    "from",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "been",
+    "being",
+    "have",
+    "has",
+    "had",
+    "do",
+    "does",
+    "did",
+    "can",
+    "could",
+    "will",
+    "would",
+    "should",
+    "i",
+    "me",
+    "my",
+    "myself",
+    "we",
+    "our",
+    "you",
+    "your",
+    "it",
+    "its",
+    "please",
+    "avi",
+    "help",
+    "want",
+    "need",
 }
 
 
@@ -39,14 +79,15 @@ class ToolSelector:
         self,
         prompt: str,
         memories: Sequence[Memory] = (),
+        context: dict[str, Any] | None = None,
         limit: int = 6,
     ) -> list[dict[str, Any]]:
-        """Select top relevant capabilities matching the prompt and memory context."""
+        """Select top relevant capabilities matching the prompt, memory context, and runtime state."""
         catalog = self.registry.get_model_catalog(enabled_only=True)
         if not prompt.strip():
             return catalog[:limit]
 
-        scored = self.score_catalog(prompt, catalog, memories=memories)
+        scored = self.score_catalog(prompt, catalog, memories=memories, context=context)
         # Sort descending by score
         scored.sort(key=lambda x: x[0], reverse=True)
         return [meta for score, meta in scored[:limit] if score > 0] or catalog[:limit]
@@ -56,8 +97,9 @@ class ToolSelector:
         prompt: str,
         catalog: Sequence[dict[str, Any]],
         memories: Sequence[Memory] = (),
+        context: dict[str, Any] | None = None,
     ) -> list[tuple[float, dict[str, Any]]]:
-        """Score each capability against prompt tokens and memory context."""
+        """Score each capability against prompt tokens, memory context, and environment observations."""
         clean_p = prompt.lower().strip()
         tokens = set(self.extract_keywords(clean_p))
 
@@ -102,20 +144,59 @@ class ToolSelector:
                 score += 15.0
             if any(v in tokens for v in ("volume", "mute", "unmute", "sound")) and "volume" in name:
                 score += 15.0
-            if any(w in tokens for w in ("window", "workspace", "minimize", "maximize")) and "window" in name:
+            if (
+                any(w in tokens for w in ("window", "workspace", "minimize", "maximize"))
+                and "window" in name
+            ):
                 score += 12.0
-            if any(f in tokens for f in ("file", "folder", "directory", "move", "copy", "delete")) and "filesystem" in name:
+            if (
+                any(f in tokens for f in ("file", "folder", "directory", "move", "copy", "delete"))
+                and "filesystem" in name
+            ):
                 score += 10.0
-            if any(a in tokens for a in ("open", "launch", "start", "run", "app", "application")) and "apps" in name:
+            if (
+                any(a in tokens for a in ("open", "launch", "start", "run", "app", "application"))
+                and "apps" in name
+            ):
                 score += 8.0
-            if any(b in tokens for b in ("browser", "webpage", "website", "url", "navigate", "page", "tab")) and "browser" in name:
+            if (
+                any(
+                    b in tokens
+                    for b in ("browser", "webpage", "website", "url", "navigate", "page", "tab")
+                )
+                and "browser" in name
+            ):
                 score += 12.0
             if any(s in tokens for s in ("scroll", "scrolling")) and "scroll" in name:
                 score += 15.0
             if any(c in tokens for c in ("click", "button", "link")) and "click" in name:
                 score += 14.0
-            if any(d in tokens for d in ("download", "downloads", "downloaded")) and "download" in name:
+            if (
+                any(d in tokens for d in ("download", "downloads", "downloaded"))
+                and "download" in name
+            ):
                 score += 15.0
+
+            # Context observation adjustments
+            if context:
+                obs = context.get("observation")
+                if isinstance(obs, dict):
+                    if obs.get("url") and "browser" in name:
+                        score += 6.0
+                    if obs.get("active_window") and "window" in name:
+                        score += 4.0
+
+                fail_cat = str(context.get("failure_category", "")).lower()
+                if fail_cat == "wrong_assumption":
+                    if "search" in name:
+                        score += 8.0
+                elif fail_cat in ("stale_state", "temporary_loading"):
+                    if "observe" in name:
+                        score += 8.0
+
+                failed_caps = context.get("failed_capabilities", [])
+                if name in failed_caps:
+                    score -= 10.0
 
             scored.append((score, meta))
 
