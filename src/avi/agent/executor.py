@@ -712,6 +712,13 @@ class AgentExecutor:
                     return False
             return True
 
+        # 4b. Filesystem rename verification: target exists
+        if cap in ("filesystem.rename", "rename_file", "rename"):
+            target = (res.data.get("path") if res.data else None) or step.arguments.get("new_name")
+            if target:
+                return Path(target).exists()
+            return res.success
+
         # 5. Filesystem delete verification: target deleted
         if cap in ("filesystem.delete", "filesystem.delete_file", "delete_file"):
             target = step.arguments.get("path")
