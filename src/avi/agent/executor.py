@@ -180,6 +180,13 @@ class AgentExecutor:
                             piped_path = (
                                 first_m.get("path") if isinstance(first_m, dict) else str(first_m)
                             )
+                    if not piped_path and "files" in dep_res.data:
+                        f_list = dep_res.data.get("files", [])
+                        if f_list:
+                            first_f = f_list[0]
+                            piped_path = (
+                                first_f.get("path") if isinstance(first_f, dict) else str(first_f)
+                            )
                     if not piped_path:
                         step.status = StepStatus.FAILED
                         failed_steps.append(step)
@@ -225,18 +232,23 @@ class AgentExecutor:
                     step.arguments["url"] = piped_url
 
                 elif step.pipe_arg_name in ("content", "text", "body"):
-                    piped_content = (
-                        dep_res.data.get("content")
-                        or dep_res.data.get("text")
-                        or dep_res.data.get("extracted_text")
-                        or dep_res.data.get("title")
-                    )
-                    # Compose title + URL if available from browser/web extraction
-                    if not piped_content and isinstance(dep_res.data, dict):
-                        t = dep_res.data.get("title")
-                        u = dep_res.data.get("url")
-                        if t or u:
-                            piped_content = f"Title: {t or 'Unknown'}\nURL: {u or ''}\n"
+                    if step.arguments.get("format") in ("title_and_url", "title_url"):
+                        t = dep_res.data.get("title") or "Unknown"
+                        u = dep_res.data.get("url") or ""
+                        piped_content = f"Title: {t}\nURL: {u}\n"
+                    else:
+                        piped_content = (
+                            dep_res.data.get("content")
+                            or dep_res.data.get("text")
+                            or dep_res.data.get("extracted_text")
+                            or dep_res.data.get("title")
+                        )
+                        # Compose title + URL if available from browser/web extraction
+                        if not piped_content and isinstance(dep_res.data, dict):
+                            t = dep_res.data.get("title")
+                            u = dep_res.data.get("url")
+                            if t or u:
+                                piped_content = f"Title: {t or 'Unknown'}\nURL: {u or ''}\n"
                     if piped_content:
                         step.arguments[step.pipe_arg_name] = piped_content
 
