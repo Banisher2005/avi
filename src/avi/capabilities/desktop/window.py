@@ -8,6 +8,7 @@ from typing import Any
 from avi.apps.resolver import ApplicationResolver
 from avi.capabilities.models import (
     BaseCapability,
+    CapabilityCategory,
     CapabilityResult,
     DataClassification,
     ExecutionStatus,
@@ -212,6 +213,7 @@ class WindowListCapability(BaseCapability):
 
     name = "desktop.window.list"
     description = "List currently open desktop windows including title, class, ID, and desktop number."
+    category = CapabilityCategory.APPLICATION
     input_schema = {
         "type": "object",
         "properties": {
@@ -224,6 +226,8 @@ class WindowListCapability(BaseCapability):
     risk_category = ActionCategory.READ_ONLY
     data_classification = DataClassification.LOCAL_ONLY
     requires_confirmation = False
+    side_effects = False
+    supports_observation = True
     tags = ("desktop", "window", "list", "windows", "inspect")
 
     def execute(self, **kwargs: Any) -> CapabilityResult:
@@ -270,6 +274,7 @@ class WindowFocusCapability(BaseCapability):
 
     name = "desktop.window.focus"
     description = "Bring an open desktop window to the front and focus it by title, class, or window ID."
+    category = CapabilityCategory.APPLICATION
     input_schema = {
         "type": "object",
         "properties": {
@@ -286,6 +291,8 @@ class WindowFocusCapability(BaseCapability):
     risk_category = ActionCategory.LOW_RISK_ACTION
     data_classification = DataClassification.LOCAL_ONLY
     requires_confirmation = False
+    side_effects = True
+    supports_observation = True
     tags = ("desktop", "window", "focus", "activate", "switch")
 
     def __init__(self, resolver: ApplicationResolver | None = None) -> None:
@@ -336,4 +343,128 @@ class WindowFocusCapability(BaseCapability):
             status=ExecutionStatus.FAILED,
             error=message,
             message=message,
+        )
+
+
+class WindowCloseCapability(BaseCapability):
+    """Close an open desktop window by title, application class, or window ID."""
+
+    name = "desktop.window.close"
+    description = "Close an open desktop window by title, application class, or window ID."
+    category = CapabilityCategory.APPLICATION
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "title": {
+                "type": "string",
+                "description": "Window title or application name to close",
+            },
+            "window_id": {
+                "type": "string",
+                "description": "Optional specific window ID (e.g. '0x02800003')",
+            },
+        },
+    }
+    risk_category = ActionCategory.LOW_RISK_ACTION
+    data_classification = DataClassification.LOCAL_ONLY
+    requires_confirmation = False
+    side_effects = True
+    supports_observation = True
+    tags = ("desktop", "window", "close", "kill")
+
+    def execute(self, **kwargs: Any) -> CapabilityResult:
+        target = kwargs.get("title") or kwargs.get("app_name") or kwargs.get("target") or kwargs.get("query")
+        window_id = kwargs.get("window_id") or kwargs.get("id")
+
+        if not target and not window_id:
+            return CapabilityResult(
+                success=False,
+                status=ExecutionStatus.FAILED,
+                error="Either 'title', 'app_name', or 'window_id' must be specified to close a window.",
+            )
+
+        target_str = str(target).strip() if target else ""
+        wid_str = str(window_id).strip() if window_id else None
+
+        # 1. By window ID via wmctrl -i -c
+        if wid_str and shutil.which("wmctrl"):
+            try:
+                proc = subprocess.run(
+                    ["wmctrl", "-i", "-c", wid_str],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    check=False,
+                    timeout=3.0,
+                )
+                if proc.returncode == 0:
+                    return CapabilityResult(
+                        success=True,
+                        status=ExecutionStatus.SUCCESS,
+                        message=f"Closed window with ID '{wid_str}'.",
+                        data={"window_id": wid_str},
+                        classification=self.data_classification,
+                    )
+            except Exception as err:
+                logger.debug("wmctrl close by ID failed: %s", err)
+
+        # 2. By title via wmctrl -c
+        if target_str and shutil.which("wmctrl"):
+            try:
+                proc = subprocess.run(
+                    ["wmctrl", "-c", target_str],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    check=False,
+                    timeout=3.0,
+                )
+                if proc.returncode == 0:
+                    return CapabilityResult(
+                        success=True,
+                        status=ExecutionStatus.SUCCESS,
+                        message=f"Closed window matching '{target_str}'.",
+                        data={"target": target_str},
+                        classification=self.data_classification,
+                    )
+            except Exception as err:
+                logger.debug("wmctrl close by title failed: %s", err)
+
+        # 3. Try xdotool
+        if target_str and shutil.which("xdotool"):
+            try:
+                search_proc = subprocess.run(
+                    ["xdotool", "search", "--onlyvisible", "--name", target_str],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    check=False,
+                    timeout=3.0,
+                )
+                if search_proc.returncode == 0 and search_proc.stdout.strip():
+                    wid = search_proc.stdout.splitlines()[0].strip()
+                    close_proc = subprocess.run(
+                        ["xdotool", "windowclose", wid],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        check=False,
+                        timeout=3.0,
+                    )
+                    if close_proc.returncode == 0:
+                        return CapabilityResult(
+                            success=True,
+                            status=ExecutionStatus.SUCCESS,
+                            message=f"Closed window '{wid}' matching '{target_str}' via xdotool.",
+                            data={"target": target_str, "wid": wid},
+                            classification=self.data_classification,
+                        )
+            except Exception as err:
+                logger.debug("xdotool close failed: %s", err)
+
+        return CapabilityResult(
+            success=False,
+            status=ExecutionStatus.FAILED,
+            error=f"Could not find or close window matching '{target_str or wid_str}'.",
+            message=f"Could not close window matching '{target_str or wid_str}'.",
         )
