@@ -224,6 +224,30 @@ class AgentExecutor:
                         )
                     step.arguments["url"] = piped_url
 
+                elif step.pipe_arg_name in ("content", "text", "body"):
+                    piped_content = (
+                        dep_res.data.get("content")
+                        or dep_res.data.get("text")
+                        or dep_res.data.get("extracted_text")
+                        or dep_res.data.get("title")
+                    )
+                    # Compose title + URL if available from browser/web extraction
+                    if not piped_content and isinstance(dep_res.data, dict):
+                        t = dep_res.data.get("title")
+                        u = dep_res.data.get("url")
+                        if t or u:
+                            piped_content = f"Title: {t or 'Unknown'}\nURL: {u or ''}\n"
+                    if piped_content:
+                        step.arguments[step.pipe_arg_name] = piped_content
+
+                elif step.pipe_arg_name in ("app_name", "app", "application"):
+                    piped_app = dep_res.data.get("app") or dep_res.data.get("app_name")
+                    if piped_app:
+                        step.arguments[step.pipe_arg_name] = piped_app
+
+                elif step.pipe_arg_name in dep_res.data:
+                    step.arguments[step.pipe_arg_name] = dep_res.data[step.pipe_arg_name]
+
             # 2. Loop guard check
             if self.loop_guard:
                 loop_check = self.loop_guard.record_and_check(step.capability_name, step.arguments)
@@ -762,6 +786,46 @@ class AgentExecutor:
             return res.data is not None and "direction" in res.data
         if cap in ("browser.download", "browser.downloads", "detect_download"):
             return res.data is not None
+
+        # 12. Filesystem write verification: file exists
+        if cap in ("filesystem.write_file", "write_file", "file.write"):
+            p = (res.data.get("path") if res.data else None) or step.arguments.get("path")
+            if not p:
+                return False
+            wp = Path(p)
+            return wp.exists()
+
+        # 13. Filesystem read verification: content returned
+        if cap in ("filesystem.read_file", "read_file", "file.read"):
+            return res.data is not None and "content" in res.data
+
+        # 14. Filesystem search content / grep verification
+        if cap in ("filesystem.search_content", "search_content", "grep"):
+            return res.data is not None and ("matches" in res.data or "count" in res.data)
+
+        # 15. Filesystem duplicates / largest / organize verification
+        if cap in ("filesystem.find_duplicates", "find_duplicates", "duplicates"):
+            return res.data is not None and "duplicates" in res.data
+        if cap in ("filesystem.largest_files", "largest_files"):
+            return res.data is not None and "files" in res.data
+        if cap in ("filesystem.organize", "organize_files"):
+            return res.data is not None and "moved_count" in res.data
+
+        # 16. App & Window closing verification
+        if cap in ("desktop.close_app", "close_app", "app.close"):
+            return res.success
+        if cap in ("desktop.window.close", "window.close", "close_window"):
+            return res.success
+
+        # 17. System command execution verification
+        if cap in ("system.execute_command", "command.execute", "execute_command"):
+            return res.data is not None and res.data.get("exit_code") == 0
+
+        # 18. Memory verification
+        if cap in ("memory.remember", "remember"):
+            return res.data is not None and "content" in res.data
+        if cap in ("memory.recall", "recall"):
+            return res.data is not None and "memories" in res.data
 
         return True
 
