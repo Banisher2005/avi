@@ -1,5 +1,6 @@
 """System command execution capability with subprocess isolation and safety policy."""
 
+import shlex
 from pathlib import Path
 from typing import Any
 
@@ -80,8 +81,18 @@ class ExecuteCommandCapability(BaseCapability):
             )
 
         resolved_cwd = Path(cwd or ".").expanduser().resolve()
-        request = CommandRequest.from_command_line(
-            cmd_str,
+        parts = shlex.split(cmd_str)
+        if not parts:
+            return CapabilityResult(
+                success=False,
+                status=ExecutionStatus.FAILED,
+                error="Command parameter is empty.",
+                message="Cannot execute empty command.",
+            )
+
+        request = CommandRequest(
+            program=parts[0],
+            args=parts[1:],
             cwd=resolved_cwd,
             timeout=float(timeout),
         )
