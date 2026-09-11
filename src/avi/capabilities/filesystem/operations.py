@@ -172,6 +172,83 @@ class MoveFileCapability(BaseCapability):
             )
 
 
+class RenameFileCapability(BaseCapability):
+    """Renames a file or directory."""
+
+    name = "filesystem.rename"
+    description = "Rename a file or directory."
+    category = CapabilityCategory.FILESYSTEM
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "Path to file or directory to rename."},
+            "new_name": {"type": "string", "description": "New name or target path for the file."},
+        },
+        "required": ["path", "new_name"],
+    }
+    risk_category = ActionCategory.FILESYSTEM_WRITE
+    data_classification = DataClassification.LOCAL_ONLY
+    requires_confirmation = False
+    side_effects = True
+
+    def execute(
+        self,
+        path: str = "",
+        new_name: str = "",
+        source: str = "",
+        destination: str = "",
+        **kwargs: Any,
+    ) -> CapabilityResult:
+        src_str = path or source
+        new_val = new_name or destination
+
+        if not src_str or not new_val:
+            return CapabilityResult(
+                success=False,
+                status=ExecutionStatus.FAILED,
+                error="Both path and new_name are required.",
+                message="Cannot rename: path or new_name missing.",
+                classification=self.data_classification,
+            )
+
+        src = Path(src_str).expanduser().resolve()
+        if not src.exists():
+            return CapabilityResult(
+                success=False,
+                status=ExecutionStatus.FAILED,
+                error=f"Source does not exist: {src}",
+                message=f"Cannot rename: '{src_str}' does not exist.",
+                classification=self.data_classification,
+            )
+
+        new_path_obj = Path(new_val).expanduser()
+        if "/" in new_val or "\\" in new_val:
+            dest = new_path_obj.resolve()
+        else:
+            dest = src.parent / new_val
+
+        # Ensure parent exists
+        dest.parent.mkdir(parents=True, exist_ok=True)
+
+        try:
+            shutil.move(str(src), str(dest))
+            return CapabilityResult(
+                success=True,
+                status=ExecutionStatus.SUCCESS,
+                data={"path": str(dest), "old_path": str(src), "new_name": dest.name},
+                message=f"Renamed {src.name} to {dest.name}.",
+                classification=self.data_classification,
+            )
+        except Exception as err:
+            return CapabilityResult(
+                success=False,
+                status=ExecutionStatus.FAILED,
+                error=str(err),
+                message=f"Failed to rename '{src_str}' to '{new_val}': {err}",
+                classification=self.data_classification,
+            )
+
+
 class DeleteFileCapability(BaseCapability):
     """Deletes a file or directory. Strictly DESTRUCTIVE; requires explicit user confirmation."""
 
