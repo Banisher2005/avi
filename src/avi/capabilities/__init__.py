@@ -3,6 +3,7 @@
 from avi.capabilities.models import (
     ActionCapabilityAdapter,
     BaseCapability,
+    CapabilityCategory,
     CapabilityResult,
     DataClassification,
     ExecutionStatus,
@@ -13,6 +14,7 @@ from avi.capabilities.registry import CapabilityRegistry, create_default_capabil
 __all__ = [
     "ActionCapabilityAdapter",
     "BaseCapability",
+    "CapabilityCategory",
     "CapabilityResult",
     "CapabilityRegistry",
     "DataClassification",
