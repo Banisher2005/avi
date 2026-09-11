@@ -110,6 +110,12 @@ class AgentPlanner:
                 elif "write" in cap and "file" in cap:
                     if "path" in args:
                         verif_cond["file_exists"] = args["path"]
+                elif "rename" in cap:
+                    if "new_name" in args:
+                        verif_cond["file_exists"] = args["new_name"]
+                elif "move" in cap:
+                    if "destination" in args:
+                        verif_cond["file_exists"] = args["destination"]
                 elif "navigate" in cap or "open_url" in cap:
                     if "url" in args:
                         verif_cond["url"] = args["url"]
@@ -145,6 +151,12 @@ class AgentPlanner:
                         elif "write" in cap and "file" in cap:
                             if "path" in args:
                                 verif_cond["file_exists"] = args["path"]
+                        elif "rename" in cap:
+                            if "new_name" in args:
+                                verif_cond["file_exists"] = args["new_name"]
+                        elif "move" in cap:
+                            if "destination" in args:
+                                verif_cond["file_exists"] = args["destination"]
                         elif "navigate" in cap or "open_url" in cap:
                             if "url" in args:
                                 verif_cond["url"] = args["url"]
@@ -782,6 +794,122 @@ class AgentPlanner:
                 max_steps=self.max_steps,
             )
 
+        # Pattern: Composite Downloads -> Search -> Rename -> Move -> (Optional Open)
+        # Handles e.g. "Find the latest PDF I downloaded, rename it to project-report.pdf, move it to Documents, and open it."
+        find_rename_move_match = re.search(
+            r"\b(?:find|search(?:\s+for)?)(?:\s+the)?\s+(?:newest|latest)\s+(\w+)(?:\s+(?:i\s+downloaded|downloaded|in\s+downloads|in\s+([^\s,]+)))?[,\s]+(?:and\s+)?rename\s+(?:it\s+)?to\s+([^\s,]+)[,\s]+(?:and\s+)?(?:then\s+)?move\s+(?:it\s+)?to\s+([^\s,]+)(?:[,\s]+(?:and\s+)?(?:then\s+)?(?:open|view)\s+(?:it|file))?\b",
+            clean,
+            re.IGNORECASE,
+        )
+        if find_rename_move_match:
+            ext = find_rename_move_match.group(1).lstrip(".").lower()
+            custom_dir = find_rename_move_match.group(2)
+            search_path = _normalize_search_dir(custom_dir) if custom_dir else _normalize_search_dir("Downloads")
+            new_name = find_rename_move_match.group(3).strip()
+            dest_dir = _normalize_search_dir(find_rename_move_match.group(4).strip())
+            should_open = bool(re.search(r"\b(?:open|view)\s+(?:it|file)\b", clean, re.IGNORECASE))
+
+            steps = [
+                PlanStep(
+                    step_id=1,
+                    capability_name="filesystem.search",
+                    arguments={
+                        "extension": ext,
+                        "path": search_path,
+                        "newest_first": True,
+                        "limit": 1,
+                    },
+                    description=f"Find newest {ext} in {search_path}",
+                ),
+                PlanStep(
+                    step_id=2,
+                    capability_name="filesystem.rename",
+                    arguments={"new_name": new_name},
+                    description=f"Rename {ext} to {new_name}",
+                    pipe_from_step=1,
+                    pipe_arg_name="path",
+                ),
+                PlanStep(
+                    step_id=3,
+                    capability_name="filesystem.move",
+                    arguments={"destination": dest_dir},
+                    description=f"Move {new_name} to {dest_dir}",
+                    pipe_from_step=2,
+                    pipe_arg_name="source",
+                ),
+            ]
+            if should_open:
+                steps.append(
+                    PlanStep(
+                        step_id=4,
+                        capability_name="desktop.open_file",
+                        arguments={},
+                        description=f"Open {new_name}",
+                        pipe_from_step=3,
+                        pipe_arg_name="path",
+                    )
+                )
+            return Plan(
+                user_goal=clean,
+                steps=steps[: self.max_steps],
+                max_steps=self.max_steps,
+            )
+
+        # Pattern: Browser search and save title/URL/content to text file
+        # Handles e.g. "Open Chrome, search for the latest NVIDIA news, find the official announcement, and save the title and URL into a text file in Documents."
+        browser_research_match = re.search(
+            r"\b(?:open\s+(?:chrome|google\s+chrome|firefox|the\s+browser|browser)[,\s]+)?search(?:\s+for|\s+on\s+google\s+for|\s+the\s+web\s+for)?\s+(.+?)(?:[,\s]+find\s+(?:the\s+)?(?:official\s+)?(?:announcement|result|article|page)[,\s]*)?[,\s]+(?:and\s+)?save\s+(?:the\s+)?(title\s+and\s+url|content|text|results?)\s+(?:in|into|to)\s+(?:a\s+text\s+file(?:\s+(?:called|named)\s+([^\s,]+))?\s+in\s+([^\s,\.]+)|([^\s,]+\.txt))\b",
+            clean,
+            re.IGNORECASE,
+        )
+        if browser_research_match:
+            raw_query = browser_research_match.group(1).strip().strip("\"'")
+            what_to_save = browser_research_match.group(2).strip().lower()
+            explicit_name = browser_research_match.group(3)
+            target_dir = browser_research_match.group(4)
+            direct_file = browser_research_match.group(5)
+
+            clean_query = re.sub(r"^(?:for|the)\s+", "", raw_query, flags=re.IGNORECASE).strip()
+            q_encoded = re.sub(r"\s+", "+", clean_query)
+            search_url = f"https://www.google.com/search?q={q_encoded}"
+
+            if direct_file:
+                target_path = direct_file
+            else:
+                folder = _normalize_search_dir(target_dir) if target_dir else _normalize_search_dir("Documents")
+                fname = explicit_name or (re.sub(r"[^a-zA-Z0-9_-]", "_", clean_query.lower())[:30].strip("_") + ".txt")
+                target_path = f"{folder}/{fname}"
+
+            fmt = "title_and_url" if "title" in what_to_save else "content"
+
+            steps = [
+                PlanStep(
+                    step_id=1,
+                    capability_name="browser.navigate",
+                    arguments={"url": search_url},
+                    description=f"Search for '{clean_query}' in browser",
+                ),
+                PlanStep(
+                    step_id=2,
+                    capability_name="browser.extract",
+                    arguments={"include_links": True},
+                    description=f"Extract results for '{clean_query}'",
+                ),
+                PlanStep(
+                    step_id=3,
+                    capability_name="filesystem.write_file",
+                    arguments={"path": target_path, "format": fmt},
+                    description=f"Save {what_to_save} to {target_path}",
+                    pipe_from_step=2,
+                    pipe_arg_name="content",
+                ),
+            ]
+            return Plan(
+                user_goal=clean,
+                steps=steps[: self.max_steps],
+                max_steps=self.max_steps,
+            )
+
         # Pattern: Create directory and copy file into it
         mkdir_copy_match = re.search(
             r"\bcreate\s+(?:a\s+)?(?:directory|folder)\s+(?:called|named\s+)?([^\s]+)\s+(?:and|then)\s+copy\s+([^\s]+)\s+(?:in|into|to)\s+it\b",
@@ -1277,6 +1405,244 @@ class AgentPlanner:
                         capability_name="filesystem.search",
                         arguments=args,
                         description=f"Search for '{q_or_ext}' in {target_dir}",
+                    )
+                ],
+                max_steps=self.max_steps,
+            )
+
+        # Filesystem Organize
+        organize_match = re.match(
+            r"^(?:please\s+)?organize(?:\s+(?:my|the|all))?\s+(?:files\s+in\s+)?([^\s]+)(?:\s+by\s+(\w+))?$",
+            clean,
+            re.IGNORECASE,
+        )
+        if organize_match and not re.search(r"\b(?:and|then)\b", lower):
+            raw_dir = organize_match.group(1).strip()
+            strat = organize_match.group(2) or "extension"
+            target_dir = _normalize_search_dir(raw_dir)
+            return Plan(
+                user_goal=clean,
+                steps=[
+                    PlanStep(
+                        step_id=1,
+                        capability_name="filesystem.organize",
+                        arguments={"path": target_dir, "strategy": strat},
+                        description=f"Organize files in {target_dir}",
+                    )
+                ],
+                max_steps=self.max_steps,
+            )
+
+        # Filesystem Find Duplicates
+        dup_match = re.match(
+            r"^(?:please\s+)?(?:find|detect|check(?:\s+for)?|list)\s+(?:all\s+)?duplicate(?:\s+files)?(?:\s+in\s+([^\s]+))?$",
+            clean,
+            re.IGNORECASE,
+        )
+        if dup_match and not re.search(r"\b(?:and|then)\b", lower):
+            raw_dir = dup_match.group(1)
+            target_dir = _normalize_search_dir(raw_dir) if raw_dir else _normalize_search_dir("Downloads")
+            return Plan(
+                user_goal=clean,
+                steps=[
+                    PlanStep(
+                        step_id=1,
+                        capability_name="filesystem.find_duplicates",
+                        arguments={"path": target_dir},
+                        description=f"Find duplicate files in {target_dir}",
+                    )
+                ],
+                max_steps=self.max_steps,
+            )
+
+        # Filesystem Largest Files
+        largest_match = re.match(
+            r"^(?:please\s+)?(?:find|show|list|get)(?:\s+(?:the|all))?\s+(?:largest|biggest)\s+files?(?:\s+in\s+([^\s]+))?$",
+            clean,
+            re.IGNORECASE,
+        )
+        if largest_match and not re.search(r"\b(?:and|then)\b", lower):
+            raw_dir = largest_match.group(1)
+            target_dir = _normalize_search_dir(raw_dir) if raw_dir else _normalize_search_dir("Downloads")
+            return Plan(
+                user_goal=clean,
+                steps=[
+                    PlanStep(
+                        step_id=1,
+                        capability_name="filesystem.largest_files",
+                        arguments={"path": target_dir, "limit": 10},
+                        description=f"Find largest files in {target_dir}",
+                    )
+                ],
+                max_steps=self.max_steps,
+            )
+
+        # Filesystem Search Content / Grep
+        content_search_match = re.match(
+            r"^(?:please\s+)?(?:search(?:\s+file\s+content|\s+content|\s+for\s+text)?|grep|find\s+text)\s+(?:for\s+)?[\"']?(.+?)[\"']?\s+(?:in|under)\s+([^\s]+)$",
+            clean,
+            re.IGNORECASE,
+        )
+        if content_search_match and not re.search(r"\b(?:and|then|youtube|yt)\b", lower):
+            query_pat = content_search_match.group(1).strip("\"'")
+            target_dir = _normalize_search_dir(content_search_match.group(2))
+            return Plan(
+                user_goal=clean,
+                steps=[
+                    PlanStep(
+                        step_id=1,
+                        capability_name="filesystem.search_content",
+                        arguments={"path": target_dir, "pattern": query_pat},
+                        description=f"Search content for '{query_pat}' in {target_dir}",
+                    )
+                ],
+                max_steps=self.max_steps,
+            )
+
+        # Filesystem Read File
+        read_file_match = re.match(
+            r"^(?:please\s+)?(?:read(?:\s+file)?|show\s+contents\s+of|cat|view\s+content\s+of)\s+([/~][^\s]+|[^\s]+\.(?:txt|md|py|json|yaml|yml|csv|log|sh|html|css|toml|ini))$",
+            clean,
+            re.IGNORECASE,
+        )
+        if read_file_match:
+            f_path = read_file_match.group(1).strip()
+            return Plan(
+                user_goal=clean,
+                steps=[
+                    PlanStep(
+                        step_id=1,
+                        capability_name="filesystem.read_file",
+                        arguments={"path": f_path},
+                        description=f"Read file {f_path}",
+                    )
+                ],
+                max_steps=self.max_steps,
+            )
+
+        # Filesystem Write File
+        write_file_match = re.match(
+            r"^(?:please\s+)?(?:write|save)\s+[\"']?(.*?)[\"']?\s+(?:to|into)(?:\s+file)?\s+([/~][^\s]+|[^\s]+\.(?:txt|md|py|json|yaml|yml|csv|log|sh|html|css|toml|ini))$",
+            clean,
+            re.IGNORECASE,
+        )
+        if write_file_match:
+            f_content = write_file_match.group(1)
+            f_path = write_file_match.group(2).strip()
+            return Plan(
+                user_goal=clean,
+                steps=[
+                    PlanStep(
+                        step_id=1,
+                        capability_name="filesystem.write_file",
+                        arguments={"path": f_path, "content": f_content},
+                        description=f"Write content to {f_path}",
+                    )
+                ],
+                max_steps=self.max_steps,
+            )
+
+        # Desktop Close App
+        close_app_match = re.match(
+            r"^(?:please\s+)?(?:close|quit|exit|kill)(?:\s+(?:the\s+)?(?:app|application))?\s+([a-zA-Z0-9_\-\.]+)$",
+            clean,
+            re.IGNORECASE,
+        )
+        if close_app_match and lower not in ("close window", "quit", "exit") and not re.search(r"\b(?:window|tab|volume)\b", lower):
+            target_app = close_app_match.group(1).strip()
+            return Plan(
+                user_goal=clean,
+                steps=[
+                    PlanStep(
+                        step_id=1,
+                        capability_name="desktop.close_app",
+                        arguments={"app_name": target_app},
+                        description=f"Close application '{target_app}'",
+                    )
+                ],
+                max_steps=self.max_steps,
+            )
+
+        # Desktop Close Window
+        close_win_match = re.match(
+            r"^(?:please\s+)?close\s+(?:the\s+)?window(?:\s+(.+))?$",
+            clean,
+            re.IGNORECASE,
+        )
+        if close_win_match:
+            w_title = close_win_match.group(1).strip() if close_win_match.group(1) else ""
+            args = {"title": w_title} if w_title else {}
+            return Plan(
+                user_goal=clean,
+                steps=[
+                    PlanStep(
+                        step_id=1,
+                        capability_name="desktop.window.close",
+                        arguments=args,
+                        description=f"Close window{' ' + w_title if w_title else ''}",
+                    )
+                ],
+                max_steps=self.max_steps,
+            )
+
+        # System Execute Command
+        exec_cmd_match = re.match(
+            r"^(?:please\s+)?(?:run|execute)\s+(?:terminal\s+|shell\s+|system\s+)?command\s+[\"']?(.+?)[\"']?$",
+            clean,
+            re.IGNORECASE,
+        )
+        if exec_cmd_match:
+            cmd_str = exec_cmd_match.group(1).strip()
+            return Plan(
+                user_goal=clean,
+                steps=[
+                    PlanStep(
+                        step_id=1,
+                        capability_name="system.execute_command",
+                        arguments={"command": cmd_str},
+                        description=f"Execute command: {cmd_str}",
+                    )
+                ],
+                max_steps=self.max_steps,
+            )
+
+        # Memory Remember
+        remember_match = re.match(
+            r"^(?:please\s+)?(?:remember(?:\s+that)?|save\s+to\s+memory(?:\s+that)?)\s+(.+)$",
+            clean,
+            re.IGNORECASE,
+        )
+        if remember_match:
+            fact = remember_match.group(1).strip()
+            return Plan(
+                user_goal=clean,
+                steps=[
+                    PlanStep(
+                        step_id=1,
+                        capability_name="memory.remember",
+                        arguments={"content": fact, "category": "fact"},
+                        description=f"Remember fact: {fact}",
+                    )
+                ],
+                max_steps=self.max_steps,
+            )
+
+        # Memory Recall
+        recall_match = re.match(
+            r"^(?:please\s+)?(?:recall|what\s+do\s+you\s+remember\s+about|what\s+did\s+i\s+tell\s+you\s+about)\s+(.+?)\??$",
+            clean,
+            re.IGNORECASE,
+        )
+        if recall_match:
+            q_mem = recall_match.group(1).strip()
+            return Plan(
+                user_goal=clean,
+                steps=[
+                    PlanStep(
+                        step_id=1,
+                        capability_name="memory.recall",
+                        arguments={"query": q_mem},
+                        description=f"Recall memories about '{q_mem}'",
                     )
                 ],
                 max_steps=self.max_steps,
