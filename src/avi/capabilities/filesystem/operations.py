@@ -811,16 +811,17 @@ class OrganizeFilesCapability(BaseCapability):
         destination_dir: str | None = None,
         **kwargs: Any,
     ) -> CapabilityResult:
-        src = Path(source_dir).expanduser().resolve()
+        target_dir = kwargs.get("path") or kwargs.get("directory") or source_dir
+        src = Path(target_dir).expanduser().resolve()
         if not src.exists() or not src.is_dir():
             return CapabilityResult(
                 success=False,
                 status=ExecutionStatus.FAILED,
                 error=f"Source directory does not exist: {src}",
-                message=f"Directory '{source_dir}' does not exist.",
+                message=f"Directory '{target_dir}' does not exist.",
             )
 
-        cat_clean = category.strip().lower()
+        cat_clean = (kwargs.get("strategy") or category).strip().lower()
         moved_records = []
 
         try:
@@ -838,6 +839,9 @@ class OrganizeFilesCapability(BaseCapability):
                     spec = self.CATEGORY_MAP[cat_clean]
                     if ext in spec["extensions"]:
                         dest_subfolder = destination_dir or str(src / spec["default_subfolder"])
+                elif cat_clean == "extension":
+                    sub_name = ext.lstrip(".") or "other"
+                    dest_subfolder = destination_dir or str(src / sub_name)
                 elif cat_clean == "all":
                     # Match against all categories
                     for cat_name, spec in self.CATEGORY_MAP.items():
