@@ -46,9 +46,14 @@ class RememberCapability(BaseCapability):
     supports_observation = True
     tags = ("memory", "remember", "preference", "fact", "save")
 
-    def __init__(self, manager: MemoryManager | None = None, database: Database | None = None) -> None:
+    def __init__(
+        self,
+        manager: MemoryManager | None = None,
+        database: Database | None = None,
+        retriever: Any | None = None,
+    ) -> None:
         self.db = database or Database()
-        self.manager = manager or MemoryManager(database=self.db)
+        self.manager = manager or retriever or MemoryManager(database=self.db)
 
     def execute(self, content: str = "", category: str = "general", key: str = "", **kwargs: Any) -> CapabilityResult:
         text = (content or kwargs.get("fact") or kwargs.get("text") or "").strip()
@@ -65,15 +70,28 @@ class RememberCapability(BaseCapability):
             metadata["key"] = key
 
         try:
-            mem = self.manager.remember(
-                content=text,
-                category=category or "general",
-                metadata=metadata,
-            )
+            if hasattr(self.manager, "remember"):
+                mem = self.manager.remember(
+                    content=text,
+                    category=category or "general",
+                    metadata=metadata,
+                )
+                mem_id = getattr(mem, "id", "mem_1")
+                mem_content = getattr(mem, "content", text)
+                mem_cat = getattr(mem, "category", category)
+            else:
+                mem_id = self.manager.store(
+                    content=text,
+                    category=category or "general",
+                    metadata=metadata,
+                )
+                mem_content = text
+                mem_cat = category or "general"
+
             return CapabilityResult(
                 success=True,
                 status=ExecutionStatus.SUCCESS,
-                data={"memory_id": mem.id, "content": mem.content, "category": mem.category},
+                data={"memory_id": mem_id, "content": mem_content, "category": mem_cat},
                 message=f"I've remembered: '{text}'.",
                 classification=self.data_classification,
             )
@@ -118,9 +136,14 @@ class RecallCapability(BaseCapability):
     supports_observation = True
     tags = ("memory", "recall", "search", "preferences")
 
-    def __init__(self, manager: MemoryManager | None = None, database: Database | None = None) -> None:
+    def __init__(
+        self,
+        manager: MemoryManager | None = None,
+        database: Database | None = None,
+        retriever: Any | None = None,
+    ) -> None:
         self.db = database or Database()
-        self.manager = manager or MemoryManager(database=self.db)
+        self.manager = manager or retriever or MemoryManager(database=self.db)
 
     def execute(self, query: str = "", category: str | None = None, limit: int = 5, **kwargs: Any) -> CapabilityResult:
         search_q = (query or kwargs.get("key") or kwargs.get("text") or "").strip()
@@ -133,11 +156,17 @@ class RecallCapability(BaseCapability):
             )
 
         try:
-            memories = self.manager.recall(
-                query=search_q,
-                category=category or None,
-                limit=max(1, min(20, int(limit))),
-            )
+            if hasattr(self.manager, "recall"):
+                memories = self.manager.recall(
+                    query=search_q,
+                    category=category or None,
+                    limit=max(1, min(20, int(limit))),
+                )
+            else:
+                memories = self.manager.retrieve(
+                    query=search_q,
+                    limit=max(1, min(20, int(limit))),
+                )
             count = len(memories)
             if count == 0:
                 return CapabilityResult(
@@ -147,14 +176,32 @@ class RecallCapability(BaseCapability):
                     message=f"No memories found matching '{search_q}'.",
                 )
 
-            summary = "; ".join(f"'{m.content}'" for m in memories[:3])
+            formatted_memories = []
+            for m in memories:
+                if hasattr(m, "to_dict"):
+                    formatted_memories.append(m.to_dict())
+                elif isinstance(m, dict):
+                    formatted_memories.append(m)
+                else:
+                    formatted_memories.append({
+                        "id": getattr(m, "memory_id", getattr(m, "id", "")),
+                        "text": getattr(m, "text", getattr(m, "content", str(m))),
+                        "category": getattr(m, "category", "general"),
+                    })
+
+            top_content = ""
+            if memories:
+                top_m = memories[0]
+                top_content = getattr(top_m, "content", getattr(top_m, "text", str(top_m)))
+
+            summary = "; ".join(f"'{getattr(m, 'content', getattr(m, 'text', str(m)))}'" for m in memories[:3])
             return CapabilityResult(
                 success=True,
                 status=ExecutionStatus.SUCCESS,
                 data={
-                    "memories": [m.to_dict() for m in memories],
+                    "memories": formatted_memories,
                     "count": count,
-                    "top_content": memories[0].content,
+                    "top_content": top_content,
                 },
                 message=f"Found {count} memory/preference item(s): {summary}.",
             )
