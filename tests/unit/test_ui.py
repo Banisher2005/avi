@@ -421,14 +421,10 @@ class TestAviWindowMocked:
         win = AviWindow(mock_app, mock_router, mock_config, orchestrator=mock_orch)
         win.prompt_entry.get_text.return_value = "screenshot"
 
-        # Manually set busy to simulate an active in-flight request
-        win._is_busy = True
+        # In Phase 8.1 non-blocking runtime, input is never locked out by in-flight tasks
         win._on_prompt_submit(win.prompt_entry)
 
-        win.status_label.set_text.assert_called_with(
-            "AVI is currently busy working on a request..."
-        )
-        assert win._worker_thread is None
+        assert win._worker_thread is not None
 
     def test_loading_status_deterministic_vs_llm(self, mock_gtk):
         from avi.ui.window import AviWindow
