@@ -1243,10 +1243,6 @@ class AviWindow:
 
     def _on_prompt_submit(self, entry: "Gtk.Entry") -> None:
         """Handle prompt submission from Enter key or Send button."""
-        if self._is_busy:
-            self._set_status("AVI is currently busy working on a request...", spinning=True)
-            return
-
         raw_text = entry.get_text().strip()
         if not raw_text:
             return
@@ -1516,8 +1512,9 @@ class AviWindow:
                     pass
             if active:
                 task = active[0]
+                task_desc = task.goal or getattr(task, "description", "")
                 self._set_status(
-                    f"◉ {len(active)} task(s) running · {task.description[:35]}…",
+                    f"◉ {len(active)} task(s) running · {task_desc[:35]}…",
                     spinning=True,
                     is_llm=False,
                 )
