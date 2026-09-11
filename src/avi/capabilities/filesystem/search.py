@@ -6,6 +6,7 @@ from typing import Any
 
 from avi.capabilities.models import (
     BaseCapability,
+    CapabilityCategory,
     CapabilityResult,
     DataClassification,
     ExecutionStatus,
@@ -19,6 +20,7 @@ class FilesystemSearchCapability(BaseCapability):
 
     name = "filesystem.search"
     description = "Search local files by name pattern, file extension, and modification time."
+    category = CapabilityCategory.FILESYSTEM
     input_schema = {
         "type": "object",
         "properties": {
@@ -149,15 +151,20 @@ class FilesystemSearchCapability(BaseCapability):
                 f"Newest: {top['name']} ({top['size_formatted']})."
             )
 
+        res_data: dict[str, Any] = {
+            "directory": str(dir_path),
+            "total_found": len(matches),
+            "results": selected,
+            "matches": selected,
+        }
+        if selected:
+            res_data["path"] = selected[0]["path"]
+            res_data["file"] = selected[0]["path"]
+
         return CapabilityResult(
             success=True,
             status=ExecutionStatus.SUCCESS,
-            data={
-                "directory": str(dir_path),
-                "total_found": len(matches),
-                "results": selected,
-                "matches": selected,
-            },
+            data=res_data,
             message=msg,
             classification=self.data_classification,
         )
