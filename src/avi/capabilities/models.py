@@ -18,6 +18,22 @@ class DataClassification(str, Enum):
     USER_CONFIRMATION_REQUIRED = "USER_CONFIRMATION_REQUIRED"
 
 
+class CapabilityCategory(str, Enum):
+    """Unified categories for agent capabilities."""
+
+    SYSTEM = "SYSTEM"
+    APPLICATION = "APPLICATION"
+    FILESYSTEM = "FILESYSTEM"
+    BROWSER = "BROWSER"
+    WEB = "WEB"
+    COMMUNICATION = "COMMUNICATION"
+    MEDIA = "MEDIA"
+    PRODUCTIVITY = "PRODUCTIVITY"
+    MEMORY = "MEMORY"
+    DEVELOPMENT = "DEVELOPMENT"
+    COMPUTER_USE = "COMPUTER_USE"
+
+
 class ExecutionStatus(str, Enum):
     """Execution state outcome for single or multi-step capabilities."""
 
@@ -67,12 +83,26 @@ class BaseCapability(ABC):
 
     name: str
     description: str
+    category: CapabilityCategory = CapabilityCategory.SYSTEM
     input_schema: dict[str, Any] = {"type": "object", "properties": {}}
     risk_category: ActionCategory = ActionCategory.READ_ONLY
     data_classification: DataClassification = DataClassification.LOCAL_ONLY
     requires_confirmation: bool = False
+    side_effects: bool = False
+    supports_observation: bool = True
+    supports_rollback: bool = False
     tags: Sequence[str] = ()
     enabled: bool = True
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        """Structured parameter specifications from input_schema."""
+        return self.input_schema.get("properties", {})
+
+    @property
+    def risk_level(self) -> ActionCategory:
+        """Risk level alias matching risk_category."""
+        return self.risk_category
 
     @abstractmethod
     def execute(self, **kwargs: Any) -> CapabilityResult:
@@ -84,12 +114,29 @@ class BaseCapability(ABC):
         return {
             "name": self.name,
             "description": self.description,
+            "category": self.category.value if hasattr(self.category, "value") else str(self.category),
             "input_schema": self.input_schema,
+            "parameters": self.parameters,
             "risk_category": self.risk_category.value,
+            "risk_level": self.risk_level.value,
             "data_classification": self.data_classification.value,
             "requires_confirmation": self.requires_confirmation,
+            "side_effects": getattr(self, "side_effects", False),
+            "supports_observation": getattr(self, "supports_observation", True),
+            "supports_rollback": getattr(self, "supports_rollback", False),
             "tags": list(getattr(self, "tags", ())),
             "enabled": getattr(self, "enabled", True),
+        }
+
+    def to_compact_desc(self) -> dict[str, Any]:
+        """Export a compact capability description for planning model prompt discovery."""
+        return {
+            "name": self.name,
+            "purpose": self.description,
+            "category": self.category.value if hasattr(self.category, "value") else str(self.category),
+            "parameters": list(self.parameters.keys()),
+            "risk_level": self.risk_level.value,
+            "requires_confirmation": self.requires_confirmation,
         }
 
 
