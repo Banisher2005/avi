@@ -15,6 +15,7 @@ from typing import Any
 
 from avi.actions.system import OpenAppAction, OpenDirAction, OpenFileAction, OpenUrlAction
 from avi.actions.timer import TimerAction
+from avi.agent.context import TaskStatus
 from avi.apps.resolver import ApplicationResolver
 from avi.assistant.intents import (
     AssistantIntentType,
@@ -986,8 +987,14 @@ class AssistantOrchestrator:
                             )
                     else:
                         agent_ctx = self.agent_orchestrator.run(normalized_prompt, confirmed=confirmed)
-                        if agent_ctx.steps or (agent_ctx.final_response and agent_ctx.final_response != "I couldn't find a matching action or plan for that request."):
-                            from avi.agent.context import TaskStatus
+                        if agent_ctx.steps or (
+                            agent_ctx.final_response
+                            and agent_ctx.final_response not in (
+                                "I couldn't find a matching action or plan for that request.",
+                                "I couldn't find an executable plan for that request.",
+                            )
+                            and agent_ctx.status != TaskStatus.FAILED
+                        ):
                             req_confirm = agent_ctx.status == TaskStatus.PAUSED_FOR_CONFIRMATION
                             if req_confirm:
                                 self.pending_clarification = PendingClarification(

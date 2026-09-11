@@ -4,6 +4,7 @@ from avi.agent.diagnosis import DiagnosisResult, FailureDiagnoser
 from avi.agent.events import EventDispatcher, ProgressCallback, ProgressEvent, ProgressEventType
 from avi.agent.executor import AgentExecutor
 from avi.agent.experience import ExperienceStore
+from avi.agent.formatting import OperationalEventFormatter
 from avi.agent.goal_verification import GoalVerificationResult, GoalVerifier
 from avi.agent.idempotency import IdempotencyChecker
 from avi.agent.loop_guard import Invocation, LoopDetectionResult, LoopGuard, LoopGuardConfig
@@ -26,6 +27,8 @@ from avi.agent.reconciliation import (
     ReconciliationReport,
     ReconciliationStatus,
 )
+from avi.agent.runtime import AgentRuntime, RuntimeResponse
+from avi.agent.task_registry import ResourceLockManager, RuntimeTask, RuntimeTaskRegistry
 from avi.agent.tool_selection import ToolSelector
 from avi.agent.verification import StateChangeDetector, StateChangeResult
 
@@ -34,6 +37,7 @@ __all__ = [
     "AgentExecutor",
     "AgentOrchestrator",
     "AgentPlanner",
+    "AgentRuntime",
     "AssistantInput",
     "DiagnosisResult",
     "EnvironmentReconciler",
@@ -51,6 +55,7 @@ __all__ = [
     "LoopDetectionResult",
     "LoopGuard",
     "LoopGuardConfig",
+    "OperationalEventFormatter",
     "OrchestrationContext",
     "Plan",
     "PlanExecutionResult",
@@ -60,6 +65,10 @@ __all__ = [
     "ProgressEventType",
     "ReconciliationReport",
     "ReconciliationStatus",
+    "ResourceLockManager",
+    "RuntimeResponse",
+    "RuntimeTask",
+    "RuntimeTaskRegistry",
     "StateChangeDetector",
     "StateChangeResult",
     "StepRecord",

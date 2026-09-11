@@ -2,6 +2,7 @@
 
 import logging
 import re
+import threading
 from datetime import datetime, timezone
 from typing import Any
 
@@ -84,6 +85,8 @@ class AgentOrchestrator:
         self.reconciler = reconciler if reconciler is not None else EnvironmentReconciler()
         self.goal_verifier = goal_verifier if goal_verifier is not None else GoalVerifier()
         self._active_tasks: dict[str, OrchestrationContext] = {}
+        self._cancellation_tokens: dict[str, threading.Event] = {}
+        self._pause_tokens: dict[str, threading.Event] = {}
 
     def can_handle(self, prompt: str) -> bool:
         """Check whether the agent orchestrator can create a plan or handle the prompt."""
@@ -217,6 +220,9 @@ class AgentOrchestrator:
 
     def pause_task(self, task_id: str) -> OrchestrationContext | None:
         """Pause an active durable task."""
+        if task_id in self._pause_tokens:
+            self._pause_tokens[task_id].set()
+
         rec = self.db.get_durable_task(task_id)
         if not rec:
             return None
@@ -245,6 +251,9 @@ class AgentOrchestrator:
 
     def cancel_task(self, task_id: str) -> OrchestrationContext | None:
         """Cancel an active or paused durable task."""
+        if task_id in self._cancellation_tokens:
+            self._cancellation_tokens[task_id].set()
+
         rec = self.db.get_durable_task(task_id)
         if not rec:
             return None
@@ -447,6 +456,8 @@ class AgentOrchestrator:
         user_input: str | AssistantInput,
         confirmed: bool = False,
         session_id: str = "",
+        cancellation_token: threading.Event | None = None,
+        pause_token: threading.Event | None = None,
     ) -> OrchestrationContext:
         """Execute an end-to-end agent task with guaranteed bounded terminal state and persistence."""
         if isinstance(user_input, AssistantInput):
@@ -498,6 +509,11 @@ class AgentOrchestrator:
         )
         context.durable_task_id = context.task_id
         self._active_tasks[context.task_id] = context
+
+        canc_token = cancellation_token or threading.Event()
+        pau_token = pause_token or threading.Event()
+        self._cancellation_tokens[context.task_id] = canc_token
+        self._pause_tokens[context.task_id] = pau_token
 
         try:
             # 1. Lifecycle start
@@ -629,20 +645,30 @@ class AgentOrchestrator:
                             ],
                         )
 
-            if plan is None:
-                context.status = TaskStatus.COMPLETED
+            if plan is None or not plan.steps:
+                context.status = TaskStatus.FAILED
                 context.final_response = (
-                    "I couldn't find a matching action or plan for that request."
+                    "I couldn't find an executable plan for that request."
                 )
                 self._checkpoint_durable_task(context, goal)
                 self.events.emit(
                     ProgressEvent(
-                        event_type=ProgressEventType.TASK_COMPLETED,
+                        event_type=ProgressEventType.TASK_FAILED,
                         task_id=context.task_id,
-                        message="Task completed with no executable plan.",
+                        message="Could not formulate an executable plan for request.",
+                        data={"reason": "no_executable_plan"},
                     )
                 )
                 return context
+
+            self.events.emit(
+                ProgressEvent(
+                    event_type=ProgressEventType.PLAN_CREATED,
+                    task_id=context.task_id,
+                    message=f"Plan ready ({len(plan.steps)} step{'s' if len(plan.steps) != 1 else ''}).",
+                    data={"steps_count": len(plan.steps)},
+                )
+            )
 
             # Convert plan steps to context steps
             context.steps = [
@@ -692,10 +718,67 @@ class AgentOrchestrator:
                     goal.current_segment_index = seg_idx
                     if not segment.plan:
                         continue
-                    seg_res = self.executor.execute_plan(segment.plan, confirmed=confirmed)
+                    if canc_token.is_set():
+                        context.status = TaskStatus.CANCELLED
+                        context.final_response = "Task cancelled by user."
+                        self._checkpoint_durable_task(context, goal)
+                        self.events.emit(
+                            ProgressEvent(
+                                event_type=ProgressEventType.TASK_CANCELLED,
+                                task_id=context.task_id,
+                                message="Task cancelled by user.",
+                            )
+                        )
+                        return context
+
+                    if pau_token.is_set():
+                        context.status = TaskStatus.PAUSED
+                        context.final_response = "Task paused by user."
+                        self._checkpoint_durable_task(context, goal)
+                        self.events.emit(
+                            ProgressEvent(
+                                event_type=ProgressEventType.TASK_PAUSED,
+                                task_id=context.task_id,
+                                message="Task paused by user.",
+                            )
+                        )
+                        return context
+
+                    seg_res = self.executor.execute_plan(
+                        segment.plan,
+                        confirmed=confirmed,
+                        cancellation_token=canc_token,
+                        pause_token=pau_token,
+                    )
                     segment.completed_steps = seg_res.completed_steps
                     cumulative_completed.extend(seg_res.completed_steps)
                     self._checkpoint_durable_task(context, goal)
+
+                    if seg_res.status == ExecutionStatus.CANCELLED or canc_token.is_set():
+                        context.status = TaskStatus.CANCELLED
+                        context.final_response = "Task cancelled by user."
+                        self._checkpoint_durable_task(context, goal)
+                        self.events.emit(
+                            ProgressEvent(
+                                event_type=ProgressEventType.TASK_CANCELLED,
+                                task_id=context.task_id,
+                                message="Task cancelled by user.",
+                            )
+                        )
+                        return context
+
+                    if seg_res.status == ExecutionStatus.PAUSED or pau_token.is_set():
+                        context.status = TaskStatus.PAUSED
+                        context.final_response = "Task paused by user."
+                        self._checkpoint_durable_task(context, goal)
+                        self.events.emit(
+                            ProgressEvent(
+                                event_type=ProgressEventType.TASK_PAUSED,
+                                task_id=context.task_id,
+                                message="Task paused by user.",
+                            )
+                        )
+                        return context
 
                     if not seg_res.success:
                         context.status = TaskStatus.FAILED
@@ -737,7 +820,64 @@ class AgentOrchestrator:
             cumulative_completed_steps: list[PlanStep] = []
 
             while True:
-                plan_res = self.executor.execute_plan(current_plan, confirmed=confirmed)
+                if canc_token.is_set():
+                    context.status = TaskStatus.CANCELLED
+                    context.final_response = "Task cancelled by user."
+                    self._checkpoint_durable_task(context, goal)
+                    self.events.emit(
+                        ProgressEvent(
+                            event_type=ProgressEventType.TASK_CANCELLED,
+                            task_id=context.task_id,
+                            message="Task cancelled by user.",
+                        )
+                    )
+                    return context
+
+                if pau_token.is_set():
+                    context.status = TaskStatus.PAUSED
+                    context.final_response = "Task paused by user."
+                    self._checkpoint_durable_task(context, goal)
+                    self.events.emit(
+                        ProgressEvent(
+                            event_type=ProgressEventType.TASK_PAUSED,
+                            task_id=context.task_id,
+                            message="Task paused by user.",
+                        )
+                    )
+                    return context
+
+                plan_res = self.executor.execute_plan(
+                    current_plan,
+                    confirmed=confirmed,
+                    cancellation_token=canc_token,
+                    pause_token=pau_token,
+                )
+
+                if plan_res.status == ExecutionStatus.CANCELLED or canc_token.is_set():
+                    context.status = TaskStatus.CANCELLED
+                    context.final_response = "Task cancelled by user."
+                    self._checkpoint_durable_task(context, goal)
+                    self.events.emit(
+                        ProgressEvent(
+                            event_type=ProgressEventType.TASK_CANCELLED,
+                            task_id=context.task_id,
+                            message="Task cancelled by user.",
+                        )
+                    )
+                    return context
+
+                if plan_res.status == ExecutionStatus.PAUSED or pau_token.is_set():
+                    context.status = TaskStatus.PAUSED
+                    context.final_response = "Task paused by user."
+                    self._checkpoint_durable_task(context, goal)
+                    self.events.emit(
+                        ProgressEvent(
+                            event_type=ProgressEventType.TASK_PAUSED,
+                            task_id=context.task_id,
+                            message="Task paused by user.",
+                        )
+                    )
+                    return context
 
                 # Sync step records with executor outcomes
                 for s in current_plan.steps:
@@ -953,6 +1093,8 @@ class AgentOrchestrator:
             return context
         finally:
             self._active_tasks.pop(context.task_id, None)
+            self._cancellation_tokens.pop(context.task_id, None)
+            self._pause_tokens.pop(context.task_id, None)
 
     def handle(self, prompt: str, confirmed: bool = False) -> str:
         """Simple invocation returning user-facing synthesized message."""

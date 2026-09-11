@@ -15,6 +15,7 @@ class ProgressEventType(str, Enum):
 
     TASK_STARTED = "task_started"
     PLANNING = "planning"
+    PLAN_CREATED = "plan_created"
     CAPABILITY_SELECTED = "capability_selected"
     STEP_STARTED = "step_started"
     STEP_COMPLETED = "step_completed"

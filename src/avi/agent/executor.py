@@ -63,6 +63,8 @@ class AgentExecutor:
         self,
         plan: Plan,
         confirmed: bool = False,
+        cancellation_token: Any | None = None,
+        pause_token: Any | None = None,
     ) -> PlanExecutionResult:
         """Execute all steps in a Plan with argument piping, verification, and recovery."""
         completed_steps: list[PlanStep] = []
@@ -78,6 +80,67 @@ class AgentExecutor:
         )
 
         for step in plan.steps:
+            if cancellation_token is not None:
+                is_canc = (
+                    cancellation_token.is_set()
+                    if hasattr(cancellation_token, "is_set")
+                    else bool(cancellation_token)
+                )
+                if is_canc:
+                    step.status = StepStatus.SKIPPED
+                    task_state.status = "cancelled"
+                    if self.event_dispatcher:
+                        from avi.agent.events import ProgressEvent, ProgressEventType
+
+                        self.event_dispatcher.emit(
+                            ProgressEvent(
+                                event_type=ProgressEventType.TASK_CANCELLED,
+                                task_id=task_state.task_id,
+                                message="Task cancelled by user.",
+                            )
+                        )
+                    return PlanExecutionResult(
+                        success=False,
+                        status=ExecutionStatus.CANCELLED,
+                        plan=plan,
+                        completed_steps=completed_steps,
+                        error="Task cancelled by user.",
+                        final_message="Task cancelled by user.",
+                        task_state=task_state,
+                        action_duration_ms=total_act_duration_ms,
+                        verification_duration_ms=total_ver_duration_ms,
+                    )
+
+            if pause_token is not None:
+                is_pau = (
+                    pause_token.is_set()
+                    if hasattr(pause_token, "is_set")
+                    else bool(pause_token)
+                )
+                if is_pau:
+                    task_state.status = "paused"
+                    if self.event_dispatcher:
+                        from avi.agent.events import ProgressEvent, ProgressEventType
+
+                        self.event_dispatcher.emit(
+                            ProgressEvent(
+                                event_type=ProgressEventType.TASK_PAUSED,
+                                task_id=task_state.task_id,
+                                message="Task paused by user.",
+                            )
+                        )
+                    return PlanExecutionResult(
+                        success=False,
+                        status=ExecutionStatus.PAUSED,
+                        plan=plan,
+                        completed_steps=completed_steps,
+                        error="Task paused by user.",
+                        final_message="Task execution paused at checkpoint.",
+                        task_state=task_state,
+                        action_duration_ms=total_act_duration_ms,
+                        verification_duration_ms=total_ver_duration_ms,
+                    )
+
             task_state.current_step_index = step.step_id
             # 1. Pipe outputs if needed
             if step.pipe_from_step and step.pipe_arg_name:

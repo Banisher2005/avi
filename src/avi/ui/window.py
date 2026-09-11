@@ -25,7 +25,6 @@ Key design decisions:
 
 import logging
 import os
-import re
 import subprocess
 import threading
 from pathlib import Path
@@ -428,10 +427,15 @@ class AviWindow:
         self._selected_row_index: int = -1
         self._current_working_widget: Any | None = None
 
-        if self.orchestrator and hasattr(self.orchestrator, "agent_orchestrator"):
-            ag_events = getattr(self.orchestrator.agent_orchestrator, "events", None)
-            if ag_events and hasattr(ag_events, "subscribe"):
-                ag_events.subscribe(self._on_agent_progress_event)
+        from avi.agent.runtime import AgentRuntime
+
+        self.runtime = getattr(self.orchestrator, "runtime", None) or AgentRuntime(
+            config=self.config,
+            router=self.router,
+            assistant_orchestrator=self.orchestrator,
+        )
+        if hasattr(self.runtime.events, "subscribe"):
+            self.runtime.events.subscribe(self._on_agent_progress_event)
 
         self._build_window()
 
@@ -1199,6 +1203,9 @@ class AviWindow:
 
     def _on_agent_progress_event(self, event: Any) -> None:
         """Handle real-time progress events from the agent orchestrator."""
+        from avi.agent.events import ProgressEventType
+        from avi.agent.formatting import OperationalEventFormatter
+
         if getattr(self, "_still_thinking_tag", None):
             try:
                 GLib.source_remove(self._still_thinking_tag)
@@ -1206,25 +1213,42 @@ class AviWindow:
                 pass
             self._still_thinking_tag = None
 
+        formatted_line = OperationalEventFormatter.format_event(event)
+
         def _update():
-            if not self._is_busy:
-                return False
-            msg = getattr(event, "message", "")
-            if msg:
-                self._show_working_line(msg)
-                self._set_status(msg, spinning=True, is_llm=False)
+            if formatted_line:
+                self._show_working_line(formatted_line)
+                self._set_status(formatted_line, spinning=True, is_llm=False)
+
+            if event.event_type in (ProgressEventType.TASK_COMPLETED, ProgressEventType.GOAL_COMPLETED):
+                msg = f"✓ {event.message}" if event.message else "✓ Task completed successfully."
+                self._show_assistant_response(msg, None, False)
+                self._restore_idle_state()
+            elif event.event_type in (ProgressEventType.TASK_FAILED, ProgressEventType.GOAL_FAILED):
+                msg = f"✗ {event.message}" if event.message else "✗ Task failed."
+                self._show_error(msg)
+                self._restore_idle_state()
+            elif event.event_type == ProgressEventType.TASK_CANCELLED:
+                msg = f"■ {event.message}" if event.message else "■ Task cancelled."
+                self._show_assistant_response(msg, None, False)
+                self._restore_idle_state()
+            elif event.event_type == ProgressEventType.TASK_PAUSED:
+                msg = f"⏸ {event.message}" if event.message else "⏸ Task paused."
+                self._show_assistant_response(msg, None, False)
+                self._restore_idle_state()
+
             return False
 
         GLib.idle_add(_update)
 
     def _on_prompt_submit(self, entry: "Gtk.Entry") -> None:
         """Handle prompt submission from Enter key or Send button."""
-        raw_text = entry.get_text().strip()
-        if not raw_text:
-            return
-
         if self._is_busy:
             self._set_status("AVI is currently busy working on a request...", spinning=True)
+            return
+
+        raw_text = entry.get_text().strip()
+        if not raw_text:
             return
 
         cleaned_text = clean_natural_language_input(raw_text)
@@ -1235,10 +1259,6 @@ class AviWindow:
         if not self._prompt_history or self._prompt_history[-1] != cleaned_text:
             self._prompt_history.append(cleaned_text)
         self._history_index = len(self._prompt_history)
-
-        # Double-submission guard: synchronously mark busy and disable Send button
-        self._is_busy = True
-        self.send_button.set_sensitive(False)
 
         entry.set_text("")
         self._add_user_message(cleaned_text)
@@ -1253,17 +1273,6 @@ class AviWindow:
         status_text, is_llm = self._get_loading_status(cleaned_text)
         self._set_status(status_text, spinning=True, is_llm=is_llm)
         self._show_working_line(status_text)
-
-        if is_llm:
-
-            def _check_still_thinking() -> bool:
-                self._still_thinking_tag = None
-                if self._is_busy and self._current_working_widget is not None:
-                    self._show_working_line("Still thinking…")
-                    self._set_status("Still thinking…", spinning=True, is_llm=True)
-                return False
-
-            self._still_thinking_tag = GLib.timeout_add(4000, _check_still_thinking)
 
         self._worker_thread = threading.Thread(
             target=self._run_query,
@@ -1404,119 +1413,30 @@ class AviWindow:
     # -----------------------------------------------------------------------
 
     def _run_query(self, prompt: str) -> None:
-        """Background thread: Route prompt through Orchestrator / Router."""
+        """Background thread: Route prompt through non-blocking AgentRuntime."""
         self._is_busy = True
         try:
-            # 1. Assistant Orchestrator (intents, actions, volume, screenshot, timers)
-            if self.orchestrator is not None:
-                last_turn = (
-                    self.orchestrator.history.last_turn
-                    if hasattr(self.orchestrator, "history")
-                    else None
+            res = self.runtime.dispatch(prompt)
+
+            if res.is_blocked:
+                GLib.idle_add(
+                    self._show_error,
+                    res.text or "This operation was blocked by safety policy.",
                 )
-                intent = detect_assistant_intent(prompt, last_turn=last_turn)
-
-                # Special non-blocking handling for timers
-                if intent.intent_type == AssistantIntentType.TIMER:
-                    res = self.orchestrator.handle(prompt, auto_execute_actions=False)
-                    GLib.idle_add(self._show_assistant_response, res.text)
-                    dur = intent.extra.get("duration_seconds", 0.0)
-                    label = intent.extra.get("label", "")
-                    if dur > 0:
-
-                        def _timer_worker() -> None:
-                            import time
-
-                            time.sleep(dur)
-                            finish_text = f"⏰ Time's up: {label}." if label else "⏰ Time's up."
-                            GLib.idle_add(self._show_assistant_response, finish_text)
-
-                        threading.Thread(target=_timer_worker, daemon=True).start()
-                    return
-
-                res = self.orchestrator.handle(prompt, auto_execute_actions=True)
-                if res.is_blocked:
-                    GLib.idle_add(
-                        self._show_error,
-                        res.text or "This operation was blocked by safety policy.",
-                    )
-                    return
-
-                if res.requires_confirmation:
-                    proposal = res.command_request or res.plan
-                    GLib.idle_add(self._show_confirmation, proposal, res.text)
-                    return
-
-                # Check if a screenshot path exists in capability_result or text
-                action_path = None
-                if res.capability_result and hasattr(res.capability_result, "data"):
-                    data = res.capability_result.data
-                    if isinstance(data, dict) and "path" in data:
-                        action_path = data["path"]
-
-                if not action_path and res.text:
-                    m = re.search(
-                        r"(/home/[^\s]+\.png|~/[^\s]+\.png|/[^\s]+\.png)",
-                        res.text,
-                    )
-                    if m:
-                        action_path = os.path.expanduser(m.group(1))
-
-                if (
-                    res.action is not None
-                    or res.tool_result is not None
-                    or res.capability_result is not None
-                    or res.execution_result is not None
-                    or res.text
-                ):
-                    is_transient = intent.intent_type in (
-                        AssistantIntentType.OPEN_APP,
-                        AssistantIntentType.VOLUME_SET,
-                        AssistantIntentType.VOLUME_GET,
-                        AssistantIntentType.OPEN_DIR,
-                        AssistantIntentType.OPEN_URL,
-                        AssistantIntentType.MEDIA_CONTROL,
-                        AssistantIntentType.OPEN_SEARCH_RESULT,
-                        AssistantIntentType.SCREENSHOT,
-                        AssistantIntentType.CONFIRMATION,
-                    )
-                    auto_dismiss = is_transient and not res.search_results
-                    GLib.idle_add(
-                        self._show_assistant_response, res.text, action_path, auto_dismiss
-                    )
-                    # Show interactive result cards if search results are available
-                    if (
-                        res.search_results
-                        and intent.intent_type != AssistantIntentType.OPEN_SEARCH_RESULT
-                    ):
-                        GLib.idle_add(
-                            self._add_search_results_widget,
-                            res.search_results,
-                            res.selected_result,
-                        )
-                    return
-
-            # 2. Router fast-path
-            fast_result = self.router.check_fast_path(prompt)
-            if isinstance(fast_result, str):
-                GLib.idle_add(self._show_assistant_response, fast_result.rstrip("\n"), None, True)
                 return
 
-            # 3. Stream from provider
-            GLib.idle_add(self._start_stream_response)
-            chunks = []
-            for chunk in self.router.route(prompt, stream=True):
-                chunks.append(chunk)
-                GLib.idle_add(self._append_stream_chunk, chunk)
+            if res.requires_confirmation:
+                proposal = res.proposal or getattr(res, "command_request", None) or getattr(res, "plan", None)
+                GLib.idle_add(self._show_confirmation, proposal, res.text)
+                return
 
-            full_text = "".join(chunks)
+            if res.is_background:
+                badge = res.task.format_badge() if res.task else res.text
+                GLib.idle_add(self._show_working_line, badge)
+                return
 
-            # 4. Check if response is a command proposal requiring confirmation
-            proposal = self.router.parse_command_proposal(full_text)
-            if proposal is not None:
-                GLib.idle_add(self._show_confirmation, proposal, full_text)
-            else:
-                GLib.idle_add(self._finish_stream, None)
+            if res.text:
+                GLib.idle_add(self._show_assistant_response, res.text, None, False)
 
         except Exception as err:
             friendly_err = format_user_friendly_error(err, prompt)
@@ -1588,7 +1508,21 @@ class AviWindow:
         self.spinner.set_visible(False)
         self.prompt_entry.grab_focus()
         if self._pending_confirmation is None:
-            self._set_status("Ready  ·  Esc to close", spinning=False, is_llm=False)
+            active = []
+            if hasattr(self, "runtime") and self.runtime:
+                try:
+                    active = self.runtime.task_registry.active_tasks()
+                except Exception:
+                    pass
+            if active:
+                task = active[0]
+                self._set_status(
+                    f"◉ {len(active)} task(s) running · {task.description[:35]}…",
+                    spinning=True,
+                    is_llm=False,
+                )
+            else:
+                self._set_status("Ready  ·  Esc to close", spinning=False, is_llm=False)
 
     def _open_local_path(self, path: str) -> None:
         """Open a local file or https:// URL in the default desktop application without blocking."""

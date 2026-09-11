@@ -44,7 +44,25 @@ class InteractiveSession:
             from avi.orchestrator import AssistantOrchestrator
 
             self.orchestrator = AssistantOrchestrator(config=self.config, router=self.router)
+        from avi.agent.runtime import AgentRuntime
+
+        self.runtime = AgentRuntime(
+            config=self.config,
+            router=self.router,
+            assistant_orchestrator=self.orchestrator,
+        )
+        if hasattr(self.runtime.events, "subscribe"):
+            self.runtime.events.subscribe(self._on_progress_event)
         self._setup_readline()
+
+    def _on_progress_event(self, event: Any) -> None:
+        """Stream progress lines cleanly to terminal."""
+        from avi.agent.formatting import OperationalEventFormatter
+
+        line = OperationalEventFormatter.format_event(event)
+        if line:
+            self.out_stream.write(f"\n  {line}\n")
+            self.out_stream.flush()
 
     def _setup_readline(self) -> None:
         """Initialize readline history and auto-complete settings if available."""
@@ -87,6 +105,12 @@ class InteractiveSession:
 
         if lower == "history":
             self._show_history()
+            return True
+
+        if lower in ("tasks", "status"):
+            table = self.runtime.task_registry.format_tasks_table()
+            self.out_stream.write(f"\n{table}\n\n")
+            self.out_stream.flush()
             return True
 
         return False
@@ -216,96 +240,37 @@ class InteractiveSession:
             self.out_stream.flush()
 
     def _process_turn(self, query: str) -> None:
-        """Dispatch a single conversation turn to the router with signal handling."""
+        """Dispatch a single conversation turn through the non-blocking AgentRuntime."""
         try:
-            # 0. Check Assistant Orchestrator for native assistant intents (greetings, courtesies, tools, actions, capabilities, clarification)
-            if self.orchestrator is not None and self.orchestrator.is_assistant_request(query):
-                from avi.assistant.intents import AssistantIntentType, detect_assistant_intent
-
-                last_turn = (
-                    self.orchestrator.history.last_turn
-                    if hasattr(self.orchestrator, "history")
-                    else None
-                )
-                intent = detect_assistant_intent(query, last_turn=last_turn)
-                if intent.intent_type not in (
-                    AssistantIntentType.GREETING,
-                    AssistantIntentType.SMALL_TALK,
-                ):
-                    res = self.orchestrator.handle(
-                        query, context=self.context, auto_execute_actions=True
-                    )
-                    if res.requires_confirmation and res.command_request is not None:
-                        self._handle_proposal(res.command_request)
-                    elif res.text:
-                        self.out_stream.write(res.text.rstrip("\n") + "\n")
-                        self.out_stream.flush()
-                    if res.context is not None:
-                        self.context = res.context
-                    self._show_timing()
-                    return
-
-            # 1. Deterministic fast-path check
-            fast_result = self.router.check_fast_path(query)
-            if isinstance(fast_result, str):
-                self.out_stream.write(fast_result.rstrip("\n") + "\n")
+            res = self.runtime.dispatch(query, context=self.context)
+            if res.is_blocked:
+                self.out_stream.write(f"\n[Blocked: {res.text}]\n")
                 self.out_stream.flush()
+                return
+
+            if res.requires_confirmation and res.proposal is not None:
+                if isinstance(res.proposal, CommandRequest):
+                    self._handle_proposal(res.proposal)
+                elif self._read_confirmation(res.text):
+                    conf_res = self.runtime.dispatch(query, confirmed=True, context=self.context)
+                    if conf_res.text:
+                        self.out_stream.write(f"{conf_res.text.rstrip()}\n")
+                        self.out_stream.flush()
+                else:
+                    self.out_stream.write("Execution cancelled.\n")
+                    self.out_stream.flush()
                 self._show_timing()
                 return
 
-            # 2. Query model provider
-            if self.config.stream:
-                buffered = ""
-                stream_iter = iter(self.router.route(query, context=self.context, stream=True))
-                is_proposal = False
+            if res.text:
+                self.out_stream.write(f"{res.text.rstrip()}\n")
+                self.out_stream.flush()
 
-                for chunk in stream_iter:
-                    buffered += chunk
-                    clean_buf = buffered.strip().upper()
-                    if any(
-                        clean_buf.startswith(p)
-                        for p in ("COMMAND:", "PROPOSAL:", "```JSON", '{"', "{")
-                    ):
-                        is_proposal = True
-                        break
-                    if len(buffered.strip()) >= 12:
-                        break
-
-                if is_proposal:
-                    full_text = buffered + "".join(stream_iter)
-                    proposal = self.router.parse_command_proposal(full_text)
-                    if isinstance(proposal, CommandRequest):
-                        self._handle_proposal(proposal)
-                    else:
-                        self.out_stream.write(full_text.rstrip("\n") + "\n")
-                        self.out_stream.flush()
-                else:
-                    self.out_stream.write(buffered)
-                    self.out_stream.flush()
-                    last_char = buffered[-1] if buffered else ""
-                    for chunk in stream_iter:
-                        self.out_stream.write(chunk)
-                        self.out_stream.flush()
-                        if chunk:
-                            last_char = chunk[-1]
-                    if last_char and last_char != "\n":
-                        self.out_stream.write("\n")
-                        self.out_stream.flush()
-            else:
-                resp = self.router.route_full(query, context=self.context)
-                proposal = self.router.parse_command_proposal(resp.text)
-                if isinstance(proposal, CommandRequest):
-                    self._handle_proposal(proposal)
-                elif resp.text:
-                    self.out_stream.write(resp.text.rstrip("\n") + "\n")
-                    self.out_stream.flush()
-
-            # Update conversation context for next turn
-            self.context = self.router.last_context
+            self.context = self.runtime.router.last_context
             self._show_timing()
 
         except KeyboardInterrupt:
-            # Ctrl+C during streaming cancels active turn without terminating session
+            # Ctrl+C during execution cancels active turn
             self.out_stream.write("\n[Interrupted]\n")
             self.out_stream.flush()
         except (ProviderError, OllamaError) as err:
