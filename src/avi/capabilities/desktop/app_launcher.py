@@ -261,7 +261,7 @@ class CloseAppCapability(BaseCapability):
             )
         clean_name = str(app_name).strip()
         res = self.resolver.resolve(clean_name)
-        target_process = res.canonical_name if res.found else clean_name
+        target_process = (Path(res.executable).name if res.executable else res.canonical_name) if res.installed else clean_name
 
         try:
             # 1. Try pkill with case-insensitive process match
