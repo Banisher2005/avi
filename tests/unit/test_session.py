@@ -152,7 +152,7 @@ def test_session_multiturn_conversation_context(tmp_path):
     provider = MockInteractiveProvider()
     router = Router(config, provider=provider)
 
-    in_stream = io.StringIO("hello\nwhat is my name?\nexit\n")
+    in_stream = io.StringIO("tell me a story\nwhat is my name?\nexit\n")
     out_stream = io.StringIO()
 
     session = InteractiveSession(
@@ -199,7 +199,7 @@ def test_session_ctrl_c_during_stream_cancels_turn(tmp_path):
         raise KeyboardInterrupt()
 
     with patch.object(router, "route", side_effect=interrupt_generator):
-        in_stream = io.StringIO("hello\nexit\n")
+        in_stream = io.StringIO("tell me a story\nexit\n")
         out_stream = io.StringIO()
 
         session = InteractiveSession(
