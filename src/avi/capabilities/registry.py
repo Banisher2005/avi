@@ -16,6 +16,7 @@ from avi.capabilities.browser import (
     BrowserTypeCapability,
 )
 from avi.capabilities.desktop.app_launcher import (
+    CloseAppCapability,
     LaunchAppCapability,
     OpenDirectoryCapability,
     OpenFileCapability,
@@ -37,6 +38,7 @@ from avi.capabilities.desktop.system_controls import (
     VolumeSetCapability,
 )
 from avi.capabilities.desktop.window import (
+    WindowCloseCapability,
     WindowFocusCapability,
     WindowListCapability,
 )
@@ -44,15 +46,27 @@ from avi.capabilities.filesystem.operations import (
     CopyFileCapability,
     CreateDirectoryCapability,
     DeleteFileCapability,
+    FindDuplicateFilesCapability,
+    LargestFilesCapability,
     MoveFileCapability,
+    OrganizeFilesCapability,
+    ReadFileCapability,
+    SearchFileContentCapability,
+    WriteFileCapability,
 )
 from avi.capabilities.filesystem.search import FilesystemSearchCapability
+from avi.capabilities.memory.operations import (
+    RecallCapability,
+    RememberCapability,
+)
 from avi.capabilities.models import (
     BaseCapability,
+    CapabilityCategory,
     CapabilityResult,
     ExecutionStatus,
     ToolCapabilityAdapter,
 )
+from avi.capabilities.system.command import ExecuteCommandCapability
 from avi.capabilities.web.search import (
     YouTubeSearchCapability,
     YouTubeSearchResultsCapability,
@@ -110,6 +124,41 @@ class CapabilityRegistry:
                 continue
             catalog.append(cap.to_metadata())
         return catalog
+
+    def get_compact_tool_descriptions(
+        self,
+        category: CapabilityCategory | None = None,
+        enabled_only: bool = True,
+    ) -> list[dict[str, Any]]:
+        """Return compact capability descriptions for agent planning and prompt discovery."""
+        descs = []
+        for cap in self._capabilities.values():
+            if enabled_only and not getattr(cap, "enabled", True):
+                continue
+            if category is not None and getattr(cap, "category", None) != category:
+                continue
+            if hasattr(cap, "to_compact_desc"):
+                descs.append(cap.to_compact_desc())
+            else:
+                descs.append(
+                    {
+                        "name": cap.name,
+                        "purpose": cap.description,
+                        "category": getattr(cap, "category", CapabilityCategory.SYSTEM).value,
+                        "parameters": list(cap.input_schema.get("properties", {}).keys()),
+                        "risk_level": getattr(cap, "risk_category", ActionCategory.READ_ONLY).value,
+                        "requires_confirmation": getattr(cap, "requires_confirmation", False),
+                    }
+                )
+        return descs
+
+    def list_by_category(self, category: CapabilityCategory) -> list[BaseCapability]:
+        """Return all registered capabilities belonging to a specific category."""
+        return [
+            cap
+            for cap in self._capabilities.values()
+            if getattr(cap, "category", None) == category
+        ]
 
     def search_capabilities(self, query: str) -> list[BaseCapability]:
         """Search capabilities by query across name, aliases, description, and tags."""
@@ -312,6 +361,10 @@ def create_default_capability_registry(
     launch_cap.tags = ("desktop", "app", "application", "launch")
     registry.register(launch_cap, aliases=["app.launch", "open_app"])
 
+    close_app = CloseAppCapability(app_resolver)
+    close_app.tags = ("desktop", "app", "application", "close", "kill")
+    registry.register(close_app, aliases=["close_app", "app.close", "kill_app", "terminate_app"])
+
     url_cap = OpenUrlCapability()
     url_cap.tags = ("desktop", "browser", "web", "url")
     registry.register(
@@ -319,7 +372,7 @@ def create_default_capability_registry(
         aliases=["open_url", "desktop.open_url", "desktop.url.open"],
     )
 
-    file_cap = OpenFileCapability()
+    file_cap = OpenFileCapability(resolver=app_resolver)
     file_cap.tags = ("desktop", "filesystem", "file", "open")
     registry.register(file_cap, aliases=["open_file"])
 
@@ -339,6 +392,13 @@ def create_default_capability_registry(
     registry.register(
         win_focus,
         aliases=["window.focus", "desktop.focus_window", "focus_window", "activate_window", "switch_to_window"],
+    )
+
+    win_close = WindowCloseCapability()
+    win_close.tags = ("desktop", "window", "close", "kill")
+    registry.register(
+        win_close,
+        aliases=["window.close", "desktop.close_window", "close_window"],
     )
 
     type_cap = TypeTextCapability()
@@ -460,10 +520,39 @@ def create_default_capability_registry(
 
     fs_mv = MoveFileCapability()
     fs_mv.tags = ("filesystem", "file", "move")
-    registry.register(fs_mv, aliases=["move_file", "mv"])
+    registry.register(fs_mv, aliases=["move_file", "mv", "rename", "rename_file"])
 
     fs_rm = DeleteFileCapability()
     fs_rm.tags = ("filesystem", "file", "delete", "destructive")
     registry.register(fs_rm, aliases=["delete_file", "rm"])
+
+    fs_write = WriteFileCapability()
+    registry.register(fs_write, aliases=["write_file", "file.write", "save_file"])
+
+    fs_read = ReadFileCapability()
+    registry.register(fs_read, aliases=["read_file", "file.read", "view_file"])
+
+    fs_content = SearchFileContentCapability()
+    registry.register(fs_content, aliases=["search_content", "grep", "search_text", "find_in_files"])
+
+    fs_dups = FindDuplicateFilesCapability()
+    registry.register(fs_dups, aliases=["find_duplicates", "duplicates", "duplicate_files"])
+
+    fs_largest = LargestFilesCapability()
+    registry.register(fs_largest, aliases=["largest_files", "list_by_size", "disk_hogs"])
+
+    fs_organize = OrganizeFilesCapability()
+    registry.register(fs_organize, aliases=["organize_files", "organize_downloads", "sort_files"])
+
+    # 5. System Command Execution
+    cmd_exec = ExecuteCommandCapability()
+    registry.register(cmd_exec, aliases=["command.execute", "execute_command", "run_command", "terminal.run"])
+
+    # 6. Memory Capabilities
+    mem_remember = RememberCapability()
+    registry.register(mem_remember, aliases=["remember", "save_memory", "store_preference"])
+
+    mem_recall = RecallCapability()
+    registry.register(mem_recall, aliases=["recall", "recall_memory", "search_memories"])
 
     return registry
