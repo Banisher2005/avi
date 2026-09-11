@@ -124,20 +124,8 @@ class AgentRuntime:
         )
         intent = detect_assistant_intent(clean_q, last_turn=last_turn)
 
-        # Immediate fast intents that don't need background agent planning (excluding greeting/small-talk)
-        immediate_intents = (
-            AssistantIntentType.VOLUME_GET,
-            AssistantIntentType.VOLUME_SET,
-            AssistantIntentType.MEDIA_CONTROL,
-            AssistantIntentType.SYSTEM_INFO,
-            AssistantIntentType.OPEN_APP,
-            AssistantIntentType.OPEN_URL,
-            AssistantIntentType.OPEN_DIR,
-            AssistantIntentType.SCREENSHOT,
-            AssistantIntentType.TIMER,
-        )
-
-        if intent.intent_type in immediate_intents:
+        # Immediate fast intents that don't need background agent planning
+        if intent.intent_type != AssistantIntentType.UNKNOWN:
             res = self.assistant_orchestrator.handle(clean_q, auto_execute_actions=True)
             if res.is_blocked:
                 return RuntimeResponse(
@@ -151,7 +139,8 @@ class AgentRuntime:
                     requires_confirmation=True,
                     proposal=proposal,
                 )
-            return RuntimeResponse(text=res.text.strip() if res.text else "", is_background=False)
+            if res.text:
+                return RuntimeResponse(text=res.text.strip(), is_background=False)
 
         # ── Step 4: Complex Multi-step Agent Tasks (Non-blocking Background Worker) ─
         if self.agent_orchestrator.can_handle(clean_q):
