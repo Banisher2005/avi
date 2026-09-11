@@ -51,6 +51,7 @@ from avi.capabilities.filesystem.operations import (
     MoveFileCapability,
     OrganizeFilesCapability,
     ReadFileCapability,
+    RenameFileCapability,
     SearchFileContentCapability,
     WriteFileCapability,
 )
@@ -520,7 +521,11 @@ def create_default_capability_registry(
 
     fs_mv = MoveFileCapability()
     fs_mv.tags = ("filesystem", "file", "move")
-    registry.register(fs_mv, aliases=["move_file", "mv", "rename", "rename_file"])
+    registry.register(fs_mv, aliases=["move_file", "mv"])
+
+    fs_ren = RenameFileCapability()
+    fs_ren.tags = ("filesystem", "file", "rename")
+    registry.register(fs_ren, aliases=["rename", "rename_file"])
 
     fs_rm = DeleteFileCapability()
     fs_rm.tags = ("filesystem", "file", "delete", "destructive")
