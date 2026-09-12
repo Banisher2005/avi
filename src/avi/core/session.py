@@ -136,11 +136,19 @@ class InteractiveSession:
         # 1. Non-blocking model warmup
         self.router.warmup()
 
-        # 2. Print greeting header
+        # 2. Fast startup self-check (< 500ms)
+        from avi.reliability.health import startup_self_check
+
+        is_healthy, startup_msg = startup_self_check()
+
+        # 3. Print greeting header
         self.out_stream.write(
             f"AVI Interactive Session (v{__version__})\n"
-            "Type 'exit', 'quit', 'clear', or 'history'. Press Ctrl+C or Ctrl+D to exit.\n\n"
+            "Type 'exit', 'quit', 'clear', or 'history'. Press Ctrl+C or Ctrl+D to exit.\n"
         )
+        if not is_healthy:
+            self.out_stream.write(f"⚠️  {startup_msg}\n")
+        self.out_stream.write("\n")
         self.out_stream.flush()
 
         try:
