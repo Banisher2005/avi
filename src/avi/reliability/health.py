@@ -185,7 +185,7 @@ class HealthMonitor:
     def _check_capabilities(self) -> SubsystemHealth:
         try:
             reg = create_default_capability_registry()
-            caps = reg.list_all()
+            caps = reg.list_capabilities()
             return SubsystemHealth(
                 name="capabilities",
                 healthy=True,
