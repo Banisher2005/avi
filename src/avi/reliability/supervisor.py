@@ -126,26 +126,30 @@ class ReliabilitySupervisor:
 
     def execute_tool(
         self,
-        capability_name: str,
-        func: Callable[..., Any],
+        capability_name: str = "",
+        func: Callable[..., Any] | None = None,
         args: dict[str, Any] | None = None,
         timeout: float | None = None,
         task_id: str = "",
         cancellation_token: Any | None = None,
         max_retries: int = 1,
         cleanup_callback: Callable[[], None] | None = None,
+        tool_name: str = "",
     ) -> SupervisedResult:
         """Execute a tool or capability call with strict supervision, timeouts, and failure containment."""
+        actual_name = capability_name or tool_name or "unknown_tool"
+        if func is None:
+            raise ValueError("func must be provided to execute_tool")
         actual_args = args or {}
         actual_timeout = (
             timeout
             if timeout is not None
-            else self.config.get_timeout_for_operation(OperationType.TOOL_CALL, capability_name)
+            else self.config.get_timeout_for_operation(OperationType.TOOL_CALL, actual_name)
         )
 
         record = OperationRecord(
             task_id=task_id,
-            name=capability_name,
+            name=actual_name,
             operation_type=OperationType.TOOL_CALL,
             timeout=actual_timeout,
             cancellation_token=cancellation_token,
@@ -186,15 +190,15 @@ class ReliabilitySupervisor:
                         result_container["error"] = exc
                         result_container["completed"] = True
 
-                t = threading.Thread(target=_target, name=f"tool_{capability_name}", daemon=True)
+                t = threading.Thread(target=_target, name=f"tool_{actual_name}", daemon=True)
                 t.start()
                 t.join(timeout=actual_timeout)
 
                 if not result_container["completed"]:
                     # Timed out
                     record.mark_timed_out()
-                    user_msg = record.user_message or f"Action '{capability_name}' timed out after {actual_timeout:.1f}s."
-                    logger.warning("Tool %s timed out after %.1fs", capability_name, actual_timeout)
+                    user_msg = record.user_message or f"Action '{actual_name}' timed out after {actual_timeout:.1f}s."
+                    logger.warning("Tool %s timed out after %.1fs", actual_name, actual_timeout)
                     return SupervisedResult(
                         success=False,
                         status=OperationStatus.TIMED_OUT,
@@ -221,7 +225,7 @@ class ReliabilitySupervisor:
 
                 # Handle failure
                 last_error = str(exc)
-                logger.warning("Tool %s attempt %d failed: %s", capability_name, attempt, last_error)
+                logger.warning("Tool %s attempt %d failed: %s", actual_name, attempt, last_error)
 
                 # Check retryability (transient network or temporary I/O errors only)
                 is_retryable = any(
@@ -237,7 +241,7 @@ class ReliabilitySupervisor:
 
             # All retries exhausted or non-retryable failure
             cat = self._classify_tool_error(last_error)
-            user_msg = self._generate_user_error_message(capability_name, last_error, cat)
+            user_msg = self._generate_user_error_message(actual_name, last_error, cat)
             record.mark_failed(last_error, category=cat, user_message=user_msg)
             return SupervisedResult(
                 success=False,
