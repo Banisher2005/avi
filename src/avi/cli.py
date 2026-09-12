@@ -298,6 +298,31 @@ def run_ui(args: Sequence[str] | None = None, is_activate: bool = False) -> int:
     ).run(allow_system_fallback=allow_fallback)
 
 
+def run_doctor_cli(args: Sequence[str] | None = None) -> int:
+    """Run comprehensive system health check and diagnostic report."""
+    from avi.reliability.health import run_doctor
+
+    report_str = run_doctor()
+    sys.stdout.write(report_str + "\n")
+    sys.stdout.flush()
+    return 0
+
+
+def run_health_cli(args: Sequence[str] | None = None) -> int:
+    """Run quick system health status check."""
+    from avi.reliability.health import HealthMonitor
+
+    monitor = HealthMonitor()
+    report = monitor.check_health()
+    status_str = "HEALTHY" if report.overall_healthy else "DEGRADED"
+    sys.stdout.write(f"Status: {status_str}\n")
+    for name, sub in report.subsystems.items():
+        state = "OK" if sub.healthy else "ISSUE"
+        sys.stdout.write(f"  {name:15s} [{state}] {sub.message}\n")
+    sys.stdout.flush()
+    return 0 if report.overall_healthy else 1
+
+
 def run_cli(argv: Sequence[str] | None = None) -> int:
     """Internal CLI execution logic."""
     args_list = list(sys.argv[1:] if argv is None else argv)
@@ -311,6 +336,10 @@ def run_cli(argv: Sequence[str] | None = None) -> int:
             return run_ui(args_list[1:], is_activate=True)
         elif first == "ui":
             return run_ui(args_list[1:])
+        elif first in ("doctor", "check"):
+            return run_doctor_cli(args_list[1:])
+        elif first in ("health", "status-health"):
+            return run_health_cli(args_list[1:])
 
     parser = build_parser()
     args = parser.parse_args(args_list)
