@@ -107,8 +107,11 @@ class TestJarvisInteractionHardening:
     @pytest.mark.parametrize(
         "prompt", ["screenshot", "take screenshot", "screeenshot", "screnshot"]
     )
-    def test_screenshot_typos_route_natively_without_shell(self, capsys, tmp_path, prompt):
+    def test_screenshot_typos_route_natively_without_shell(
+        self, capsys, tmp_path, prompt, monkeypatch
+    ):
         """Screenshot typos must route natively to desktop.screenshot or clarification, never shell."""
+        monkeypatch.setenv("DISPLAY", ":0")
         mock_router = MagicMock()
         mock_router.route.side_effect = AssertionError(
             "Router.route() must NOT be called for screenshot typos"
