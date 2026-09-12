@@ -533,35 +533,21 @@ class DynamicAgentLoop:
                 arguments={"source": "", "destination": dest},
             )
 
-        # Domain G: Opening file in specific app (VS Code, Chrome, or default)
-        needs_open = any(term in g_lower for term in ("open", "open it", "display", "launch"))
-        if needs_open:
-            if "vs code" in g_lower or "code" in g_lower:
-                if "desktop.open_file" not in tool_names_executed and "desktop.open_app" not in tool_names_executed:
-                    return ToolCall(
-                        name="desktop.open_file",
-                        arguments={"path": "", "app_name": "code"},
-                    )
-            elif "chrome" in g_lower or "browser" in g_lower:
-                if "desktop.open_url" not in tool_names_executed and "browser.navigate" not in tool_names_executed:
-                    url = "https://github.com/Banisher2005/avi" if "github" in g_lower else "https://www.google.com"
-                    return ToolCall(
-                        name="desktop.open_url",
-                        arguments={"url": url},
-                    )
-            else:
-                if "desktop.open_file" not in tool_names_executed:
-                    return ToolCall(
-                        name="desktop.open_file",
-                        arguments={"path": ""},
-                    )
+        # Domain G: Opening file in specific app (VS Code or default)
+        needs_file_open = any(term in g_lower for term in ("open it", "open the file", "open the saved file", "in vs code", "in code", "open file")) or ("open" in g_lower and not any(w in g_lower for w in ("url", "chrome", "browser", "website", "github")))
+        if needs_file_open:
+            app_name = "code" if ("vs code" in g_lower or "code" in g_lower) else None
+            if "desktop.open_file" not in tool_names_executed and "desktop.open_app" not in tool_names_executed and "apps.open" not in tool_names_executed:
+                args = {"path": ""}
+                if app_name:
+                    args["app_name"] = app_name
+                return ToolCall(name="desktop.open_file", arguments=args)
 
-        # If opening github page was also requested in combination (e.g. cross-domain Test B)
-        if "github" in g_lower and "desktop.open_url" not in tool_names_executed and "browser.navigate" not in tool_names_executed:
-            return ToolCall(
-                name="desktop.open_url",
-                arguments={"url": "https://github.com/Banisher2005/avi"},
-            )
+        # Domain H: Opening web URL (Chrome, GitHub, etc.)
+        needs_url_open = any(term in g_lower for term in ("github", "chrome", "url", "website"))
+        if needs_url_open and "desktop.open_url" not in tool_names_executed and "browser.navigate" not in tool_names_executed:
+            url = "https://github.com/Banisher2005/avi" if "github" in g_lower else "https://www.google.com"
+            return ToolCall(name="desktop.open_url", arguments={"url": url})
 
         # All operations completed
         return "FINAL"
@@ -736,6 +722,12 @@ class DynamicAgentLoop:
                 open_caps = ("desktop.open_file", "desktop.open_app", "desktop.launch_app", "desktop.open_url", "browser.navigate")
                 if not any(c in completed_caps for c in open_caps):
                     return GoalVerificationResult(verified=False, reason="Open/launch operation not yet executed.")
+
+        # If goal required web page or url open
+        if any(term in g_lower for term in ("github", "url", "chrome", "website")):
+            web_caps = ("desktop.open_url", "browser.navigate")
+            if not any(c in completed_caps for c in web_caps):
+                return GoalVerificationResult(verified=False, reason="Web URL navigation not yet executed.")
 
         # If goal required duplicate detection
         if "duplicate" in g_lower:
