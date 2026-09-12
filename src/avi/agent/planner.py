@@ -796,11 +796,13 @@ class AgentPlanner:
 
         # Pattern: Composite Downloads -> Search -> Rename -> Move -> (Optional Open)
         # Handles e.g. "Find the latest PDF I downloaded, rename it to project-report.pdf, move it to Documents, and open it."
-        find_rename_move_match = re.search(
-            r"\b(?:find|search(?:\s+for)?)(?:\s+the)?\s+(?:newest|latest)\s+(\w+)(?:\s+(?:i\s+downloaded|downloaded|in\s+downloads|in\s+([^\s,]+)))?[,\s]+(?:and\s+)?rename\s+(?:it\s+)?to\s+([^\s,]+)[,\s]+(?:and\s+)?(?:then\s+)?move\s+(?:it\s+)?to\s+([^\s,]+)(?:[,\s]+(?:and\s+)?(?:then\s+)?(?:open|view)\s+(?:it|file))?\b",
-            clean,
-            re.IGNORECASE,
-        )
+        find_rename_move_match = None
+        if "<" not in clean:
+            find_rename_move_match = re.search(
+                r"\b(?:find|search(?:\s+for)?)(?:\s+the)?\s+(?:newest|latest)\s+(\w+)(?:\s+(?:i\s+downloaded|downloaded|in\s+downloads|in\s+([^\s,]+)))?[,\s]+(?:and\s+)?rename\s+(?:it\s+)?to\s+([^\s,]+)[,\s]+(?:and\s+)?(?:then\s+)?move\s+(?:it\s+)?to\s+([^\s,]+)(?:[,\s]+(?:and\s+)?(?:then\s+)?(?:open|view)\s+(?:it|file))?\b",
+                clean,
+                re.IGNORECASE,
+            )
         if find_rename_move_match:
             ext = find_rename_move_match.group(1).lstrip(".").lower()
             custom_dir = find_rename_move_match.group(2)
