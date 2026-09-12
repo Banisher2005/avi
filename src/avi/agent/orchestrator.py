@@ -134,19 +134,29 @@ class AgentOrchestrator:
         ):
             return False
 
+        lower = clean.lower()
+        first_word = clean.split()[0].lower() if clean.split() else ""
+        if first_word in (
+            "systemctl", "sudo", "apt", "apt-get", "pacman", "dnf", "yum", "brew",
+            "git", "docker", "kubectl", "journalctl", "ip", "ifconfig", "netstat",
+            "ps", "kill", "killall", "chmod", "chown", "ssh", "scp"
+        ):
+            return False
+        if any(lower.startswith(p) for p in ("generate a command", "give me a command", "command to", "write a command", "create a command")):
+            return False
+
         if self.planner.create_plan(clean) is not None:
             return True
         goal = self.planner.decompose_goal(clean)
         if goal.segments and any(s.plan for s in goal.segments):
             return True
-        lower = clean.lower()
         tokens = set(re.findall(r"\b\w+\b", lower))
         if tokens.intersection({"video", "vid", "vids", "videos"}) and tokens.intersection(
             {"play", "open", "watch", "latest", "newest"}
         ):
             return True
         # Multi-step or tool-use prompts eligible for dynamic planning
-        if len(clean.split()) >= 3 or any(
+        if any(
             t in lower
             for t in (
                 "find", "search", "move", "rename", "delete", "open", "launch",
