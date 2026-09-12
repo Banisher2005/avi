@@ -138,7 +138,6 @@ class AssistantOrchestrator:
         if intent.intent_type != AssistantIntentType.UNKNOWN:
             return True
 
-
         # 2. Pending clarification confirmation / cancellation check
         if (
             classify_confirmation(normalized_prompt) is not None
@@ -168,7 +167,9 @@ class AssistantOrchestrator:
         if self.planner.create_plan(normalized_prompt) is not None:
             return True
 
-        if hasattr(self, "agent_orchestrator") and self.agent_orchestrator.can_handle(normalized_prompt):
+        if hasattr(self, "agent_orchestrator") and self.agent_orchestrator.can_handle(
+            normalized_prompt
+        ):
             return True
 
         # 5. Desktop domain boundary: prevent desktop action terms from falling through to shell generator
@@ -240,10 +241,10 @@ class AssistantOrchestrator:
                     pending.original_prompt,
                     target_cmd,
                 )
-                is_conf = (
-                    pending.clarification_type in ("confirmation", "high_risk_action")
-                    or bool(pending.metadata.get("confirmed"))
-                )
+                is_conf = pending.clarification_type in (
+                    "confirmation",
+                    "high_risk_action",
+                ) or bool(pending.metadata.get("confirmed"))
                 return self.handle(
                     target_cmd,
                     context=context,
@@ -369,9 +370,7 @@ class AssistantOrchestrator:
                     text=plan_res.final_message,
                     plan=pending_plan,
                     capability_result=(
-                        plan_res.completed_steps[-1].result
-                        if plan_res.completed_steps
-                        else None
+                        plan_res.completed_steps[-1].result if plan_res.completed_steps else None
                     ),
                     metrics=ResponseMetrics(
                         total_duration_ms=(time.perf_counter() - t0) * 1000.0,
@@ -621,6 +620,7 @@ class AssistantOrchestrator:
         # P. Native Action: Open Directory
         elif intent.intent_type == AssistantIntentType.OPEN_DIR:
             from pathlib import Path
+
             target_path = intent.target
             p = Path(target_path).expanduser()
             if not p.exists():
@@ -700,8 +700,7 @@ class AssistantOrchestrator:
                             )
                     elif dest_res.destination_type == DestinationType.AMBIGUOUS:
                         msg = (
-                            dest_res.suggested_clarification
-                            or f"Did you mean '{dest_res.target}'?"
+                            dest_res.suggested_clarification or f"Did you mean '{dest_res.target}'?"
                         )
                         self.pending_clarification = PendingClarification(
                             original_prompt=normalized_prompt,
@@ -986,10 +985,13 @@ class AssistantOrchestrator:
                                 context=context,
                             )
                     else:
-                        agent_ctx = self.agent_orchestrator.run(normalized_prompt, confirmed=confirmed)
+                        agent_ctx = self.agent_orchestrator.run(
+                            normalized_prompt, confirmed=confirmed
+                        )
                         if agent_ctx.steps or (
                             agent_ctx.final_response
-                            and agent_ctx.final_response not in (
+                            and agent_ctx.final_response
+                            not in (
                                 "I couldn't find a matching action or plan for that request.",
                                 "I couldn't find an executable plan for that request.",
                             )
@@ -1011,7 +1013,9 @@ class AssistantOrchestrator:
                                     total_duration_ms=(time.perf_counter() - t0) * 1000.0,
                                 ),
                                 context=context,
-                                pending_clarification=self.pending_clarification if req_confirm else None,
+                                pending_clarification=self.pending_clarification
+                                if req_confirm
+                                else None,
                             )
 
         # ── Step 2.5: Desktop and application domain boundary ───────────
@@ -1143,9 +1147,13 @@ class AssistantOrchestrator:
             )
 
         if intent.intent_type == AssistantIntentType.GREETING:
-            logger.debug("[AVI] route=greeting routing=%.1fms total=%.1fms", routing_duration_ms, total_ms)
+            logger.debug(
+                "[AVI] route=greeting routing=%.1fms total=%.1fms", routing_duration_ms, total_ms
+            )
         elif result.metrics and result.metrics.llm_duration_ms is not None:
-            logger.debug("[AVI] route=llm llm=%.1fms total=%.1fms", result.metrics.llm_duration_ms, total_ms)
+            logger.debug(
+                "[AVI] route=llm llm=%.1fms total=%.1fms", result.metrics.llm_duration_ms, total_ms
+            )
         elif intent.intent_type != AssistantIntentType.UNKNOWN:
             route_name = intent.intent_type.value.lower()
             cap_ms = getattr(result.metrics, "capability_duration_ms", None)
@@ -1164,7 +1172,9 @@ class AssistantOrchestrator:
                     total_ms,
                 )
         else:
-            llm_ms = getattr(result.metrics, "eval_duration_ms", None) or (total_ms - routing_duration_ms)
+            llm_ms = getattr(result.metrics, "eval_duration_ms", None) or (
+                total_ms - routing_duration_ms
+            )
             logger.debug("[AVI] route=llm llm=%.1fms total=%.1fms", llm_ms, total_ms)
 
         return result
@@ -1306,10 +1316,11 @@ class AssistantOrchestrator:
         )
 
         # Detect if the active provider is a local Ollama model (slow CPU inference)
+        active_prov = getattr(self.router, "provider", None) if self.router else None
         is_ollama = (
             reasoning_provider is not None
             and reasoning_provider.__class__.__name__ == "OllamaProvider"
-        )
+        ) or (active_prov is not None and active_prov.__class__.__name__ == "OllamaProvider")
 
         enable_llm_ranking = bool(
             os.environ.get("AVI_LLM_YOUTUBE_RANKING", "").lower() in ("1", "true", "yes")
@@ -1366,15 +1377,8 @@ class AssistantOrchestrator:
                             reason_text = parsed.get("reason", "")
             except Exception as exc:
                 log.warning("Provider ranking failed or timed out: %s", exc)
-                if reasoning_candidates:
+                if is_ollama and reasoning_candidates:
                     selected_result = reasoning_candidates[0]
-                    reason_text = "Top relevant result matching your request."
-        else:
-            if reasoning_candidates:
-                selected_result = reasoning_candidates[0]
-                if selected_result.channel:
-                    reason_text = f"Top result on YouTube by {selected_result.channel}."
-                else:
                     reason_text = "Top relevant result matching your request."
 
         if selected_result is not None:
