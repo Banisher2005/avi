@@ -123,11 +123,15 @@ class AgentOrchestrator:
         intent = detect_assistant_intent(clean)
         if intent.intent_type in (
             AssistantIntentType.GREETING,
-            AssistantIntentType.HOW_ARE_YOU,
-            AssistantIntentType.WHAT_CAN_YOU_DO,
-            AssistantIntentType.DATE,
-            AssistantIntentType.TIME,
+            AssistantIntentType.SMALL_TALK,
+            AssistantIntentType.COURTESY,
+            AssistantIntentType.CAPABILITIES,
+            AssistantIntentType.DISK_SPACE,
+            AssistantIntentType.RAM_USAGE,
+            AssistantIntentType.MEMORY_TOTAL,
+            AssistantIntentType.CPU_USAGE,
             AssistantIntentType.SYSTEM_INFO,
+            AssistantIntentType.TIMER,
         ):
             return False
 
