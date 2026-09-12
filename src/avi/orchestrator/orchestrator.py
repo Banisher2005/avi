@@ -1366,8 +1366,15 @@ class AssistantOrchestrator:
                             reason_text = parsed.get("reason", "")
             except Exception as exc:
                 log.warning("Provider ranking failed or timed out: %s", exc)
-                if is_ollama and reasoning_candidates:
+                if reasoning_candidates:
                     selected_result = reasoning_candidates[0]
+                    reason_text = "Top relevant result matching your request."
+        else:
+            if reasoning_candidates:
+                selected_result = reasoning_candidates[0]
+                if selected_result.channel:
+                    reason_text = f"Top result on YouTube by {selected_result.channel}."
+                else:
                     reason_text = "Top relevant result matching your request."
 
         if selected_result is not None:
