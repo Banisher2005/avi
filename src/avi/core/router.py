@@ -202,6 +202,12 @@ class Router:
             if tool:
                 result = tool.execute(limit=5).format_display()
 
+        # 10. Calculator / Arithmetic fast-path
+        if result is None:
+            math_val = self._eval_safe_math(normalized)
+            if math_val is not None:
+                result = math_val
+
         if result is not None:
             elapsed_ms = (time.perf_counter() - t0) * 1000.0
             self._fast_path_metrics = ResponseMetrics(total_duration_ms=elapsed_ms)
@@ -209,6 +215,48 @@ class Router:
 
         self._fast_path_metrics = None
         return None
+
+    @staticmethod
+    def _eval_safe_math(text: str) -> str | None:
+        """Safely evaluate simple arithmetic expressions in < 1ms."""
+        import ast
+
+        m = re.match(
+            r"^(?:what\s+is|calculate|calc|how\s+much\s+is)?\s*([0-9]+(?:\.[0-9]+)?\s*[\+\-\*\/\%\^]\s*[0-9\.\s\+\-\*\/\%\(\)\^]+)\??$",
+            text.strip(),
+            re.IGNORECASE,
+        )
+        if not m:
+            return None
+        expr = m.group(1).replace("^", "**")
+        try:
+            node = ast.parse(expr, mode="eval")
+            for sub in ast.walk(node):
+                if not isinstance(
+                    sub,
+                    (
+                        ast.Expression,
+                        ast.BinOp,
+                        ast.UnaryOp,
+                        ast.Constant,
+                        ast.Add,
+                        ast.Sub,
+                        ast.Mult,
+                        ast.Div,
+                        ast.FloorDiv,
+                        ast.Mod,
+                        ast.Pow,
+                        ast.USub,
+                        ast.UAdd,
+                    ),
+                ):
+                    return None
+            val = eval(compile(node, "<math>", "eval"), {"__builtins__": {}}, {})
+            if isinstance(val, float) and val.is_integer():
+                return str(int(val))
+            return str(val)
+        except Exception:
+            return None
 
     def should_delegate(self, prompt: str) -> bool:
         """Check if request requires complex agent delegation (e.g. Antigravity).
