@@ -115,7 +115,10 @@ class TestDesktopSuperpowers:
 
     def test_window_close_capability(self):
         win_closer = WindowCloseCapability()
-        with patch("subprocess.run") as mock_run:
+        with (
+            patch("shutil.which", return_value="/usr/bin/wmctrl"),
+            patch("subprocess.run") as mock_run,
+        ):
             mock_run.return_value = subprocess.CompletedProcess(
                 args=["wmctrl", "-c", "Firefox"], returncode=0, stdout="", stderr=""
             )
