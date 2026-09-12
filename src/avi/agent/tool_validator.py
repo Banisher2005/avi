@@ -190,19 +190,20 @@ class ToolCallValidator:
                 or sanitized_args.get("target")
                 or ""
             )
-            assessment: SafetyAssessment = self.safety_engine.evaluate(str(policy_target))
+            if policy_target or name in ("system.execute_command", "guarded_terminal", "desktop.open_terminal"):
+                assessment: SafetyAssessment = self.safety_engine.evaluate(str(policy_target))
 
-            if assessment.is_blocked:
-                return ValidationResult(
-                    valid=False,
-                    contract=contract,
-                    error=f"Action '{name}' blocked by safety policy: {assessment.reason}",
-                    risk_level=risk_level,
-                )
+                if assessment.is_blocked:
+                    return ValidationResult(
+                        valid=False,
+                        contract=contract,
+                        error=f"Action '{name}' blocked by safety policy: {assessment.reason}",
+                        risk_level=risk_level,
+                    )
 
-            if assessment.requires_confirmation:
-                requires_conf = True
-                conf_reason = assessment.reason or f"Action '{name}' requires confirmation."
+                if assessment.requires_confirmation:
+                    requires_conf = True
+                    conf_reason = assessment.reason or f"Action '{name}' requires confirmation."
 
         return ValidationResult(
             valid=True,
