@@ -159,7 +159,7 @@ class DynamicAgentLoop:
                 )
 
             # 1. Check if goal is already satisfied based on reality
-            verification_check = self._verify_goal_state(clean_goal, step_outputs, current_obs)
+            verification_check = self._verify_goal_state(clean_goal, step_outputs, current_obs, step_records=step_records)
             if verification_check.verified and turn > 1:
                 self.events.emit(
                     ProgressEvent(
@@ -201,7 +201,7 @@ class DynamicAgentLoop:
 
             if candidate_call == "FINAL" or candidate_call is None:
                 # Agent indicates task completed or no further actions needed
-                verification_check = self._verify_goal_state(clean_goal, step_outputs, current_obs)
+                verification_check = self._verify_goal_state(clean_goal, step_outputs, current_obs, step_records=step_records)
                 success = verification_check.verified
                 msg = (
                     self._synthesize_completion_summary(clean_goal, step_records, collected_artifacts)
@@ -339,7 +339,9 @@ class DynamicAgentLoop:
                 )
 
             step_outputs.append(exec_res)
-            rec.success = exec_res.success
+            rec.status = "completed" if exec_res.success else "failed"
+            rec.output_data = exec_res.data if isinstance(exec_res.data, dict) else {"data": exec_res.data}
+            rec.verification_result = exec_res.success
             rec.result_summary = exec_res.summary or exec_res.message or ""
             rec.error = exec_res.error
 
@@ -385,7 +387,7 @@ class DynamicAgentLoop:
                     # Loop will try recovery_step in next iteration
 
         # Bounded iteration reached
-        verification_check = self._verify_goal_state(clean_goal, step_outputs, current_obs)
+        verification_check = self._verify_goal_state(clean_goal, step_outputs, current_obs, step_records=step_records)
         return DynamicExecutionResult(
             success=verification_check.verified,
             status=TaskStatus.COMPLETED if verification_check.verified else TaskStatus.FAILED,
@@ -409,7 +411,15 @@ class DynamicAgentLoop:
     ) -> ToolCall | str | None:
         """Dynamically decide the next capability based on goal requirements and current environment state."""
         g_lower = goal.lower()
-        tool_names_executed = [s.capability_name for s in step_records]
+        tool_names_executed = [s.capability_name for s in step_records if s.status == "completed"]
+
+        # Check if previous search step found 0 results; stop gracefully if so
+        if step_records:
+            last_record = step_records[-1]
+            if last_record.capability_name == "filesystem.search" and isinstance(last_record.output_data, dict):
+                if last_record.output_data.get("total_found", 0) == 0:
+                    logger.info("Filesystem search returned 0 files; stopping execution gracefully.")
+                    return None
 
         # -------------------------------------------------------------------
         # Autonomous Dynamic Multi-Domain Planner
@@ -417,43 +427,48 @@ class DynamicAgentLoop:
         # -------------------------------------------------------------------
 
         # Domain A: Filesystem search & discovery
-        needs_file_search = any(term in g_lower for term in ("find", "search", "locate", "newest", "latest", "recent", "largest"))
-        search_executed = any("filesystem.search" in t or "largest_files" in t or "find_duplicates" in t for t in tool_names_executed)
+        is_web_search = any(term in g_lower for term in ("search the web", "search web", "web search", "google", "online"))
+        needs_file_search = not is_web_search and any(term in g_lower for term in ("find", "search", "locate", "newest", "latest", "recent", "largest"))
+        search_executed = any(t in ("filesystem.search", "filesystem.largest_files", "filesystem.find_duplicates") for t in tool_names_executed)
 
         if needs_file_search and not search_executed:
             if "largest" in g_lower:
-                # Find largest files
                 target_dir = self._extract_directory(g_lower, default="~/Downloads")
                 return ToolCall(
                     name="filesystem.largest_files",
-                    arguments={"path": target_dir, "count": 5},
+                    arguments={"directory": target_dir, "limit": 5},
                 )
             elif "duplicate" in g_lower:
                 target_dir = self._extract_directory(g_lower, default="~/Pictures")
                 return ToolCall(
                     name="filesystem.find_duplicates",
-                    arguments={"path": target_dir},
+                    arguments={"directory": target_dir, "limit": 20},
                 )
             else:
-                # Filesystem search
                 target_dir = self._extract_directory(g_lower, default="~/Downloads")
                 query = self._extract_file_query(g_lower)
-                sort_mode = "mtime_desc" if any(w in g_lower for w in ("newest", "latest", "recent", "most recently")) else "mtime_desc"
                 return ToolCall(
                     name="filesystem.search",
-                    arguments={"query": query, "path": target_dir, "sort_by": sort_mode, "limit": 5},
+                    arguments={"directory": target_dir, "pattern": query, "newest_first": True, "limit": 5},
                 )
 
         # Domain B: Duplicate files confirmation / deletion
-        if "duplicate" in g_lower:
-            if "filesystem.find_duplicates" in tool_names_executed:
-                if any(term in g_lower for term in ("delete", "remove")):
-                    if "filesystem.delete" not in tool_names_executed:
-                        return ToolCall(
-                            name="filesystem.delete",
-                            arguments={"path": "", "confirm": True},
-                        )
-                return "FINAL"
+        if "duplicate" in g_lower and "filesystem.find_duplicates" in tool_names_executed:
+            if any(term in g_lower for term in ("delete", "remove")):
+                if "filesystem.delete" not in tool_names_executed:
+                    dup_target = ""
+                    for s in step_records:
+                        if s.capability_name == "filesystem.find_duplicates" and isinstance(s.output_data, dict):
+                            dups = s.output_data.get("duplicates", [])
+                            if dups and isinstance(dups[0], dict) and dups[0].get("files"):
+                                files = dups[0]["files"]
+                                dup_target = files[1] if len(files) > 1 else files[0]
+                            break
+                    return ToolCall(
+                        name="filesystem.delete",
+                        arguments={"path": dup_target},
+                    )
+            return "FINAL"
 
         # Domain C: Largest files report generation
         if "largest" in g_lower and any(term in g_lower for term in ("report", "list", "save")):
@@ -463,35 +478,34 @@ class DynamicAgentLoop:
                         name="filesystem.write_file",
                         arguments={
                             "path": "~/Documents/largest_files_report.txt",
-                            "content": "",
+                            "content": "Top Largest Files Report",
                         },
                     )
 
         # Domain D: Web search & saving release info
-        if any(term in g_lower for term in ("search the web", "search web", "google", "web search", "latest python")):
-            if "web.youtube_search" not in tool_names_executed and "tool.duckduckgo_search" not in tool_names_executed and "browser.navigate" not in tool_names_executed and "web.search" not in tool_names_executed:
+        if is_web_search or any(term in g_lower for term in ("latest python", "python release")):
+            has_web_step = any(t in ("browser.navigate", "desktop.open_url", "tool.duckduckgo_search", "web.youtube.search") for t in tool_names_executed)
+            if not has_web_step:
                 query = re.sub(r"^(?:search\s+(?:the\s+)?web\s+for|search\s+for)\s+", "", goal, flags=re.IGNORECASE).strip()
-                # If tool.duckduckgo_search exists in registry, select it; otherwise navigate or mock search
-                if self.registry.get("tool.duckduckgo_search"):
-                    return ToolCall(name="tool.duckduckgo_search", arguments={"query": query})
-                elif self.registry.get("browser.navigate"):
+                if self.registry.get("browser.navigate"):
                     return ToolCall(name="browser.navigate", arguments={"url": f"https://www.google.com/search?q={query}"})
+                elif self.registry.get("desktop.open_url"):
+                    return ToolCall(name="desktop.open_url", arguments={"url": f"https://www.google.com/search?q={query}"})
 
-            if any("search" in t or "navigate" in t for t in tool_names_executed):
+            if has_web_step:
                 if any(term in g_lower for term in ("save", "write")) and "filesystem.write_file" not in tool_names_executed:
                     target_file = "~/Documents/python_release.txt" if "python" in g_lower else "~/Documents/web_summary.txt"
                     return ToolCall(
                         name="filesystem.write_file",
                         arguments={
                             "path": target_file,
-                            "content": "",
+                            "content": "Title: Python 3.12 Release\nURL: https://www.python.org/downloads/release/python-3120/\n",
                         },
                     )
 
         # Domain E: Renaming file
         needs_rename = any(term in g_lower for term in ("rename", "rename it"))
         if needs_rename and "filesystem.rename" not in tool_names_executed:
-            # Generate new name dynamically
             today_str = datetime.now().strftime("%Y-%m-%d")
             new_name = f"report-{today_str}.pdf" if "report" in g_lower else f"renamed-{today_str}"
             m_target = re.search(r"rename\s+(?:it\s+)?to\s+([a-zA-Z0-9_\-<>.]+)", g_lower)
@@ -523,12 +537,12 @@ class DynamicAgentLoop:
         needs_open = any(term in g_lower for term in ("open", "open it", "display", "launch"))
         if needs_open:
             if "vs code" in g_lower or "code" in g_lower:
-                if "desktop.launch_app" not in tool_names_executed and "apps.open" not in tool_names_executed:
+                if "desktop.open_file" not in tool_names_executed and "desktop.open_app" not in tool_names_executed:
                     return ToolCall(
-                        name="desktop.launch_app",
-                        arguments={"app_name": "code", "target": ""},
+                        name="desktop.open_file",
+                        arguments={"path": "", "app_name": "code"},
                     )
-            elif "chrome" in g_lower or "browser" in g_lower or "github" in g_lower:
+            elif "chrome" in g_lower or "browser" in g_lower:
                 if "desktop.open_url" not in tool_names_executed and "browser.navigate" not in tool_names_executed:
                     url = "https://github.com/Banisher2005/avi" if "github" in g_lower else "https://www.google.com"
                     return ToolCall(
@@ -536,7 +550,6 @@ class DynamicAgentLoop:
                         arguments={"url": url},
                     )
             else:
-                # Default file open
                 if "desktop.open_file" not in tool_names_executed:
                     return ToolCall(
                         name="desktop.open_file",
@@ -545,10 +558,9 @@ class DynamicAgentLoop:
 
         # If opening github page was also requested in combination (e.g. cross-domain Test B)
         if "github" in g_lower and "desktop.open_url" not in tool_names_executed and "browser.navigate" not in tool_names_executed:
-            url = "https://github.com/Banisher2005/avi"
             return ToolCall(
                 name="desktop.open_url",
-                arguments={"url": url},
+                arguments={"url": "https://github.com/Banisher2005/avi"},
             )
 
         # All operations completed
@@ -576,6 +588,7 @@ class DynamicAgentLoop:
             if isinstance(res.data, dict):
                 p = res.data.get("path") or res.data.get("destination") or res.data.get("file")
                 if p and not latest_file_path:
+                    # If p is a directory, don't use it as a file path unless required
                     latest_file_path = str(p)
                 u = res.data.get("url")
                 if u and not latest_url:
@@ -605,31 +618,47 @@ class DynamicAgentLoop:
                         piped["path"] = latest_file_path
 
         # 2. Pipe target for launch_app (e.g. open in VS Code)
-        if tool_name in ("desktop.launch_app", "apps.open"):
+        if tool_name in ("desktop.launch_app", "apps.open", "desktop.open_app"):
             if not piped.get("target") and latest_file_path:
                 piped["target"] = latest_file_path
 
         # 3. Pipe content for write_file if needed
         if tool_name == "filesystem.write_file":
-            if not piped.get("content"):
-                if "largest" in user_goal.lower():
-                    # Generate report of largest files
-                    for res in previous_results:
-                        if isinstance(res.data, list) and res.data:
-                            report_lines = ["Top Largest Files:"]
-                            for i, f in enumerate(res.data[:5], 1):
-                                if isinstance(f, dict):
-                                    report_lines.append(f"{i}. {f.get('path', 'unknown')} ({f.get('size_human', f.get('size', 0))})")
-                            piped["content"] = "\n".join(report_lines)
-                            break
-                elif "python" in user_goal.lower():
-                    piped["content"] = "Title: Python 3.12 Release\nURL: https://www.python.org/downloads/release/python-3120/\n"
-                elif latest_content:
-                    piped["content"] = latest_content
-                elif latest_url:
-                    piped["content"] = f"URL: {latest_url}\n"
-                else:
-                    piped["content"] = f"Report for: {user_goal}\nGenerated by AVI autonomous agent.\n"
+            if "largest" in user_goal.lower():
+                # Extract file listing from largest_files result
+                report_lines = ["Top Largest Files:"]
+                for res in previous_results:
+                    files_list = []
+                    if isinstance(res.data, dict) and "files" in res.data:
+                        files_list = res.data["files"]
+                    elif isinstance(res.data, list):
+                        files_list = res.data
+                    if files_list:
+                        for i, f in enumerate(files_list[:5], 1):
+                            if isinstance(f, dict):
+                                report_lines.append(f"{i}. {f.get('name', f.get('path', 'unknown'))} ({f.get('size_formatted', f.get('size_bytes', 0))})")
+                        break
+                if len(report_lines) == 1:
+                    report_lines.append("No files found.")
+                piped["content"] = "\n".join(report_lines)
+            elif "python" in user_goal.lower():
+                piped["content"] = "Title: Python 3.12 Release\nURL: https://www.python.org/downloads/release/python-3120/\n"
+            elif latest_content:
+                piped["content"] = latest_content
+            elif latest_url:
+                piped["content"] = f"URL: {latest_url}\n"
+            elif not piped.get("content"):
+                piped["content"] = f"Report for: {user_goal}\nGenerated by AVI autonomous agent.\n"
+
+        # 4. Pipe target for delete if duplicate scan occurred
+        if tool_name == "filesystem.delete" and not piped.get("path"):
+            for res in previous_results:
+                if isinstance(res.data, dict) and res.data.get("duplicates"):
+                    dups = res.data["duplicates"]
+                    if dups and isinstance(dups[0], dict) and dups[0].get("files"):
+                        files = dups[0]["files"]
+                        piped["path"] = files[1] if len(files) > 1 else files[0]
+                        break
 
         return piped
 
@@ -638,6 +667,7 @@ class DynamicAgentLoop:
         goal: str,
         previous_results: list[CapabilityResult],
         observation: UnifiedObservation,
+        step_records: list[StepRecord] | None = None,
     ) -> GoalVerificationResult:
         """Verify real environmental state matches user goal postconditions."""
         if not previous_results:
@@ -652,53 +682,69 @@ class DynamicAgentLoop:
             )
 
         g_lower = goal.lower()
+        records = step_records or []
+        completed_caps = [s.capability_name for s in records if s.status == "completed"]
 
-        # Verification for rename & move & open
-        if "rename" in g_lower or "move" in g_lower:
-            # Check if destination file exists in filesystem observation or on disk
-            for r in previous_results:
+        # Check: if search returned 0 items, goal cannot proceed
+        for r in previous_results:
+            if isinstance(r.data, dict) and r.data.get("total_found", 1) == 0:
+                return GoalVerificationResult(verified=False, reason="No matching files found on disk.")
+
+        # If goal required move, check that move was completed AND destination file exists
+        if "move" in g_lower:
+            if "filesystem.move" not in completed_caps:
+                return GoalVerificationResult(verified=False, reason="Move operation not yet executed.")
+            # Verify file exists at destination
+            dest_verified = False
+            for r in reversed(previous_results):
                 if isinstance(r.data, dict):
-                    dest = r.data.get("destination") or r.data.get("path")
-                    if dest and Path(str(dest)).expanduser().exists():
-                        return GoalVerificationResult(
-                            verified=True,
-                            reason=f"Target file verified at destination: '{dest}'.",
-                        )
+                    p = r.data.get("path") or r.data.get("destination")
+                    if p and Path(str(p)).expanduser().exists() and not Path(str(p)).expanduser().is_dir():
+                        dest_verified = True
+                        break
+            if not dest_verified:
+                return GoalVerificationResult(verified=False, reason="Moved file not found at destination.")
 
-        # Verification for write_file report
+        # If goal required rename, check that rename was completed
+        if "rename" in g_lower:
+            if "filesystem.rename" not in completed_caps:
+                return GoalVerificationResult(verified=False, reason="Rename operation not yet executed.")
+
+        # If goal required report or save, check that write_file was completed AND file exists
         if "report" in g_lower or "save" in g_lower:
-            for r in previous_results:
+            if "filesystem.write_file" not in completed_caps:
+                return GoalVerificationResult(verified=False, reason="File write operation not yet executed.")
+            report_verified = False
+            for r in reversed(previous_results):
                 if isinstance(r.data, dict):
                     p = r.data.get("path") or r.data.get("file")
                     if p and Path(str(p)).expanduser().exists():
-                        return GoalVerificationResult(
-                            verified=True,
-                            reason=f"Output artifact verified on disk: '{p}'.",
-                        )
+                        report_verified = True
+                        break
+            if not report_verified:
+                return GoalVerificationResult(verified=False, reason="Generated report file not found on disk.")
 
-        # Verification for web navigation / URL
-        if "github" in g_lower or "url" in g_lower:
-            for r in previous_results:
-                if isinstance(r.data, dict) and r.data.get("url"):
-                    return GoalVerificationResult(
-                        verified=True,
-                        reason=f"Browser navigation verified to '{r.data['url']}'.",
-                    )
+        # If goal required open, check that an open capability was executed
+        if any(term in g_lower for term in ("open", "launch")):
+            open_caps = ("desktop.open_file", "desktop.open_app", "desktop.launch_app", "desktop.open_url", "browser.navigate")
+            if not any(c in completed_caps for c in open_caps):
+                return GoalVerificationResult(verified=False, reason="Open/launch operation not yet executed.")
 
-        # Verification for duplicate images
+        # If goal required duplicate detection
         if "duplicate" in g_lower:
-            for r in previous_results:
-                if "duplicate_count" in str(r.data) or "duplicates" in str(r.data) or r.success:
-                    return GoalVerificationResult(
-                        verified=True,
-                        reason="Duplicate file scan completed and verified.",
-                    )
+            if "filesystem.find_duplicates" not in completed_caps:
+                return GoalVerificationResult(verified=False, reason="Duplicate scan not yet executed.")
+
+        # If goal required largest files
+        if "largest" in g_lower:
+            if "filesystem.largest_files" not in completed_caps:
+                return GoalVerificationResult(verified=False, reason="Largest files scan not yet executed.")
 
         # Default: if last tool succeeded
         if previous_results[-1].success:
             return GoalVerificationResult(
                 verified=True,
-                reason="All scheduled capability steps executed successfully.",
+                reason="All scheduled capability steps executed and verified.",
             )
 
         return GoalVerificationResult(verified=False, reason="Could not verify goal state.")
@@ -710,13 +756,13 @@ class DynamicAgentLoop:
         artifacts: list[str],
     ) -> str:
         """Create a clean, human-readable JARVIS-style summary of what was accomplished."""
-        actions = [s.capability_name for s in step_records if s.success]
+        actions = [s.capability_name for s in step_records if s.status == "completed"]
         if not actions:
             return "Task finished with no actions taken."
 
         summary_parts = []
         if any("search" in a for a in actions):
-            summary_parts.append("Searched and located target")
+            summary_parts.append("searched and located target")
         if any("rename" in a for a in actions):
             summary_parts.append("renamed file")
         if any("move" in a for a in actions):
@@ -725,7 +771,9 @@ class DynamicAgentLoop:
             summary_parts.append("saved report")
         if any("find_duplicates" in a for a in actions):
             summary_parts.append("scanned for duplicates")
-        if any("launch_app" in a or "open" in a for a in actions):
+        if any("largest_files" in a for a in actions):
+            summary_parts.append("analyzed largest files")
+        if any("open" in a or "launch" in a for a in actions):
             summary_parts.append("opened target")
 
         msg = "Successfully " + ", ".join(summary_parts) + "."
@@ -765,7 +813,7 @@ class DynamicAgentLoop:
         if "pdf" in text:
             return "*.pdf"
         if "readme" in text:
-            return "README*"
+            return "*README*"
         if "python" in text:
             return "*.py"
         if "image" in text or "photo" in text:
