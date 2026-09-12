@@ -46,6 +46,84 @@ class ReliabilitySupervisor:
                 cls._instance = ReliabilitySupervisor()
             return cls._instance
 
+    def register_operation(
+        self,
+        op_type: OperationType = OperationType.TOOL_CALL,
+        name: str = "",
+        task_id: str = "",
+        timeout: float | None = None,
+        cancellation_token: Any | None = None,
+        cleanup_callback: Callable[[], None] | None = None,
+    ) -> OperationRecord:
+        """Register an operation record under watchdog supervision."""
+        actual_timeout = (
+            timeout
+            if timeout is not None
+            else self.config.get_timeout_for_operation(op_type, name)
+        )
+        record = OperationRecord(
+            task_id=task_id,
+            name=name,
+            operation_type=op_type,
+            timeout=actual_timeout,
+            cancellation_token=cancellation_token,
+            status=OperationStatus.PENDING,
+        )
+        self.watchdog.register_operation(record, cleanup_callback=cleanup_callback)
+        return record
+
+    def start_operation(self, operation_id: str) -> None:
+        """Mark operation as running."""
+        with self.watchdog._lock:
+            op = self.watchdog._active_operations.get(operation_id)
+            if op:
+                op.status = OperationStatus.RUNNING
+                op.started_at = time.time()
+
+    def complete_operation(self, operation_id: str, result: Any = None, user_message: str = "") -> None:
+        """Mark operation completed and unregister."""
+        with self.watchdog._lock:
+            op = self.watchdog._active_operations.get(operation_id)
+            if op:
+                op.mark_completed(result, user_message=user_message)
+        self.watchdog.unregister_operation(operation_id)
+
+    def fail_operation(
+        self,
+        operation_id: str,
+        error: str,
+        category: FailureCategory = FailureCategory.TOOL_EXECUTION_FAILED,
+        user_message: str = "",
+    ) -> None:
+        """Mark operation failed and unregister."""
+        with self.watchdog._lock:
+            op = self.watchdog._active_operations.get(operation_id)
+            if op:
+                op.mark_failed(error, category=category, user_message=user_message)
+        self.watchdog.unregister_operation(operation_id)
+
+    def cancel_operation(self, operation_id: str, reason: str = "") -> None:
+        """Mark operation cancelled and unregister."""
+        with self.watchdog._lock:
+            op = self.watchdog._active_operations.get(operation_id)
+            if op:
+                op.mark_cancelled(reason)
+        self.watchdog.unregister_operation(operation_id)
+
+    def register_worker(
+        self,
+        task_id: str,
+        thread: threading.Thread,
+        cleanup_callback: Callable[[], None] | None = None,
+        name: str = "",
+    ) -> None:
+        """Register a worker thread under supervision."""
+        self.watchdog.register_worker(task_id, thread, cleanup_callback=cleanup_callback)
+
+    def unregister_worker(self, task_id: str) -> None:
+        """Unregister finished worker thread."""
+        self.watchdog.unregister_worker(task_id)
+
     def execute_tool(
         self,
         capability_name: str,
