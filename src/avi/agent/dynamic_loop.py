@@ -322,20 +322,29 @@ class DynamicAgentLoop:
             )
             step_records.append(rec)
 
-            try:
-                exec_res: CapabilityResult = self.registry.execute_safe(
+            from avi.reliability.supervisor import ReliabilitySupervisor
+
+            supervisor = ReliabilitySupervisor.get_instance()
+            supervised_res = supervisor.execute_tool(
+                tool_name=candidate_call.name,
+                func=lambda: self.registry.execute_safe(
                     candidate_call.name,
                     args=candidate_call.arguments,
                     safety_engine=self.safety_engine,
                     confirmed=confirmed,
-                )
-            except Exception as exc:
-                logger.exception("Error executing capability %s", candidate_call.name)
+                ),
+                task_id=task_id,
+            )
+
+            if supervised_res.is_success and isinstance(supervised_res.value, CapabilityResult):
+                exec_res = supervised_res.value
+            else:
+                err_msg = supervised_res.error or f"Error running {candidate_call.name}"
                 exec_res = CapabilityResult(
                     success=False,
                     status=ExecutionStatus.FAILED,
-                    error=str(exc),
-                    message=f"Error running {candidate_call.name}: {exc}",
+                    error=err_msg,
+                    message=err_msg,
                 )
 
             step_outputs.append(exec_res)
