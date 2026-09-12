@@ -147,47 +147,87 @@ class AgentRuntime:
             return self._dispatch_background_task(clean_q, session_id=session_id, confirmed=confirmed)
 
         # ── Step 5: Conversational LLM Synthesis Fallback ───────────────────
-        if self.config.stream:
-            buffered = ""
-            stream_iter = iter(self.router.route(clean_q, context=context, stream=True))
-            is_proposal = False
+        from avi.reliability.supervisor import ReliabilitySupervisor
 
-            for chunk in stream_iter:
-                buffered += chunk
-                clean_buf = buffered.strip().upper()
-                if any(
-                    clean_buf.startswith(p)
-                    for p in ("COMMAND:", "PROPOSAL:", "```JSON", '{"', "{")
-                ):
-                    is_proposal = True
-                    break
-                if len(buffered.strip()) >= 12:
-                    break
+        supervisor = ReliabilitySupervisor.get_instance()
+        provider_name = getattr(self.config, "provider", "ollama")
+        if not supervisor.circuit_breakers.can_execute(provider_name):
+            return RuntimeResponse(
+                text="⚠️ Local AI provider is temporarily unavailable (circuit breaker open). Deterministic and offline capabilities remain fully operational.",
+                is_background=False,
+            )
 
-            if is_proposal:
-                full_text = buffered + "".join(stream_iter)
-                proposal = self.router.parse_command_proposal(full_text)
+        try:
+            if self.config.stream:
+                buffered = ""
+                stream_iter = iter(self.router.route(clean_q, context=context, stream=True))
+                is_proposal = False
+
+                for chunk in stream_iter:
+                    buffered += chunk
+                    clean_buf = buffered.strip().upper()
+                    if any(
+                        clean_buf.startswith(p)
+                        for p in ("COMMAND:", "PROPOSAL:", "```JSON", '{"', "{")
+                    ):
+                        is_proposal = True
+                        break
+                    if len(buffered.strip()) >= 12:
+                        break
+
+                if is_proposal:
+                    full_text = buffered + "".join(stream_iter)
+                    proposal = self.router.parse_command_proposal(full_text)
+                    return RuntimeResponse(
+                        text=full_text,
+                        requires_confirmation=(proposal is not None),
+                        proposal=proposal,
+                    )
+                else:
+                    remaining_chunks = list(stream_iter)
+                    full_text = buffered + "".join(remaining_chunks)
+                    return RuntimeResponse(text=full_text.rstrip(), is_background=False)
+            else:
+                resp = self.router.route_full(clean_q, context=context)
+                proposal = self.router.parse_command_proposal(resp.text)
                 return RuntimeResponse(
-                    text=full_text,
+                    text=resp.text.strip(),
                     requires_confirmation=(proposal is not None),
                     proposal=proposal,
                 )
-            else:
-                remaining_chunks = list(stream_iter)
-                full_text = buffered + "".join(remaining_chunks)
-                return RuntimeResponse(text=full_text.rstrip(), is_background=False)
-        else:
-            resp = self.router.route_full(clean_q, context=context)
-            proposal = self.router.parse_command_proposal(resp.text)
+        except Exception as exc:
+            logger.error("AI provider error during dispatch: %s", exc)
+            supervisor.circuit_breakers.record_failure(provider_name, exc)
             return RuntimeResponse(
-                text=resp.text.strip(),
-                requires_confirmation=(proposal is not None),
-                proposal=proposal,
+                text=f"⚠️ Local AI provider is unavailable: {exc}. Deterministic features and offline tools remain operational.",
+                is_background=False,
             )
 
     def _handle_runtime_command(self, query: str) -> RuntimeResponse | None:
         """Evaluate local runtime management commands without calling an LLM."""
         lower = query.lower()
+
+        # 0. Diagnostic / health check commands
+        if any(
+            p in lower
+            for p in (
+                "why are you stuck",
+                "diagnose yourself",
+                "diagnose",
+                "what are you waiting for",
+                "system health",
+                "health",
+                "doctor",
+            )
+        ):
+            from avi.reliability.health import diagnose_self_query
+            from avi.reliability.supervisor import ReliabilitySupervisor
+
+            diag_text = diagnose_self_query(
+                supervisor=ReliabilitySupervisor.get_instance(),
+                task_registry=self.task_registry,
+            )
+            return RuntimeResponse(text=diag_text, is_background=False)
 
         # 1. Tasks list / status table
         if lower in ("tasks", "task list", "list tasks", "status", "show tasks"):
@@ -286,6 +326,9 @@ class AgentRuntime:
         self, prompt: str, session_id: str = "", confirmed: bool = False
     ) -> RuntimeResponse:
         """Spawn a non-blocking background worker thread for a complex agent task."""
+        from avi.reliability.models import FailureCategory, OperationType
+        from avi.reliability.supervisor import ReliabilitySupervisor
+
         resources, is_write = ResourceLockManager.extract_resources(prompt)
         task = RuntimeTask(
             goal=prompt,
@@ -304,8 +347,16 @@ class AgentRuntime:
             )
 
         self.task_registry.register(task)
+        supervisor = ReliabilitySupervisor.get_instance()
 
         def _worker() -> None:
+            op = supervisor.register_operation(
+                op_type=OperationType.WORKER,
+                name=f"task:{task.task_id[:8]}",
+                task_id=task.task_id,
+                timeout=supervisor.timeouts.background_task,
+            )
+            supervisor.start_operation(op.id)
             try:
                 task.status = TaskStatus.RUNNING
                 ctx = self.agent_orchestrator.run(
@@ -320,17 +371,22 @@ class AgentRuntime:
                 task.result = ctx.final_response
                 if ctx.status == TaskStatus.COMPLETED:
                     task.completed_at = time.time()
+                    supervisor.complete_operation(op.id, result=ctx.final_response)
                 elif ctx.status == TaskStatus.FAILED:
                     task.error = ctx.error_details[-1] if ctx.error_details else "Task failed."
                     task.completed_at = time.time()
+                    supervisor.fail_operation(op.id, error=task.error, category=FailureCategory.EXECUTION_ERROR)
                 elif ctx.status == TaskStatus.CANCELLED:
                     task.completed_at = time.time()
+                    supervisor.cancel_operation(op.id, reason="User cancelled")
             except Exception as exc:
                 logger.exception("Error in background worker for task %s: %s", task.task_id, exc)
                 task.status = TaskStatus.FAILED
                 task.error = str(exc)
                 task.completed_at = time.time()
+                supervisor.fail_operation(op.id, error=str(exc), category=FailureCategory.EXECUTION_ERROR)
             finally:
+                supervisor.unregister_worker(task.task_id)
                 self.task_registry.resources.release(task.task_id)
 
         thread = threading.Thread(
@@ -339,6 +395,7 @@ class AgentRuntime:
             name=f"avi-task-{task.task_id[:8]}",
         )
         task.worker_thread = thread
+        supervisor.register_worker(task.task_id, thread, name=task.goal)
         thread.start()
 
         ack_msg = f"Started task: '{prompt}' in background."
@@ -351,9 +408,20 @@ class AgentRuntime:
 
     def _resume_background_task(self, task: RuntimeTask) -> RuntimeResponse:
         """Resume a paused task in a background worker."""
+        from avi.reliability.models import FailureCategory, OperationType
+        from avi.reliability.supervisor import ReliabilitySupervisor
+
         task.resume()
+        supervisor = ReliabilitySupervisor.get_instance()
 
         def _worker() -> None:
+            op = supervisor.register_operation(
+                op_type=OperationType.WORKER,
+                name=f"resume:{task.task_id[:8]}",
+                task_id=task.task_id,
+                timeout=supervisor.timeouts.background_task,
+            )
+            supervisor.start_operation(op.id)
             try:
                 task.status = TaskStatus.RUNNING
                 ctx = self.agent_orchestrator.resume_task(
@@ -364,11 +432,18 @@ class AgentRuntime:
                 task.result = ctx.final_response
                 if ctx.status == TaskStatus.COMPLETED:
                     task.completed_at = time.time()
+                    supervisor.complete_operation(op.id, result=ctx.final_response)
+                elif ctx.status == TaskStatus.FAILED:
+                    task.error = ctx.error_details[-1] if ctx.error_details else "Task resume failed."
+                    task.completed_at = time.time()
+                    supervisor.fail_operation(op.id, error=task.error, category=FailureCategory.EXECUTION_ERROR)
             except Exception as exc:
                 logger.exception("Error resuming task %s: %s", task.task_id, exc)
                 task.status = TaskStatus.FAILED
                 task.error = str(exc)
+                supervisor.fail_operation(op.id, error=str(exc), category=FailureCategory.EXECUTION_ERROR)
             finally:
+                supervisor.unregister_worker(task.task_id)
                 self.task_registry.resources.release(task.task_id)
 
         thread = threading.Thread(
@@ -377,6 +452,7 @@ class AgentRuntime:
             name=f"avi-resume-{task.task_id[:8]}",
         )
         task.worker_thread = thread
+        supervisor.register_worker(task.task_id, thread, name=task.goal)
         thread.start()
 
         return RuntimeResponse(
