@@ -46,6 +46,43 @@ class ExecutionStatus(str, Enum):
 
 
 @dataclass
+class ToolContract:
+    """Machine-readable tool contract for dynamic agent planning and LLM tool calling."""
+
+    name: str
+    description: str
+    category: str
+    parameters: dict[str, Any] = field(default_factory=dict)
+    parameter_types: dict[str, str] = field(default_factory=dict)
+    required_parameters: list[str] = field(default_factory=list)
+    optional_parameters: list[str] = field(default_factory=list)
+    side_effects: bool = False
+    risk_level: str = "READ_ONLY"
+    confirmation_requirement: bool = False
+    expected_result: str = "object"
+    observable_outputs: list[str] = field(default_factory=list)
+    verification_method: str = "state_inspection"
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize ToolContract to dictionary."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "category": self.category,
+            "parameters": self.parameters,
+            "parameter_types": self.parameter_types,
+            "required_parameters": self.required_parameters,
+            "optional_parameters": self.optional_parameters,
+            "side_effects": self.side_effects,
+            "risk_level": self.risk_level,
+            "confirmation_requirement": self.confirmation_requirement,
+            "expected_result": self.expected_result,
+            "observable_outputs": self.observable_outputs,
+            "verification_method": self.verification_method,
+        }
+
+
+@dataclass
 class CapabilityResult:
     """Standardized outcome returned by all capabilities."""
 
@@ -56,6 +93,20 @@ class CapabilityResult:
     error: str | None = None
     classification: DataClassification = DataClassification.LOCAL_ONLY
     metadata: dict[str, Any] = field(default_factory=dict)
+    summary: str = ""
+    observations: dict[str, Any] = field(default_factory=dict)
+    artifacts: list[str] = field(default_factory=list)
+    retryable: bool = True
+
+    def __post_init__(self) -> None:
+        """Populate default summary and artifacts if not provided."""
+        if not self.summary:
+            self.summary = self.message or ("Success" if self.success else (self.error or "Failed"))
+        if not self.artifacts and isinstance(self.data, dict):
+            for k in ("path", "destination", "file", "url", "saved_path", "output_path"):
+                val = self.data.get(k)
+                if val and isinstance(val, str) and val not in self.artifacts:
+                    self.artifacts.append(val)
 
     def format_display(self) -> str:
         """Render readable text representation."""
@@ -75,7 +126,15 @@ class CapabilityResult:
             "error": self.error,
             "classification": self.classification.value,
             "metadata": self.metadata,
+            "summary": self.summary,
+            "observations": self.observations,
+            "artifacts": self.artifacts,
+            "retryable": self.retryable,
         }
+
+
+# Backwards compatibility alias for dynamic tool result
+AgentToolResult = CapabilityResult
 
 
 class BaseCapability(ABC):
@@ -138,6 +197,31 @@ class BaseCapability(ABC):
             "risk_level": self.risk_level.value,
             "requires_confirmation": self.requires_confirmation,
         }
+
+    def to_tool_contract(self) -> ToolContract:
+        """Export standardized machine-readable tool contract for dynamic agent planning."""
+        props = self.input_schema.get("properties", {}) if isinstance(self.input_schema, dict) else {}
+        required = list(self.input_schema.get("required", [])) if isinstance(self.input_schema, dict) else []
+        param_types = {k: v.get("type", "string") if isinstance(v, dict) else "string" for k, v in props.items()}
+        opt_params = [k for k in props if k not in required]
+        cat_str = self.category.value if hasattr(self.category, "value") else str(self.category)
+        risk_str = self.risk_level.value if hasattr(self.risk_level, "value") else str(self.risk_level)
+
+        return ToolContract(
+            name=self.name,
+            description=self.description,
+            category=cat_str,
+            parameters=props,
+            parameter_types=param_types,
+            required_parameters=required,
+            optional_parameters=opt_params,
+            side_effects=getattr(self, "side_effects", False),
+            risk_level=risk_str,
+            confirmation_requirement=getattr(self, "requires_confirmation", False),
+            expected_result=getattr(self, "expected_result", "object"),
+            observable_outputs=list(getattr(self, "observable_outputs", ())),
+            verification_method=getattr(self, "verification_method", "state_inspection"),
+        )
 
 
 class ToolCapabilityAdapter(BaseCapability):
