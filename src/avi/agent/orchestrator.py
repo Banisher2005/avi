@@ -139,7 +139,8 @@ class AgentOrchestrator:
         if first_word in (
             "systemctl", "sudo", "apt", "apt-get", "pacman", "dnf", "yum", "brew",
             "git", "docker", "kubectl", "journalctl", "ip", "ifconfig", "netstat",
-            "ps", "kill", "killall", "chmod", "chown", "ssh", "scp"
+            "ps", "kill", "killall", "chmod", "chown", "ssh", "scp", "curl", "wget",
+            "ping", "traceroute", "nc", "nmap", "dig", "nslookup", "ls"
         ):
             return False
         if any(lower.startswith(p) for p in ("generate a command", "give me a command", "command to", "write a command", "create a command")):
