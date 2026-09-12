@@ -27,7 +27,7 @@ class CircuitBreaker:
     ) -> None:
         self.name = name
         self.failure_threshold = max(1, failure_threshold)
-        self.recovery_cooldown = max(1.0, recovery_cooldown)
+        self.recovery_cooldown = max(0.001, recovery_cooldown)
         self.state = CircuitBreakerState.CLOSED
         self.consecutive_failures = 0
         self.total_failures = 0
@@ -58,6 +58,10 @@ class CircuitBreaker:
             return True
 
         return True
+
+    def can_execute(self) -> bool:
+        """Convenience alias for allow_request()."""
+        return self.allow_request()
 
     def record_success(self) -> None:
         """Record successful operation, resetting failure counter and closing circuit."""
@@ -141,24 +145,38 @@ class CircuitBreaker:
 class CircuitBreakerRegistry:
     """Registry maintaining independent circuit breakers for services and providers."""
 
-    def __init__(self) -> None:
+    def __init__(self, default_threshold: int = 3, default_cooldown: float = 30.0) -> None:
+        self.default_threshold = default_threshold
+        self.default_cooldown = default_cooldown
         self._breakers: dict[str, CircuitBreaker] = {}
 
     def get_or_create(
         self,
         name: str,
-        failure_threshold: int = 3,
-        recovery_cooldown: float = 30.0,
+        failure_threshold: int | None = None,
+        recovery_cooldown: float | None = None,
     ) -> CircuitBreaker:
         """Get existing circuit breaker or create a new configured instance."""
         clean_name = str(name).strip().lower()
         if clean_name not in self._breakers:
             self._breakers[clean_name] = CircuitBreaker(
                 name=clean_name,
-                failure_threshold=failure_threshold,
-                recovery_cooldown=recovery_cooldown,
+                failure_threshold=failure_threshold or self.default_threshold,
+                recovery_cooldown=recovery_cooldown or self.default_cooldown,
             )
         return self._breakers[clean_name]
+
+    def can_execute(self, name: str) -> bool:
+        """Check if calls to named service are permitted."""
+        return self.get_or_create(name).can_execute()
+
+    def record_failure(self, name: str, reason: Any = None) -> None:
+        """Record failure for named service."""
+        self.get_or_create(name).record_failure(reason)
+
+    def record_success(self, name: str) -> None:
+        """Record success for named service."""
+        self.get_or_create(name).record_success()
 
     def reset_all(self) -> None:
         """Reset all registered circuit breakers."""
