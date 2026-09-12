@@ -603,7 +603,16 @@ pytest tests/unit/test_providers.py
   * Strict privacy boundaries: `LOCAL_ONLY` screenshot artifacts stored locally, never uploaded to remote providers
   * Honest vision negotiation: upfront capability inspection declaring when active model lacks image analysis
   * One-button desktop assistant: `avi activate` with single-instance GTK4 window handling and compositor hotkey integration (GNOME, KDE, Sway, Hyprland, X11)
-  * 766 passed unit and integration tests (100% clean)
+* [x] **Phase 13: Reliability Supervisor, Timeouts, Self-Recovery & No-Hang Guarantee**
+  * Centralized `ReliabilitySupervisor` (`src/avi/reliability/`) wrapping provider calls, tool calls, agent steps, and background tasks
+  * Strict No-Hang Guarantee: Every request deterministically terminates in `COMPLETED`, `FAILED`, `CANCELLED`, `PAUSED`, `WAITING_CONFIRMATION`, or `WAITING_FOR_INPUT`
+  * Layered timeout matrix (`TimeoutConfig`) with per-domain presets (providers: 15s, fast tools: 5s, filesystem: 10s, browser: 20s, subprocesses: 30s)
+  * Multi-provider circuit breakers (`CircuitBreaker`) with state transitions (`CLOSED` -> `OPEN` -> `HALF_OPEN`)
+  * Complete provider isolation: offline or timed-out LLMs never break local fast-paths, system metrics, calculators, file tools, or greetings
+  * Active background `WatchdogSupervisor` performing real-time state reconciliation for orphaned operations and lost callbacks
+  * Built-in diagnostics CLI tools: `avi doctor` and `avi health`
+  * Sub-millisecond deterministic self-diagnosis fast-path ("why are you stuck?", "diagnose yourself")
+  * 1,363 unit and integration tests passing with 100% clean ruff verification
 
 ---
 
