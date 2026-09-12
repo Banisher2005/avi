@@ -66,16 +66,31 @@ class FailureCategory(str, Enum):
 class TimeoutConfig:
     """Configurable layered timeout hierarchy."""
 
+    fast_path: float = 0.05
     fast_deterministic: float = 3.0
+    default_tool: float = 20.0
     filesystem_metadata: float = 5.0
     filesystem_search: float = 15.0
-    application_launch: float = 10.0
-    browser_navigation: float = 20.0
+    application_launch: float = 60.0
+    browser_navigation: float = 30.0
+    provider_call: float = 30.0
     provider_initial_response: float = 20.0
     provider_total_generation: float = 60.0
-    agent_step: float = 30.0
+    agent_step: float = 60.0
+    background_task: float = 300.0
     task_total: float = 180.0
     watchdog_check_interval: float = 0.5
+
+    def get_tool_timeout(self, tool_name: str) -> float:
+        """Get timeout for a specific tool by name."""
+        name_lower = tool_name.lower()
+        if "search" in name_lower or "duplicates" in name_lower or "largest" in name_lower:
+            return self.filesystem_search
+        if "browser" in name_lower or "url" in name_lower or "web" in name_lower:
+            return self.browser_navigation
+        if "app" in name_lower:
+            return self.application_launch
+        return self.default_tool
 
     def get_timeout_for_operation(self, op_type: OperationType, name: str = "") -> float:
         """Get appropriate layered timeout for operation type and name."""
@@ -83,7 +98,7 @@ class TimeoutConfig:
         if "calc" in name_lower or "math" in name_lower or "ram" in name_lower or "time" in name_lower:
             return self.fast_deterministic
         if op_type == OperationType.PROVIDER_CALL:
-            return self.provider_total_generation
+            return self.provider_call
         if op_type == OperationType.BROWSER_OP or "browser" in name_lower:
             return self.browser_navigation
         if "search" in name_lower or "duplicates" in name_lower or "largest" in name_lower:
@@ -94,8 +109,8 @@ class TimeoutConfig:
             return self.application_launch
         if op_type == OperationType.AGENT_STEP:
             return self.agent_step
-        if op_type == OperationType.BACKGROUND_WORKER:
-            return self.task_total
+        if op_type in (OperationType.BACKGROUND_WORKER, OperationType.WORKER):
+            return self.background_task
         return self.agent_step
 
 
