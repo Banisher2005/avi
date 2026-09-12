@@ -225,3 +225,42 @@ class HealthMonitor:
             status="ok",
             message="Controller ready",
         )
+
+
+def startup_self_check(supervisor: ReliabilitySupervisor | None = None) -> tuple[bool, str]:
+    """Perform rapid (<1.0s) startup sanity check."""
+    return HealthMonitor(supervisor=supervisor).startup_self_check()
+
+
+def run_doctor(supervisor: ReliabilitySupervisor | None = None) -> str:
+    """Run full AVI doctor diagnostics and return formatted report string."""
+    return HealthMonitor(supervisor=supervisor).run_doctor()
+
+
+def diagnose_self_query(
+    supervisor: ReliabilitySupervisor | None = None,
+    task_registry: Any | None = None,
+    query: str = "diagnose yourself",
+) -> str:
+    """Handle self-diagnostic query and return human-readable status."""
+    mon = HealthMonitor(supervisor=supervisor)
+    diag = mon.diagnose_self_query(query)
+    if diag:
+        return diag
+    sup = supervisor or ReliabilitySupervisor.get_instance()
+    info = sup.diagnose_self()
+    active_ops = info.get("active_operations", [])
+    active_workers = info.get("active_workers", [])
+    system_health = info.get("system_health", "operational")
+    lines = [
+        "AVI Diagnostic Status:",
+        f"  Active Operations: {len(active_ops)}",
+        f"  Active Workers: {len(active_workers)}",
+        f"  System Health: {system_health}",
+    ]
+    if active_ops:
+        lines.append("  Running Operations:")
+        for op in active_ops:
+            lines.append(f"    - [{op.get('id')}] {op.get('name')} ({op.get('elapsed_seconds', 0):.1f}s)")
+    return "\n".join(lines)
+
