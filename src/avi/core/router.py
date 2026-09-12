@@ -218,8 +218,9 @@ class Router:
 
     @staticmethod
     def _eval_safe_math(text: str) -> str | None:
-        """Safely evaluate simple arithmetic expressions in < 1ms."""
+        """Safely evaluate simple arithmetic expressions in < 1ms without eval/exec."""
         import ast
+        import operator
 
         m = re.match(
             r"^(?:what\s+is|calculate|calc|how\s+much\s+is)?\s*([0-9]+(?:\.[0-9]+)?\s*[\+\-\*\/\%\^]\s*[0-9\.\s\+\-\*\/\%\(\)\^]+)\??$",
@@ -229,30 +230,37 @@ class Router:
         if not m:
             return None
         expr = m.group(1).replace("^", "**")
+
+        ops = {
+            ast.Add: operator.add,
+            ast.Sub: operator.sub,
+            ast.Mult: operator.mul,
+            ast.Div: operator.truediv,
+            ast.FloorDiv: operator.floordiv,
+            ast.Mod: operator.mod,
+            ast.Pow: operator.pow,
+            ast.USub: operator.neg,
+            ast.UAdd: operator.pos,
+        }
+
+        def _evaluate(node: ast.AST) -> float:
+            if isinstance(node, ast.Expression):
+                return _evaluate(node.body)
+            if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+                return float(node.value)
+            if isinstance(node, ast.BinOp) and type(node.op) in ops:
+                left_val = _evaluate(node.left)
+                right_val = _evaluate(node.right)
+                return float(ops[type(node.op)](left_val, right_val))
+            if isinstance(node, ast.UnaryOp) and type(node.op) in ops:
+                operand_val = _evaluate(node.operand)
+                return float(ops[type(node.op)](operand_val))
+            raise ValueError("Unsupported AST node")
+
         try:
-            node = ast.parse(expr, mode="eval")
-            for sub in ast.walk(node):
-                if not isinstance(
-                    sub,
-                    (
-                        ast.Expression,
-                        ast.BinOp,
-                        ast.UnaryOp,
-                        ast.Constant,
-                        ast.Add,
-                        ast.Sub,
-                        ast.Mult,
-                        ast.Div,
-                        ast.FloorDiv,
-                        ast.Mod,
-                        ast.Pow,
-                        ast.USub,
-                        ast.UAdd,
-                    ),
-                ):
-                    return None
-            val = eval(compile(node, "<math>", "eval"), {"__builtins__": {}}, {})
-            if isinstance(val, float) and val.is_integer():
+            tree = ast.parse(expr, mode="eval")
+            val = _evaluate(tree)
+            if val.is_integer():
                 return str(int(val))
             return str(val)
         except Exception:
