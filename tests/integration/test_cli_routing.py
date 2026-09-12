@@ -25,8 +25,9 @@ class TestCliRoutingIntegration:
             mock_conf.return_value = cfg
             yield cfg
 
-    def test_cli_screenshot_routes_to_native_capability(self, capsys, tmp_path):
+    def test_cli_screenshot_routes_to_native_capability(self, capsys, tmp_path, monkeypatch):
         """'avi "take a screenshot"' must route to desktop.screenshot capability, not LLM."""
+        monkeypatch.setenv("DISPLAY", ":0")
         mock_router = MagicMock()
         mock_router.route.side_effect = AssertionError(
             "Router.route() should not be called for screenshot intent"
@@ -309,8 +310,9 @@ class TestCliRoutingIntegration:
 
     # ── Phase 12.2 Part 6 & 7: UI Runtime & Single-Instance Tests ─────────
 
-    def test_cli_activate_delegates_with_system_fallback(self):
+    def test_cli_activate_delegates_with_system_fallback(self, monkeypatch):
         """'avi activate' must invoke AviApp with allow_system_fallback=True."""
+        monkeypatch.setenv("DISPLAY", ":0")
         with patch("avi.ui.AviApp.run") as mock_app_run:
             mock_app_run.return_value = 0
             code = main(["activate"])
