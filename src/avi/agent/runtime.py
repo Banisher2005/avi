@@ -13,6 +13,7 @@ from avi.agent.orchestrator import AgentOrchestrator
 from avi.agent.task_registry import ResourceLockManager, RuntimeTask, RuntimeTaskRegistry
 from avi.config import Config
 from avi.core.router import Router
+from avi.providers import OllamaError, ProviderError
 
 logger = logging.getLogger("avi.agent.runtime")
 
@@ -195,6 +196,10 @@ class AgentRuntime:
                     requires_confirmation=(proposal is not None),
                     proposal=proposal,
                 )
+        except (ProviderError, OllamaError) as exc:
+            logger.error("AI provider error during dispatch: %s", exc)
+            supervisor.circuit_breakers.record_failure(provider_name, exc)
+            raise
         except Exception as exc:
             logger.error("AI provider error during dispatch: %s", exc)
             supervisor.circuit_breakers.record_failure(provider_name, exc)
