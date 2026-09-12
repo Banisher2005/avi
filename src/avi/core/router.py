@@ -208,6 +208,21 @@ class Router:
             if math_val is not None:
                 result = math_val
 
+        # 11. Self-diagnosis / Health inquiry
+        if result is None and any(
+            p in normalized.lower()
+            for p in (
+                "why are you stuck",
+                "diagnose yourself",
+                "what are you waiting for",
+                "are you stuck",
+            )
+        ):
+            from avi.reliability.health import diagnose_self_query
+            from avi.reliability.supervisor import ReliabilitySupervisor
+
+            result = diagnose_self_query(supervisor=ReliabilitySupervisor.get_instance())
+
         if result is not None:
             elapsed_ms = (time.perf_counter() - t0) * 1000.0
             self._fast_path_metrics = ResponseMetrics(total_duration_ms=elapsed_ms)
