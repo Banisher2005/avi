@@ -203,11 +203,12 @@ class DynamicAgentLoop:
                 # Agent indicates task completed or no further actions needed
                 verification_check = self._verify_goal_state(clean_goal, step_outputs, current_obs, step_records=step_records)
                 success = verification_check.verified
-                msg = (
-                    self._synthesize_completion_summary(clean_goal, step_records, collected_artifacts)
-                    if success
-                    else f"Task finished but goal could not be fully verified: {verification_check.reason}"
-                )
+                if not success and not step_records:
+                    msg = "I couldn't find an executable plan for that request."
+                elif success:
+                    msg = self._synthesize_completion_summary(clean_goal, step_records, collected_artifacts)
+                else:
+                    msg = f"Task finished but goal could not be fully verified: {verification_check.reason}"
                 return DynamicExecutionResult(
                     success=success,
                     status=TaskStatus.COMPLETED if success else TaskStatus.FAILED,
@@ -397,12 +398,17 @@ class DynamicAgentLoop:
 
         # Bounded iteration reached
         verification_check = self._verify_goal_state(clean_goal, step_outputs, current_obs, step_records=step_records)
+        if verification_check.verified:
+            resp_msg = self._synthesize_completion_summary(clean_goal, step_records, collected_artifacts)
+        elif not step_records:
+            resp_msg = "I couldn't find an executable plan for that request."
+        else:
+            resp_msg = f"Task stopped after reaching maximum steps ({self.max_steps})."
+
         return DynamicExecutionResult(
             success=verification_check.verified,
             status=TaskStatus.COMPLETED if verification_check.verified else TaskStatus.FAILED,
-            final_response=self._synthesize_completion_summary(clean_goal, step_records, collected_artifacts)
-            if verification_check.verified
-            else f"Task stopped after reaching maximum steps ({self.max_steps}).",
+            final_response=resp_msg,
             goal=clean_goal,
             steps_executed=step_records,
             observations=observation_history,
