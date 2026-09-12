@@ -10,7 +10,7 @@ from avi.capabilities.models import ToolContract
 from avi.capabilities.registry import CapabilityRegistry
 from avi.providers.models import ToolCall
 from avi.safety.engine import SafetyEngine
-from avi.safety.models import ActionCategory, PolicyDecision
+from avi.safety.models import SafetyAssessment
 
 logger = logging.getLogger("avi.agent.tool_validator")
 
@@ -184,31 +184,25 @@ class ToolCallValidator:
 
         if self.safety_engine:
             policy_target = (
-                sanitized_args.get("path")
+                sanitized_args.get("command")
+                or sanitized_args.get("path")
                 or sanitized_args.get("destination")
                 or sanitized_args.get("target")
-                or sanitized_args.get("command")
                 or ""
             )
-            decision = self.safety_engine.evaluate(
-                action=cap.name,
-                category=getattr(cap, "risk_category", ActionCategory.LOW_RISK_ACTION),
-                target=str(policy_target),
-                arguments=sanitized_args,
-                confirmed=confirmed,
-            )
+            assessment: SafetyAssessment = self.safety_engine.evaluate(str(policy_target))
 
-            if decision.decision == PolicyDecision.BLOCKED:
+            if assessment.is_blocked:
                 return ValidationResult(
                     valid=False,
                     contract=contract,
-                    error=f"Action '{name}' blocked by safety policy: {decision.reason}",
+                    error=f"Action '{name}' blocked by safety policy: {assessment.reason}",
                     risk_level=risk_level,
                 )
 
-            if decision.decision == PolicyDecision.REQUIRES_CONFIRMATION:
+            if assessment.requires_confirmation:
                 requires_conf = True
-                conf_reason = decision.reason or f"Action '{name}' requires confirmation."
+                conf_reason = assessment.reason or f"Action '{name}' requires confirmation."
 
         return ValidationResult(
             valid=True,
