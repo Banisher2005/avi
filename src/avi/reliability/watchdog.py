@@ -17,8 +17,14 @@ logger = logging.getLogger("avi.reliability.watchdog")
 class WatchdogSupervisor:
     """Watches running operations and workers to enforce hard timeout bounds and state reconciliation."""
 
-    def __init__(self, timeout_config: TimeoutConfig | None = None) -> None:
+    def __init__(
+        self,
+        timeout_config: TimeoutConfig | None = None,
+        check_interval: float | None = None,
+    ) -> None:
         self.config = timeout_config or TimeoutConfig()
+        if check_interval is not None:
+            self.config.watchdog_check_interval = check_interval
         self._active_operations: dict[str, OperationRecord] = {}
         self._active_workers: dict[str, threading.Thread] = {}
         self._cleanup_callbacks: dict[str, list[Callable[[], None]]] = {}
@@ -95,6 +101,22 @@ class WatchdogSupervisor:
                     cb()
                 except Exception as exc:
                     logger.warning("Error running worker cleanup for task %s: %s", task_id, exc)
+
+    def reconcile(self, on_timeout: Callable[[OperationRecord], None] | None = None) -> list[str]:
+        """Perform on-demand reconciliation with optional timeout callback."""
+        reconciled = []
+        with self._lock:
+            for op_id, op in list(self._active_operations.items()):
+                if op.status == OperationStatus.RUNNING and op.is_expired:
+                    op.status = OperationStatus.TIMED_OUT
+                    reconciled.append(op_id)
+                    if on_timeout:
+                        try:
+                            on_timeout(op)
+                        except Exception as exc:
+                            logger.warning("Error in on_timeout callback: %s", exc)
+            self._check_and_reconcile()
+        return reconciled
 
     def reconcile_now(self) -> list[str]:
         """Perform immediate on-demand reconciliation of active operations and workers."""
