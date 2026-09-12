@@ -4,7 +4,6 @@ import logging
 import re
 import threading
 from datetime import datetime, timezone
-from typing import Any
 
 from avi.agent.context import OrchestrationContext, StepRecord, TaskStatus
 from avi.agent.dynamic_loop import DynamicAgentLoop
@@ -649,50 +648,6 @@ class AgentOrchestrator:
                 )
             )
 
-            # Check dynamic tool selection if deterministic planner has no match
-            if plan is None:
-                selected_tools = self.tool_selector.select_capabilities(
-                    clean_prompt, memories=retrieved_memories, limit=3
-                )
-                lower_p = clean_prompt.lower()
-                if selected_tools and any(
-                    term in lower_p
-                    for term in (
-                        "search",
-                        "find",
-                        "screenshot",
-                        "volume",
-                        "sound",
-                        "file",
-                        "folder",
-                        "window",
-                        "launch",
-                        "open",
-                    )
-                ):
-                    top_tool = selected_tools[0]
-                    top_name = top_tool.get("name", "")
-                    top_desc = top_tool.get("description", "")
-                    args: dict[str, Any] = {}
-                    if "search" in top_name:
-                        args["query"] = clean_prompt
-                    elif "apps.open" in top_name:
-                        args["app"] = clean_prompt
-                    elif "desktop.open_url" in top_name:
-                        args["url"] = clean_prompt
-
-                    if args:
-                        plan = Plan(
-                            user_goal=clean_prompt,
-                            steps=[
-                                PlanStep(
-                                    step_id=1,
-                                    capability_name=top_name,
-                                    arguments=args,
-                                    description=top_desc,
-                                )
-                            ],
-                        )
 
             if plan is None or not plan.steps:
                 # Engage dynamic autonomous tool-use agent loop
