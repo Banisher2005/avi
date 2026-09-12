@@ -112,6 +112,8 @@ class TimeoutConfig:
             return self.agent_step
         if op_type in (OperationType.BACKGROUND_WORKER, OperationType.WORKER):
             return self.background_task
+        if op_type == OperationType.TOOL_CALL:
+            return self.get_tool_timeout(name)
         return self.agent_step
 
 
