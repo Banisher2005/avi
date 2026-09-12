@@ -28,10 +28,12 @@ class ReliabilitySupervisor:
     def __init__(
         self,
         timeout_config: TimeoutConfig | None = None,
+        timeouts: TimeoutConfig | None = None,
         circuit_breakers: CircuitBreakerRegistry | None = None,
         watchdog: WatchdogSupervisor | None = None,
     ) -> None:
-        self.config = timeout_config or TimeoutConfig()
+        self.config = timeouts or timeout_config or TimeoutConfig()
+        self.timeouts = self.config
         self.circuit_breakers = circuit_breakers or CircuitBreakerRegistry()
         self.watchdog = watchdog or WatchdogSupervisor(timeout_config=self.config)
         self.watchdog.start()
@@ -353,10 +355,57 @@ class ReliabilitySupervisor:
         t.start()
         return t
 
+    def execute_with_retry(
+        self,
+        func: Callable[[], Any],
+        op_type: OperationType = OperationType.TOOL_CALL,
+        name: str = "",
+        task_id: str = "",
+        max_retries: int = 3,
+        initial_backoff: float = 0.1,
+        backoff_factor: float = 2.0,
+        retry_on: tuple[type[Exception], ...] | None = None,
+    ) -> SupervisedResult:
+        """Execute callable with bounded retries and exponential backoff."""
+        exceptions_to_retry = retry_on or (Exception,)
+        delay = initial_backoff
+        last_exc: Exception | None = None
+
+        for attempt in range(1, max_retries + 1):
+            try:
+                res = func()
+                return SupervisedResult(
+                    success=True,
+                    status=OperationStatus.COMPLETED,
+                    value=res,
+                )
+            except exceptions_to_retry as exc:
+                last_exc = exc
+                logger.warning(
+                    "Operation '%s' failed attempt %d/%d: %s",
+                    name or "unnamed",
+                    attempt,
+                    max_retries,
+                    exc,
+                )
+                if attempt < max_retries:
+                    time.sleep(delay)
+                    delay *= backoff_factor
+
+        category = FailureCategory.TOOL_EXECUTION_FAILED
+        return SupervisedResult(
+            success=False,
+            status=OperationStatus.FAILED,
+            error=str(last_exc) if last_exc else "Failed after retries",
+            failure_category=category,
+        )
+
     def diagnose_self(self, task_id: str = "") -> dict[str, Any]:
         """Produce a truthful, self-diagnostic snapshot for 'why are you stuck?' / 'diagnose yourself' queries."""
         active_ops = self.watchdog.get_active_operations()
         active_cbs = self.circuit_breakers.get_all_statuses()
+        active_ops_dicts = [op.to_dict() for op in active_ops]
+        active_workers = list(getattr(self.watchdog, "_active_workers", {}).keys())
 
         target_op = None
         if task_id:
@@ -381,7 +430,10 @@ class ReliabilitySupervisor:
 
             return {
                 "active": True,
+                "system_health": "busy",
                 "operation": target_op.to_dict(),
+                "active_operations": active_ops_dicts,
+                "active_workers": active_workers,
                 "elapsed_seconds": round(elapsed, 1),
                 "explanation": explanation,
                 "circuit_breakers": active_cbs,
@@ -389,6 +441,9 @@ class ReliabilitySupervisor:
 
         return {
             "active": False,
+            "system_health": "operational",
+            "active_operations": active_ops_dicts,
+            "active_workers": active_workers,
             "explanation": "No operations are currently stalled or executing in the background. System is ready.",
             "circuit_breakers": active_cbs,
         }
