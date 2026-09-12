@@ -71,6 +71,7 @@ class TestProviderFailureInjection:
         assert fast_fail_res.is_success is False
         assert fast_fail_res.failure_category == FailureCategory.PROVIDER_UNAVAILABLE
         mock_func.assert_not_called()
+        sup.circuit_breakers.reset_all()
 
     def test_provider_offline_isolation(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """When Ollama is completely offline, deterministic capabilities MUST STILL WORK."""
@@ -83,30 +84,33 @@ class TestProviderFailureInjection:
         cb = supervisor.circuit_breakers.get_or_create("ollama")
         cb.state = CircuitBreakerState.OPEN
 
-        # 1. Calculator MUST WORK (< 10ms)
-        calc_res = runtime.dispatch("what is 27 * 43?")
-        assert not calc_res.is_background
-        assert "1161" in calc_res.text or "1,161" in calc_res.text
+        try:
+            # 1. Calculator MUST WORK (< 10ms)
+            calc_res = runtime.dispatch("what is 27 * 43?")
+            assert not calc_res.is_background
+            assert "1161" in calc_res.text or "1,161" in calc_res.text
 
-        # 2. RAM query MUST WORK
-        ram_res = runtime.dispatch("how much ram is free?")
-        assert not ram_res.is_background
-        assert "ram" in ram_res.text.lower() or "memory" in ram_res.text.lower() or "gb" in ram_res.text.lower()
+            # 2. RAM query MUST WORK
+            ram_res = runtime.dispatch("how much ram is free?")
+            assert not ram_res.is_background
+            assert "ram" in ram_res.text.lower() or "memory" in ram_res.text.lower() or "gb" in ram_res.text.lower()
 
-        # 3. Tasks list MUST WORK
-        tasks_res = runtime.dispatch("tasks")
-        assert not tasks_res.is_background
-        assert "tasks" in tasks_res.text.lower() or "active" in tasks_res.text.lower()
+            # 3. Tasks list MUST WORK
+            tasks_res = runtime.dispatch("tasks")
+            assert not tasks_res.is_background
+            assert "tasks" in tasks_res.text.lower() or "active" in tasks_res.text.lower()
 
-        # 4. Self-diagnostics MUST WORK
-        diag_res = runtime.dispatch("why are you stuck?")
-        assert not diag_res.is_background
-        assert "Diagnostic Status" in diag_res.text or "ready" in diag_res.text.lower() or "System" in diag_res.text
+            # 4. Self-diagnostics MUST WORK
+            diag_res = runtime.dispatch("why are you stuck?")
+            assert not diag_res.is_background
+            assert "Diagnostic Status" in diag_res.text or "ready" in diag_res.text.lower() or "System" in diag_res.text
 
-        # 5. Greeting fast path MUST WORK
-        greet_res = runtime.dispatch("hello")
-        assert not greet_res.is_background
-        assert len(greet_res.text) > 0
+            # 5. Greeting fast path MUST WORK
+            greet_res = runtime.dispatch("hello")
+            assert not greet_res.is_background
+            assert len(greet_res.text) > 0
+        finally:
+            supervisor.circuit_breakers.reset_all()
 
 
 class TestToolFailureInjection:
