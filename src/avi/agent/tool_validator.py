@@ -143,16 +143,17 @@ class ToolCallValidator:
 
         # 4. Type validation
         for param_name, val in list(sanitized_args.items()):
-            expected_type = contract.parameter_types.get(param_name, "string")
-            if not self._check_type(val, expected_type):
-                return ValidationResult(
-                    valid=False,
-                    contract=contract,
-                    error=(
-                        f"Invalid type for parameter '{param_name}' in tool '{name}': "
-                        f"expected {expected_type}, got {type(val).__name__}."
-                    ),
-                )
+            if param_name in contract.parameters:
+                expected_type = contract.parameter_types.get(param_name, "string")
+                if not self._check_type(val, expected_type):
+                    return ValidationResult(
+                        valid=False,
+                        contract=contract,
+                        error=(
+                            f"Invalid type for parameter '{param_name}' in tool '{name}': "
+                            f"expected {expected_type}, got {type(val).__name__}."
+                        ),
+                    )
 
         # 5. Path safety checks
         path_keys = {"path", "destination", "source", "file", "target", "folder", "directory"}
@@ -167,7 +168,7 @@ class ToolCallValidator:
                     )
 
         # 6. Terminal / Command execution safety
-        if name in ("system.execute_command", "guarded_terminal", "desktop.open_terminal"):
+        if name in ("system.execute_command", "guarded_terminal", "desktop.open_terminal") or "command" in sanitized_args:
             cmd = sanitized_args.get("command") or sanitized_args.get("cmd") or ""
             cmd_err = self._validate_command_safety(str(cmd))
             if cmd_err:
@@ -182,16 +183,10 @@ class ToolCallValidator:
         requires_conf = contract.confirmation_requirement
         conf_reason = None
 
-        if self.safety_engine:
-            policy_target = (
-                sanitized_args.get("command")
-                or sanitized_args.get("path")
-                or sanitized_args.get("destination")
-                or sanitized_args.get("target")
-                or ""
-            )
-            if policy_target or name in ("system.execute_command", "guarded_terminal", "desktop.open_terminal"):
-                assessment: SafetyAssessment = self.safety_engine.evaluate(str(policy_target))
+        if self.safety_engine and (name in ("system.execute_command", "guarded_terminal", "desktop.open_terminal") or "command" in sanitized_args):
+            cmd_target = str(sanitized_args.get("command") or sanitized_args.get("cmd") or "")
+            if cmd_target:
+                assessment: SafetyAssessment = self.safety_engine.evaluate(cmd_target)
 
                 if assessment.is_blocked:
                     return ValidationResult(
@@ -204,6 +199,9 @@ class ToolCallValidator:
                 if assessment.requires_confirmation:
                     requires_conf = True
                     conf_reason = assessment.reason or f"Action '{name}' requires confirmation."
+
+        if requires_conf and not conf_reason:
+            conf_reason = f"Action '{name}' requires confirmation before proceeding."
 
         return ValidationResult(
             valid=True,
