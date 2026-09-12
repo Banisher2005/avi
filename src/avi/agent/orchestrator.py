@@ -160,7 +160,7 @@ class AgentOrchestrator:
         if any(
             t in lower
             for t in (
-                "find", "search", "move", "rename", "delete", "open", "launch",
+                "find", "search", "move", "rename", "open", "launch",
                 "save", "write", "duplicate", "largest", "chrome", "code", "pdf",
                 "download", "document", "picture", "report", "url", "web"
             )
@@ -695,6 +695,14 @@ class AgentOrchestrator:
                             message=dyn_res.final_response,
                         )
                     )
+                    self.events.emit(
+                        ProgressEvent(
+                            event_type=ProgressEventType.TASK_COMPLETED,
+                            task_id=context.task_id,
+                            message=dyn_res.final_response,
+                            data={"status": context.status.value},
+                        )
+                    )
                 elif dyn_res.status == TaskStatus.PAUSED_FOR_CONFIRMATION:
                     self.events.emit(
                         ProgressEvent(
@@ -709,6 +717,14 @@ class AgentOrchestrator:
                             event_type=ProgressEventType.GOAL_FAILED,
                             task_id=context.task_id,
                             message=dyn_res.final_response,
+                        )
+                    )
+                    self.events.emit(
+                        ProgressEvent(
+                            event_type=ProgressEventType.TASK_FAILED,
+                            task_id=context.task_id,
+                            message=dyn_res.final_response,
+                            data={"status": context.status.value},
                         )
                     )
                 return context
