@@ -168,7 +168,10 @@ class TestDesktopCapabilities:
 
     def test_notification_capability(self):
         cap = NotificationCapability()
-        with patch("subprocess.run") as mock_run:
+        with (
+            patch("shutil.which", return_value="/usr/bin/notify-send"),
+            patch("subprocess.run") as mock_run,
+        ):
             mock_run.return_value.returncode = 0
             res = cap.execute(message="Test Notification", title="AVI")
             assert res.success is True
@@ -183,7 +186,10 @@ class TestDesktopCapabilities:
         get_cap = VolumeGetCapability()
         set_cap = VolumeSetCapability()
 
-        with patch("subprocess.run") as mock_run:
+        with (
+            patch("shutil.which", return_value="/usr/bin/pactl"),
+            patch("subprocess.run") as mock_run,
+        ):
             mock_run.return_value.returncode = 0
             mock_run.return_value.stdout = "Volume: 0.65 [MUTED]"
             res = get_cap.execute()
@@ -191,7 +197,10 @@ class TestDesktopCapabilities:
             assert res.data["level"] == 65
             assert res.data["muted"] is True
 
-        with patch("subprocess.run") as mock_run:
+        with (
+            patch("shutil.which", return_value="/usr/bin/pactl"),
+            patch("subprocess.run") as mock_run,
+        ):
             mock_run.return_value.returncode = 0
             res = set_cap.execute(level=80)
             assert res.success is True
