@@ -58,26 +58,30 @@ class WatchdogSupervisor:
         self,
         record: OperationRecord,
         cleanup_callback: Callable[[], None] | None = None,
+        auto_start: bool = False,
     ) -> None:
         """Register an operation to be actively monitored by the watchdog."""
         with self._lock:
             self._active_operations[record.operation_id] = record
             if cleanup_callback:
                 self._cleanup_callbacks.setdefault(record.operation_id, []).append(cleanup_callback)
-            self.start()
+            if auto_start:
+                self.start()
 
     def register_worker(
         self,
         task_id: str,
         thread: threading.Thread,
         cleanup_callback: Callable[[], None] | None = None,
+        auto_start: bool = False,
     ) -> None:
         """Register a background worker thread."""
         with self._lock:
             self._active_workers[task_id] = thread
             if cleanup_callback:
                 self._cleanup_callbacks.setdefault(task_id, []).append(cleanup_callback)
-            self.start()
+            if auto_start:
+                self.start()
 
     def unregister_operation(self, operation_id: str) -> OperationRecord | None:
         """Unregister a completed operation and release its cleanup handles."""
