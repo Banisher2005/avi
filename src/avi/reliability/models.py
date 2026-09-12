@@ -40,6 +40,7 @@ class OperationType(str, Enum):
     SUBPROCESS = "subprocess"
     VERIFICATION = "verification"
     BACKGROUND_WORKER = "background_worker"
+    WORKER = "worker"
 
 
 class FailureCategory(str, Enum):
@@ -135,6 +136,52 @@ class OperationRecord:
     retry_count: int = 0
     max_retries: int = 0
 
+    def __init__(
+        self,
+        id: str | None = None,
+        operation_id: str | None = None,
+        task_id: str = "",
+        operation_type: OperationType | None = None,
+        op_type: OperationType | None = None,
+        name: str = "",
+        started_at: float | None = None,
+        timeout: float = 30.0,
+        cancellation_token: Any = None,
+        status: OperationStatus = OperationStatus.PENDING,
+        completed_at: float | None = None,
+        duration_ms: float = 0.0,
+        result: Any = None,
+        error: str | None = None,
+        failure_category: FailureCategory | None = None,
+        user_message: str | None = None,
+        retry_count: int = 0,
+        max_retries: int = 0,
+    ) -> None:
+        self.operation_id = id or operation_id or f"op_{uuid.uuid4().hex[:10]}"
+        self.task_id = task_id
+        self.operation_type = op_type or operation_type or OperationType.TOOL_CALL
+        self.name = name
+        self.started_at = started_at if started_at is not None else time.time()
+        self.timeout = timeout
+        self.cancellation_token = cancellation_token
+        self.status = status
+        self.completed_at = completed_at
+        self.duration_ms = duration_ms
+        self.result = result
+        self.error = error
+        self.failure_category = failure_category
+        self.user_message = user_message
+        self.retry_count = retry_count
+        self.max_retries = max_retries
+
+    @property
+    def id(self) -> str:
+        return self.operation_id
+
+    @property
+    def op_type(self) -> OperationType:
+        return self.operation_type
+
     @property
     def is_expired(self) -> bool:
         """Check if operation has exceeded its allocated timeout."""
@@ -215,14 +262,43 @@ class OperationRecord:
 class SupervisedResult:
     """Standardized outcome for every supervised operation."""
 
-    success: bool
-    status: OperationStatus
+    success: bool = True
+    status: OperationStatus = OperationStatus.COMPLETED
     data: Any = None
     error: str | None = None
     failure_category: FailureCategory | None = None
     user_message: str = ""
     duration_ms: float = 0.0
     operation_record: OperationRecord | None = None
+
+    def __init__(
+        self,
+        success: bool = True,
+        status: OperationStatus = OperationStatus.COMPLETED,
+        data: Any = None,
+        value: Any = None,
+        error: str | None = None,
+        failure_category: FailureCategory | None = None,
+        user_message: str = "",
+        duration_ms: float = 0.0,
+        operation_record: OperationRecord | None = None,
+    ) -> None:
+        self.success = success
+        self.status = status
+        self.data = value if value is not None else data
+        self.error = error
+        self.failure_category = failure_category
+        self.user_message = user_message
+        self.duration_ms = duration_ms
+        self.operation_record = operation_record
+
+    @property
+    def is_success(self) -> bool:
+        return self.success
+
+    @property
+    def value(self) -> Any:
+        return self.data
 
     def to_dict(self) -> dict[str, Any]:
         return {
