@@ -510,6 +510,18 @@ class DestinationResolver:
                 confidence=app_res.confidence,
             )
 
+        # If target matches a known application alias or is a known desktop application
+        if lower_target in self.app_resolver.aliases or self.app_resolver.is_known_app(target):
+            matched_web = _match_destination(lower_target)
+            if matched_web is None:
+                return DestinationResolution(
+                    query=raw_input,
+                    target=app_res.canonical_name if app_res else target.title(),
+                    destination_type=DestinationType.APPLICATION,
+                    app_resolution=app_res,
+                    confidence=0.9,
+                )
+
         # ── 4. Browser Fallback: Application Not Installed ──────────────────
         # Check if target is a known web destination
         matched_web = _match_destination(lower_target)
@@ -556,7 +568,7 @@ class DestinationResolver:
             for a in dinfo["aliases"]:
                 all_web_aliases[a] = (dk, dinfo)
 
-        close_web = difflib.get_close_matches(lower_target, all_web_aliases.keys(), n=1, cutoff=0.60)
+        close_web = difflib.get_close_matches(lower_target, all_web_aliases.keys(), n=1, cutoff=0.75)
         if close_web:
             best_alias = close_web[0]
             dk, dinfo = all_web_aliases[best_alias]
@@ -571,7 +583,7 @@ class DestinationResolver:
                     browser=browser,
                     confidence=0.85,
                 )
-            elif sim >= 0.60:
+            elif sim >= 0.75:
                 # Medium confidence -> suggest clarification
                 return DestinationResolution(
                     query=raw_input,
