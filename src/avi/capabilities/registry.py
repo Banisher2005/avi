@@ -66,6 +66,7 @@ from avi.capabilities.models import (
     CapabilityResult,
     ExecutionStatus,
     ToolCapabilityAdapter,
+    ToolContract,
 )
 from avi.capabilities.system.command import ExecuteCommandCapability
 from avi.capabilities.web.search import (
@@ -82,10 +83,12 @@ class CapabilityRegistry:
     def __init__(self) -> None:
         self._capabilities: dict[str, BaseCapability] = {}
         self._aliases: dict[str, str] = {}
+        self._contract_cache: dict[str, ToolContract] = {}
 
     def register(self, capability: BaseCapability, aliases: Sequence[str] | None = None) -> None:
         """Register a capability under its primary name and optional aliases."""
         self._capabilities[capability.name] = capability
+        self._contract_cache.clear()
         combined_aliases = list(aliases or [])
         if hasattr(capability, "aliases"):
             combined_aliases.extend(capability.aliases)
@@ -125,6 +128,48 @@ class CapabilityRegistry:
                 continue
             catalog.append(cap.to_metadata())
         return catalog
+
+    def get_tool_contract(self, name: str) -> ToolContract | None:
+        """Return the machine-readable ToolContract for a named capability."""
+        cap = self.get(name)
+        if not cap:
+            return None
+        if cap.name in self._contract_cache:
+            return self._contract_cache[cap.name]
+        if hasattr(cap, "to_tool_contract"):
+            contract = cap.to_tool_contract()
+        else:
+            meta = cap.to_metadata() if hasattr(cap, "to_metadata") else {}
+            props = meta.get("parameters") or meta.get("input_schema", {}).get("properties", {})
+            req = meta.get("input_schema", {}).get("required", [])
+            contract = ToolContract(
+                name=cap.name,
+                description=cap.description,
+                category=str(getattr(cap, "category", "SYSTEM")),
+                parameters=props,
+                parameter_types={
+                    k: v.get("type", "string") if isinstance(v, dict) else "string"
+                    for k, v in props.items()
+                },
+                required_parameters=list(req),
+                optional_parameters=[k for k in props if k not in req],
+                side_effects=getattr(cap, "side_effects", False),
+                risk_level=str(getattr(cap, "risk_category", "READ_ONLY")),
+                confirmation_requirement=getattr(cap, "requires_confirmation", False),
+            )
+        self._contract_cache[cap.name] = contract
+        return contract
+
+    def get_tool_contracts(self, enabled_only: bool = True) -> list[ToolContract]:
+        """Return all ToolContracts for registered capabilities."""
+        contracts = []
+        for cap in self._capabilities.values():
+            if enabled_only and not getattr(cap, "enabled", True):
+                continue
+            contract = self.get_tool_contract(cap.name)
+            if contract:
+                contracts.append(contract)
+        return contracts
 
     def get_compact_tool_descriptions(
         self,
