@@ -119,7 +119,10 @@ class TestComputerUseScenarios:
             assert ctx_set.steps[0].capability_name == "system.volume.set"
 
     def test_scenario_f_notifications(self, computer_use_orchestrator):
-        with patch("subprocess.run") as mock_run:
+        with (
+            patch("shutil.which", return_value="/usr/bin/notify-send"),
+            patch("subprocess.run") as mock_run,
+        ):
             mock_run.return_value.returncode = 0
             ctx = computer_use_orchestrator.run("notify me that lunch is ready")
             assert ctx.status == TaskStatus.COMPLETED
