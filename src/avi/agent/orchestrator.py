@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from avi.agent.context import OrchestrationContext, StepRecord, TaskStatus
+from avi.agent.dynamic_loop import DynamicAgentLoop
 from avi.agent.events import EventDispatcher, ProgressEvent, ProgressEventType
 from avi.agent.executor import AgentExecutor
 from avi.agent.experience import ExperienceStore
@@ -21,9 +22,11 @@ from avi.agent.models import (
     PlanStep,
     StepStatus,
 )
+from avi.agent.observation import ObservationManager
 from avi.agent.planner import AgentPlanner
 from avi.agent.reconciliation import EnvironmentReconciler, ReconciliationStatus
 from avi.agent.tool_selection import ToolSelector
+from avi.agent.tool_validator import ToolCallValidator
 from avi.capabilities import CapabilityRegistry, create_default_capability_registry
 from avi.capabilities.models import CapabilityResult, ExecutionStatus
 from avi.memory.retriever import MemoryRetriever
@@ -51,6 +54,7 @@ class AgentOrchestrator:
         experience_store: ExperienceStore | None = None,
         reconciler: EnvironmentReconciler | None = None,
         goal_verifier: GoalVerifier | None = None,
+        dynamic_loop: DynamicAgentLoop | None = None,
     ) -> None:
         self.db = database if database is not None else Database()
         self.safety_engine = safety_engine if safety_engine is not None else SafetyEngine()
@@ -84,6 +88,24 @@ class AgentOrchestrator:
         )
         self.reconciler = reconciler if reconciler is not None else EnvironmentReconciler()
         self.goal_verifier = goal_verifier if goal_verifier is not None else GoalVerifier()
+        self.observation_manager = ObservationManager(registry=self.registry)
+        self.validator = ToolCallValidator(registry=self.registry, safety_engine=self.safety_engine)
+        self.dynamic_loop = (
+            dynamic_loop
+            if dynamic_loop is not None
+            else DynamicAgentLoop(
+                registry=self.registry,
+                safety_engine=self.safety_engine,
+                executor=self.executor,
+                validator=self.validator,
+                observation_manager=self.observation_manager,
+                loop_guard=self.loop_guard,
+                event_dispatcher=self.events,
+                goal_verifier=self.goal_verifier,
+                memory_retriever=self.memory,
+                experience_store=self.experience_store,
+            )
+        )
         self._active_tasks: dict[str, OrchestrationContext] = {}
         self._cancellation_tokens: dict[str, threading.Event] = {}
         self._pause_tokens: dict[str, threading.Event] = {}
@@ -96,6 +118,19 @@ class AgentOrchestrator:
         action, _ = self._detect_interruption(clean)
         if action:
             return True
+        # Check fast paths that shouldn't enter the background orchestrator
+        from avi.assistant.intents import AssistantIntentType, detect_assistant_intent
+        intent = detect_assistant_intent(clean)
+        if intent.intent_type in (
+            AssistantIntentType.GREETING,
+            AssistantIntentType.HOW_ARE_YOU,
+            AssistantIntentType.WHAT_CAN_YOU_DO,
+            AssistantIntentType.DATE,
+            AssistantIntentType.TIME,
+            AssistantIntentType.SYSTEM_INFO,
+        ):
+            return False
+
         if self.planner.create_plan(clean) is not None:
             return True
         goal = self.planner.decompose_goal(clean)
@@ -105,6 +140,16 @@ class AgentOrchestrator:
         tokens = set(re.findall(r"\b\w+\b", lower))
         if tokens.intersection({"video", "vid", "vids", "videos"}) and tokens.intersection(
             {"play", "open", "watch", "latest", "newest"}
+        ):
+            return True
+        # Multi-step or tool-use prompts eligible for dynamic planning
+        if len(clean.split()) >= 3 or any(
+            t in lower
+            for t in (
+                "find", "search", "move", "rename", "delete", "open", "launch",
+                "save", "write", "duplicate", "largest", "chrome", "code", "pdf",
+                "download", "document", "picture", "report", "url", "web"
+            )
         ):
             return True
         return False
@@ -646,19 +691,56 @@ class AgentOrchestrator:
                         )
 
             if plan is None or not plan.steps:
-                context.status = TaskStatus.FAILED
-                context.final_response = (
-                    "I couldn't find an executable plan for that request."
-                )
-                self._checkpoint_durable_task(context, goal)
+                # Engage dynamic autonomous tool-use agent loop
                 self.events.emit(
                     ProgressEvent(
-                        event_type=ProgressEventType.TASK_FAILED,
+                        event_type=ProgressEventType.PLANNING,
                         task_id=context.task_id,
-                        message="Could not formulate an executable plan for request.",
-                        data={"reason": "no_executable_plan"},
+                        message="Engaging dynamic autonomous tool planner...",
                     )
                 )
+                dyn_res = self.dynamic_loop.run(
+                    clean_prompt,
+                    context=context,
+                    confirmed=confirmed,
+                    cancellation_token=canc_token,
+                    pause_token=pau_token,
+                )
+                context.status = dyn_res.status
+                context.final_response = dyn_res.final_response
+                context.steps = dyn_res.steps_executed
+                if dyn_res.artifacts:
+                    context.artifacts = dyn_res.artifacts
+                if dyn_res.error:
+                    context.error_details.append(dyn_res.error)
+
+                self._checkpoint_durable_task(context, goal)
+                self._record_task_experience(context, success=dyn_res.success, goal=goal)
+
+                if dyn_res.status == TaskStatus.COMPLETED:
+                    self.events.emit(
+                        ProgressEvent(
+                            event_type=ProgressEventType.GOAL_COMPLETED,
+                            task_id=context.task_id,
+                            message=dyn_res.final_response,
+                        )
+                    )
+                elif dyn_res.status == TaskStatus.PAUSED_FOR_CONFIRMATION:
+                    self.events.emit(
+                        ProgressEvent(
+                            event_type=ProgressEventType.CONFIRMATION_REQUIRED,
+                            task_id=context.task_id,
+                            message=dyn_res.final_response,
+                        )
+                    )
+                elif dyn_res.status == TaskStatus.FAILED:
+                    self.events.emit(
+                        ProgressEvent(
+                            event_type=ProgressEventType.GOAL_FAILED,
+                            task_id=context.task_id,
+                            message=dyn_res.final_response,
+                        )
+                    )
                 return context
 
             self.events.emit(
