@@ -711,7 +711,8 @@ class DynamicAgentLoop:
                 return GoalVerificationResult(verified=False, reason="Rename operation not yet executed.")
 
         # If goal required report or save, check that write_file was completed AND file exists
-        if "report" in g_lower or "save" in g_lower:
+        is_write_req = ("save" in g_lower) or (("create" in g_lower or "generate" in g_lower or "make" in g_lower) and "report" in g_lower)
+        if is_write_req:
             if "filesystem.write_file" not in completed_caps:
                 return GoalVerificationResult(verified=False, reason="File write operation not yet executed.")
             report_verified = False
@@ -726,9 +727,15 @@ class DynamicAgentLoop:
 
         # If goal required open, check that an open capability was executed
         if any(term in g_lower for term in ("open", "launch")):
-            open_caps = ("desktop.open_file", "desktop.open_app", "desktop.launch_app", "desktop.open_url", "browser.navigate")
-            if not any(c in completed_caps for c in open_caps):
-                return GoalVerificationResult(verified=False, reason="Open/launch operation not yet executed.")
+            needs_file_open = any(term in g_lower for term in ("open it", "open the file", "open the saved file", "in vs code", "in code", "open file"))
+            if needs_file_open:
+                file_open_caps = ("desktop.open_file", "desktop.open_app", "apps.open")
+                if not any(c in completed_caps for c in file_open_caps):
+                    return GoalVerificationResult(verified=False, reason="File open operation not yet executed.")
+            else:
+                open_caps = ("desktop.open_file", "desktop.open_app", "desktop.launch_app", "desktop.open_url", "browser.navigate")
+                if not any(c in completed_caps for c in open_caps):
+                    return GoalVerificationResult(verified=False, reason="Open/launch operation not yet executed.")
 
         # If goal required duplicate detection
         if "duplicate" in g_lower:
@@ -796,16 +803,28 @@ class DynamicAgentLoop:
 
     def _extract_directory(self, text: str, default: str = "~/Downloads") -> str:
         """Extract referenced directory name from goal prompt."""
+        m_in = re.search(r"\b(?:in|from|under|within)\s+(~/?[a-zA-Z0-9_\-]+)", text, re.IGNORECASE)
+        if m_in:
+            dir_ref = m_in.group(1).lower()
+            if "download" in dir_ref:
+                return "~/Downloads"
+            if "document" in dir_ref or "doc" in dir_ref:
+                return "~/Documents"
+            if "picture" in dir_ref or "photo" in dir_ref or "image" in dir_ref:
+                return "~/Pictures"
+            if "project" in dir_ref:
+                return "~/Projects"
+            if "desktop" in dir_ref:
+                return "~/Desktop"
+            if dir_ref.startswith("~/"):
+                return dir_ref
+
         if "download" in text:
             return "~/Downloads"
-        if "document" in text or "doc" in text:
-            return "~/Documents"
-        if "picture" in text or "photo" in text:
+        if "picture" in text or "photo" in text or "image" in text:
             return "~/Pictures"
-        if "project" in text or "code" in text:
-            return "~/Projects"
-        if "desktop" in text:
-            return "~/Desktop"
+        if "document" in text:
+            return "~/Documents"
         return default
 
     def _extract_file_query(self, text: str) -> str:
