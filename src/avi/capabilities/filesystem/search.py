@@ -1,5 +1,6 @@
 """Filesystem search capability for finding files and directories."""
 
+import fnmatch
 import os
 from pathlib import Path
 from typing import Any
@@ -106,8 +107,12 @@ class FilesystemSearchCapability(BaseCapability):
 
                     # Filter by pattern
                     if clean_pat and clean_pat != "*":
-                        if clean_pat not in file_name.lower():
-                            continue
+                        if "*" in clean_pat or "?" in clean_pat:
+                            if not fnmatch.fnmatch(file_name.lower(), clean_pat):
+                                continue
+                        else:
+                            if clean_pat not in file_name.lower():
+                                continue
 
                     full_path = Path(root) / file_name
                     try:
