@@ -308,7 +308,8 @@ class ReliabilitySupervisor:
     def execute_worker(
         self,
         task_id: str,
-        target: Callable[..., Any],
+        target: Callable[..., Any] | None = None,
+        worker_func: Callable[..., Any] | None = None,
         args: tuple[Any, ...] = (),
         kwargs: dict[str, Any] | None = None,
         timeout: float | None = None,
@@ -317,6 +318,9 @@ class ReliabilitySupervisor:
         cleanup_callback: Callable[[], None] | None = None,
     ) -> threading.Thread:
         """Spawn a supervised background worker with guaranteed exception capture and state reconciliation."""
+        actual_target = target or worker_func
+        if actual_target is None:
+            raise ValueError("execute_worker requires target or worker_func")
         actual_kwargs = kwargs or {}
         actual_timeout = timeout if timeout is not None else self.config.task_total
 
@@ -331,7 +335,7 @@ class ReliabilitySupervisor:
 
         def _worker_wrapper() -> None:
             try:
-                result = target(*args, **actual_kwargs)
+                result = actual_target(*args, **actual_kwargs)
                 worker_op.mark_completed(result)
                 if on_complete:
                     try:
