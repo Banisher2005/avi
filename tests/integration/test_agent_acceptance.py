@@ -144,10 +144,22 @@ class TestPhase12UserAcceptanceScenarios:
     # ── Scenario 3: Open Directory ──────────────────────────────────────
     def test_scenario_3_open_downloads(self, test_env):
         orch = test_env["orchestrator"]
-        with patch("subprocess.Popen") as mock_popen:
-            res = orch.handle("Open my Downloads")
-            assert "Opening folder Downloads" in res.text
-            mock_popen.assert_called_once()
+        dl_dir = Path.home() / "Downloads"
+        created = False
+        if not dl_dir.exists():
+            dl_dir.mkdir(parents=True, exist_ok=True)
+            created = True
+        try:
+            with patch("subprocess.Popen") as mock_popen:
+                res = orch.handle("Open my Downloads")
+                assert "Opening folder Downloads" in res.text
+                mock_popen.assert_called_once()
+        finally:
+            if created and dl_dir.exists():
+                try:
+                    dl_dir.rmdir()
+                except OSError:
+                    pass
 
     # ── Scenario 4: Timer ───────────────────────────────────────────────
     def test_scenario_4_set_timer(self, test_env):
