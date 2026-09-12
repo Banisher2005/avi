@@ -30,6 +30,11 @@ class ApplicationResolution:
         """True if application was successfully resolved to an installed executable."""
         return self.installed and self.executable is not None
 
+    @property
+    def found(self) -> bool:
+        """Compatibility property for installed / found status."""
+        return self.installed
+
 
 @dataclass
 class DestinationResolution:
