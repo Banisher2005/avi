@@ -1,5 +1,6 @@
 """Unit tests for non-blocking AgentRuntime input dispatch and control commands."""
 
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -145,13 +146,14 @@ def test_dispatch_resource_conflict(mock_runtime):
     agent_orch.can_handle.return_value = True
 
     # Register task holding Downloads folder lock
+    dl_path = str(Path.home() / "Downloads")
     t1 = RuntimeTask(
         task_id="t1",
         goal="organize downloads",
-        resources={"filesystem:/home/abhinav/Downloads"},
+        resources={f"filesystem:{dl_path}"},
         is_write=True,
     )
-    registry.resources.acquire("t1", {"filesystem:/home/abhinav/Downloads"}, is_write=True)
+    registry.resources.acquire("t1", {f"filesystem:{dl_path}"}, is_write=True)
     registry.register(t1)
 
     # Dispatch second mutating request targeting downloads
