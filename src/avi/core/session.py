@@ -113,6 +113,38 @@ class InteractiveSession:
             self.out_stream.flush()
             return True
 
+        # Slash command palette fast path
+        if cmd.startswith("/"):
+            from avi.commands.resolver import CommandResolver
+
+            resolver = CommandResolver()
+            results = resolver.resolve(cmd)
+            if results:
+                top_result = results[0]
+                supervised_res = resolver.execute_result(
+                    top_result, agent_runtime=self.runtime
+                )
+                if supervised_res.success:
+                    val = supervised_res.user_message or (
+                        str(supervised_res.result)
+                        if supervised_res.result is not None
+                        else f"Executed {top_result.title}."
+                    )
+                    self.out_stream.write(f"\n{val}\n\n")
+                else:
+                    err = (
+                        supervised_res.user_message
+                        or supervised_res.error
+                        or "Action failed."
+                    )
+                    self.out_stream.write(f"\nError: {err}\n\n")
+            else:
+                self.out_stream.write(
+                    f"\nUnknown command: '{cmd}'. Type '/help' for available commands.\n\n"
+                )
+            self.out_stream.flush()
+            return True
+
         return False
 
     def _show_history(self) -> None:

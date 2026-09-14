@@ -372,6 +372,36 @@ def run_cli(argv: Sequence[str] | None = None) -> int:
         session = InteractiveSession(router, config, orchestrator=orchestrator)
         return session.run()
 
+    # 0. Check Slash Commands / Command Palette Resolver (deterministic fast path, zero Ollama)
+    if raw_prompt.startswith("/"):
+        from avi.commands.resolver import CommandResolver
+
+        resolver = CommandResolver()
+        results = resolver.resolve(raw_prompt)
+        if results:
+            top_result = results[0]
+            supervised_res = resolver.execute_result(
+                top_result, agent_runtime=getattr(orchestrator, "runtime", None)
+            )
+            if supervised_res.success:
+                out = supervised_res.user_message or (
+                    str(supervised_res.result)
+                    if supervised_res.result is not None
+                    else f"Executed {top_result.title}."
+                )
+                sys.stdout.write(f"{out}\n")
+                sys.stdout.flush()
+                return 0
+            else:
+                err = supervised_res.user_message or supervised_res.error or "Action failed."
+                sys.stderr.write(f"Error: {err}\n")
+                sys.stderr.flush()
+                return 1
+        else:
+            sys.stderr.write(f"Unknown command: '{raw_prompt}'\n")
+            sys.stderr.flush()
+            return 1
+
     # 1. Check Assistant Orchestrator (intents, capabilities, actions, conversational read-only tools)
     if orchestrator.is_assistant_request(raw_prompt):
         res = orchestrator.handle(raw_prompt, auto_execute_actions=True)
