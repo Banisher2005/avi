@@ -218,7 +218,12 @@ class ReliabilitySupervisor:
                         success=True,
                         status=OperationStatus.COMPLETED,
                         data=res,
-                        user_message=getattr(res, "message", "") or getattr(res, "summary", "") or "Operation completed successfully.",
+                        user_message=(
+                            getattr(res, "message", "")
+                            or getattr(res, "summary", "")
+                            or (res if isinstance(res, str) else "")
+                            or "Operation completed successfully."
+                        ),
                         duration_ms=record.duration_ms,
                         operation_record=record,
                     )
