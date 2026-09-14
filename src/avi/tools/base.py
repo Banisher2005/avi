@@ -13,13 +13,21 @@ class ToolResult:
     data: Any = field(default_factory=dict)
     error: str | None = None
     display_override: str | None = None
+    error_category: str | None = None
+    tool_name: str | None = None
+    message: str | None = None
+    recoverable: bool = True
+
+    def __post_init__(self) -> None:
+        if not self.message and (self.error or not self.success):
+            self.message = self.error or "Tool execution failed"
 
     def format_display(self) -> str:
         """Render the structured result into human-readable terminal text."""
         if self.display_override is not None:
             return self.display_override
         if not self.success:
-            return f"Error: {self.error or 'Tool execution failed'}"
+            return f"Error: {self.message or self.error or 'Tool execution failed'}"
         return str(self.data)
 
     def to_dict(self) -> dict[str, Any]:
@@ -29,6 +37,10 @@ class ToolResult:
             "data": self.data,
             "error": self.error,
             "display": self.format_display(),
+            "error_category": self.error_category,
+            "tool_name": self.tool_name,
+            "message": self.message,
+            "recoverable": self.recoverable,
         }
 
 
