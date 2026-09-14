@@ -1210,7 +1210,7 @@ class AgentPlanner:
                 re.IGNORECASE,
             )
             or re.match(
-                r"^(?:please\s+|can\s+you\s+|could\s+you\s+)?(?:open|launch)\s+(?:youtube|youtub|yotube)\s+(?:and\s+)?(?:search|find|look\s*up)\s*(?:for)?\s+(.+)$",
+                r"^(?:please\s+|can\s+you\s+|could\s+you\s+)?(?:(?:in|using|with)\s+)?(?:brave|chrome|google-chrome|firefox|edge|safari|browser)?\s*(?:open|launch)?\s*(?:youtube|youtub|yotube)\s+(?:and\s+)?(?:search|find|look\s*up|play|watch)\s*(?:for)?\s+(.+)$",
                 clean,
                 re.IGNORECASE,
             )
