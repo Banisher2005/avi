@@ -389,6 +389,55 @@ button.avi-row-open-btn:hover, button.avi-play-btn:hover, .avi-row-open-btn:hove
     font-family: monospace;
     font-size: 12px;
 }
+
+/* PowerToys-Inspired Command Palette Styling */
+.avi-palette-container {
+    background-color: transparent;
+    padding: 4px 12px 8px 12px;
+}
+
+.avi-palette-item {
+    background-color: #111111;
+    border: 1px solid #222222;
+    border-radius: 8px;
+    margin: 3px 0;
+    padding: 8px 14px;
+    transition: background-color 0.08s ease;
+}
+
+.avi-palette-item:hover, .avi-palette-item-selected {
+    background-color: #1f1f1f;
+    border-color: #3b3b3b;
+}
+
+.avi-palette-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: #F5F5F5;
+}
+
+.avi-palette-subtitle {
+    font-size: 13px;
+    color: #888888;
+    font-family: monospace;
+}
+
+.avi-palette-category {
+    font-size: 11px;
+    font-weight: 600;
+    color: #888888;
+    background-color: #1a1a1a;
+    border: 1px solid #282828;
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-family: monospace;
+}
+
+.avi-palette-action-hint {
+    font-size: 12px;
+    color: #777777;
+    font-family: monospace;
+}
 """
 
 
@@ -428,6 +477,9 @@ class AviWindow:
         self._current_working_widget: Any | None = None
 
         from avi.agent.runtime import AgentRuntime
+        from avi.commands.resolver import CommandResolver
+        from avi.ui.hotkey import HotkeyManager
+        from avi.ui.palette_view import CommandPaletteWidget
 
         self.runtime = getattr(self.orchestrator, "runtime", None) or AgentRuntime(
             config=self.config,
@@ -436,6 +488,14 @@ class AviWindow:
         )
         if hasattr(self.runtime.events, "subscribe"):
             self.runtime.events.subscribe(self._on_agent_progress_event)
+
+        self.command_resolver = CommandResolver()
+        self.palette_widget = CommandPaletteWidget(on_execute=self._on_palette_execute)
+        self.hotkey_manager = HotkeyManager(hotkey=getattr(self.config, "hotkey", "<Alt>space"))
+        try:
+            self.hotkey_manager.start(self.toggle_overlay)
+        except Exception:
+            pass
 
         self._build_window()
 
@@ -539,6 +599,8 @@ class AviWindow:
         self.conversation_box.add_css_class("avi-dynamic-results")
         self.scroll_window.set_child(self.conversation_box)
 
+        if hasattr(self, "palette_widget") and self.palette_widget.container:
+            root_box.append(self.palette_widget.container)
         root_box.append(self.scroll_window)
 
         # ── Keyboard Controller ─────────────────────────────────────────
@@ -559,6 +621,11 @@ class AviWindow:
         the raise request.
         """
         self._cancel_auto_dismiss()
+        if hasattr(self, "hotkey_manager"):
+            try:
+                self.hotkey_manager.record_active_window()
+            except Exception:
+                pass
         if clear_input:
             self.prompt_entry.set_text("")
         if hasattr(self, "window") and self.window:
@@ -593,8 +660,15 @@ class AviWindow:
     def hide_overlay(self) -> None:
         """Dismiss and hide the overlay window."""
         self._cancel_auto_dismiss()
+        if hasattr(self, "palette_widget"):
+            self.palette_widget.clear()
         if hasattr(self, "window") and self.window:
             self.window.set_visible(False)
+        if hasattr(self, "hotkey_manager"):
+            try:
+                self.hotkey_manager.restore_previous_window()
+            except Exception:
+                pass
 
     def toggle_overlay(self) -> None:
         """Toggle overlay window visibility."""
@@ -625,8 +699,23 @@ class AviWindow:
         return False
 
     def _on_prompt_changed(self, _entry: Any) -> None:
-        """Cancel auto-dismiss when user types into entry."""
+        """Cancel auto-dismiss when user types into entry and update command palette."""
         self._cancel_auto_dismiss()
+        if not hasattr(self, "palette_widget") or not hasattr(self, "command_resolver"):
+            return
+
+        text = self.prompt_entry.get_text()
+        if text.startswith("/"):
+            results = self.command_resolver.resolve(text)
+            self.palette_widget.set_results(results)
+            self._set_status(
+                f"Commands: {len(results)} matches  ·  ↑↓ to navigate  ·  Tab for actions",
+                spinning=False,
+            )
+        else:
+            if self.palette_widget.results:
+                self.palette_widget.clear()
+                self._set_status("Ready  ·  Esc to close", spinning=False)
 
     def _on_voice_clicked(self, _button: Any) -> None:
         """Handle voice button click placeholder."""
@@ -1247,6 +1336,21 @@ class AviWindow:
         if not raw_text:
             return
 
+        # 1. If command palette results exist and row is selected, execute it
+        if hasattr(self, "palette_widget") and self.palette_widget.results:
+            selected = self.palette_widget.get_selected()
+            if selected:
+                res, act = selected
+                self._on_palette_execute(res, act)
+                return
+
+        # 2. If prompt is a slash command, resolve and execute immediately without LLM
+        if raw_text.startswith("/") and hasattr(self, "command_resolver"):
+            results = self.command_resolver.resolve(raw_text)
+            if results:
+                self._on_palette_execute(results[0], results[0].primary_action)
+                return
+
         cleaned_text = clean_natural_language_input(raw_text)
         if not cleaned_text:
             return
@@ -1277,6 +1381,44 @@ class AviWindow:
         )
         self._worker_thread.start()
 
+    def _on_palette_execute(self, result: Any, action: Any | None = None) -> None:
+        """Execute selected palette command under ReliabilitySupervisor."""
+        act = action or result.primary_action
+        if hasattr(self, "palette_widget"):
+            self.palette_widget.clear()
+        self.prompt_entry.set_text("")
+        self._add_user_message(f"{result.title}")
+        self._set_status(f"Running {result.title}…", spinning=True)
+        self._show_working_line(f"Executing {result.title}…")
+
+        def _worker() -> None:
+            supervised_res = self.command_resolver.execute_result(
+                result, act, agent_runtime=self.runtime
+            )
+
+            def _update_ui() -> bool:
+                if supervised_res.success:
+                    val = supervised_res.user_message or (
+                        str(supervised_res.result)
+                        if supervised_res.result is not None
+                        else f"✓ {result.title}"
+                    )
+                    is_app = act.action_type in ("launch", "focus", "close")
+                    self._show_assistant_response(val, auto_dismiss=is_app)
+                else:
+                    err_msg = (
+                        supervised_res.user_message
+                        or supervised_res.error
+                        or "Action failed."
+                    )
+                    self._show_error(f"✗ {err_msg}")
+                self._restore_idle_state()
+                return False
+
+            GLib.idle_add(_update_ui)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
     def _on_key_pressed(
         self,
         controller: "Gtk.EventControllerKey",
@@ -1284,7 +1426,7 @@ class AviWindow:
         keycode: int,
         state: "Gdk.ModifierType",
     ) -> bool:
-        """Handle keyboard shortcuts: Escape, Ctrl+L, Ctrl+Q, Up/Down, Enter."""
+        """Handle keyboard shortcuts: Escape, Tab, Ctrl+L, Ctrl+Q, Up/Down, Enter."""
         self._cancel_auto_dismiss()
         is_ctrl = bool(state & Gdk.ModifierType.CONTROL_MASK)
 
@@ -1300,6 +1442,12 @@ class AviWindow:
             self.prompt_entry.select_region(0, -1)
             return True
 
+        # Tab -> Cycle secondary actions in palette
+        if keyval in (Gdk.KEY_Tab, Gdk.KEY_ISO_Left_Tab):
+            if hasattr(self, "palette_widget") and self.palette_widget.results:
+                self.palette_widget.cycle_action(1)
+                return True
+
         # Pending confirmation keyboard shortcuts
         if self._pending_confirmation:
             if keyval in (Gdk.KEY_y, Gdk.KEY_Y):
@@ -1309,8 +1457,12 @@ class AviWindow:
                 self._handle_confirm_cancel()
                 return True
 
-        # Escape -> Cancel pending / deselect / clear / hide
+        # Escape -> Cancel pending / clear palette / hide
         if keyval == Gdk.KEY_Escape:
+            if hasattr(self, "palette_widget") and self.palette_widget.results:
+                self.palette_widget.clear()
+                self._set_status("Ready  ·  Esc to close", spinning=False)
+                return True
             if self._pending_confirmation:
                 self._handle_confirm_cancel()
                 return True
@@ -1326,8 +1478,14 @@ class AviWindow:
                 self.window.close()
             return True
 
-        # Enter on selected row when prompt is empty
+        # Enter on selected palette row
         if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+            if hasattr(self, "palette_widget") and self.palette_widget.results:
+                selected = self.palette_widget.get_selected()
+                if selected:
+                    res, act = selected
+                    self._on_palette_execute(res, act)
+                    return True
             if not self.prompt_entry.get_text().strip() and self._selected_row_index >= 0:
                 if 0 <= self._selected_row_index < len(self._current_search_rows):
                     action = self._current_search_rows[self._selected_row_index].get("action")
@@ -1337,6 +1495,10 @@ class AviWindow:
 
         # Up / Down Navigation
         if keyval in (Gdk.KEY_Down, Gdk.KEY_KP_Down):
+            # If command palette results exist, navigate them
+            if hasattr(self, "palette_widget") and self.palette_widget.results:
+                self.palette_widget.move_selection(1)
+                return True
             # If search result rows exist, navigate rows
             if self._current_search_rows:
                 new_idx = min(self._selected_row_index + 1, len(self._current_search_rows) - 1)
@@ -1354,6 +1516,10 @@ class AviWindow:
                 return True
 
         if keyval in (Gdk.KEY_Up, Gdk.KEY_KP_Up):
+            # If command palette results exist, navigate them
+            if hasattr(self, "palette_widget") and self.palette_widget.results:
+                self.palette_widget.move_selection(-1)
+                return True
             # If search result rows exist and a row is selected
             if self._current_search_rows and self._selected_row_index > 0:
                 self._update_row_selection(self._selected_row_index - 1)
