@@ -126,6 +126,25 @@ class ToolCall:
     name: str
     arguments: dict[str, Any] = field(default_factory=dict)
     call_id: str | None = None
+    task_id: str | None = None
+    operation_id: str | None = None
+    source_step: int | None = None
+
+    @property
+    def capability(self) -> str:
+        """Alias for tool capability name."""
+        return self.name
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert ToolCall to dictionary."""
+        return {
+            "name": self.name,
+            "arguments": self.arguments,
+            "call_id": self.call_id,
+            "task_id": self.task_id,
+            "operation_id": self.operation_id,
+            "source_step": self.source_step,
+        }
 
 
 @dataclass
