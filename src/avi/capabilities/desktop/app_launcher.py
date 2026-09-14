@@ -63,12 +63,13 @@ class LaunchAppCapability(BaseCapability):
             )
         success, msg = self.resolver.launch(res, extra_args=extra_args)
         status = ExecutionStatus.SUCCESS if success else ExecutionStatus.FAILED
+        res_data = res.to_dict() if hasattr(res, "to_dict") else str(res)
         return CapabilityResult(
             success=success,
             status=status,
             message=msg,
             error=None if success else msg,
-            data={"resolution": res, "app_name": app_name},
+            data={"resolution": res_data, "app_name": app_name},
         )
 
 
