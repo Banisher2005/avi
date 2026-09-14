@@ -497,7 +497,7 @@ class DynamicAgentLoop:
             term in g_lower
             for term in (
                 "file", "folder", "directory", "pdf", "txt", "document", "picture", "photo", "image",
-                "csv", "json", "report", "duplicate", "largest"
+                "csv", "json", "report", "duplicate", "largest", "readme"
             )
         ) or any(ext in g_lower for ext in (".pdf", ".txt", ".py", ".png", ".jpg", ".csv", ".json", ".md"))
 
@@ -535,7 +535,7 @@ class DynamicAgentLoop:
                 app_match = "code" if app in ("vs code", "vscode") else app
                 break
 
-        is_app_open_request = any(w in g_lower for w in ("open", "launch", "start")) and app_match and not is_explicit_file
+        is_app_open_request = any(w in g_lower for w in ("open", "launch", "start")) and app_match and not is_explicit_file and not is_youtube
         if is_app_open_request and "desktop.open_app" not in tool_names_executed and "apps.open" not in tool_names_executed:
             if self.registry.get("desktop.open_app"):
                 return ToolCall(name="desktop.open_app", arguments={"app_name": app_match})
@@ -543,8 +543,8 @@ class DynamicAgentLoop:
         # Domain A: Filesystem search & discovery
         needs_file_search = (
             not is_web_search
-            and not is_browser_app
-            and (is_explicit_file or any(term in g_lower for term in ("find", "locate", "newest", "latest", "recent", "largest")))
+            and not is_youtube
+            and (is_explicit_file or not is_browser_app)
             and any(term in g_lower for term in ("find", "search", "locate", "newest", "latest", "recent", "largest"))
         )
         search_executed = any(t in ("filesystem.search", "filesystem.largest_files", "filesystem.find_duplicates") for t in tool_names_executed)
