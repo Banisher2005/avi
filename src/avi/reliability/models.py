@@ -303,6 +303,10 @@ class SupervisedResult:
     def value(self) -> Any:
         return self.data
 
+    @property
+    def result(self) -> Any:
+        return self.data
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "success": self.success,
