@@ -57,6 +57,35 @@ class CommandResolver:
 
         results: list[PaletteResult] = []
 
+        # Detect automatic inline math expression (e.g. "27 * 43" or "12 * 12")
+        math_chars = set("0123456789+-*/%^(). ")
+        has_operator = any(op in query for op in "+-*/%^")
+        has_digit = any(c.isdigit() for c in query)
+        if has_operator and has_digit and all(c in math_chars for c in query):
+            calc_res = evaluate_safe_arithmetic(query)
+            if not calc_res.startswith("Invalid") and not calc_res.startswith("Could not") and not calc_res.startswith("Please"):
+                results.append(
+                    PaletteResult(
+                        id="cmd:calc:inline",
+                        title=f"Calculate: {query}",
+                        subtitle=f"= {calc_res}",
+                        icon="accessories-calculator",
+                        category=CommandCategory.COMMAND,
+                        score=2.0,
+                        action_type="calculate",
+                        payload={"command_id": "calc", "arg": query, "preview": calc_res},
+                        actions=[
+                            ActionResult(
+                                id="calc:exec",
+                                name="Calculate",
+                                description=f"= {calc_res}",
+                                action_type="calculate",
+                                payload=query,
+                            )
+                        ],
+                    )
+                )
+
         # Parse command name vs argument (e.g. "calc 27 * 43" -> cmd_name="calc", arg="27 * 43")
         parts = query.split(maxsplit=1)
         cmd_candidate = parts[0].lower() if parts else ""
