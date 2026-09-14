@@ -844,18 +844,6 @@ class DynamicAgentLoop:
             if not report_verified:
                 return GoalVerificationResult(verified=False, reason="Generated report file not found on disk.")
 
-        # If goal required open, check that an open capability was executed
-        if any(term in g_lower for term in ("open", "launch")):
-            needs_file_open = any(term in g_lower for term in ("open it", "open the file", "open the saved file", "in vs code", "in code", "open file"))
-            if needs_file_open:
-                file_open_caps = ("desktop.open_file", "desktop.open_app", "apps.open")
-                if not any(c in completed_caps for c in file_open_caps):
-                    return GoalVerificationResult(verified=False, reason="File open operation not yet executed.")
-            else:
-                open_caps = ("desktop.open_file", "desktop.open_app", "desktop.launch_app", "desktop.open_url", "browser.navigate")
-                if not any(c in completed_caps for c in open_caps):
-                    return GoalVerificationResult(verified=False, reason="Open/launch operation not yet executed.")
-
         # If goal required youtube search
         if any(term in g_lower for term in ("youtube", "youtub", "yotube")):
             yt_caps = ("web.youtube.search", "web.youtube.search_results", "desktop.open_url", "browser.navigate")
@@ -864,6 +852,19 @@ class DynamicAgentLoop:
                     verified=True,
                     reason="YouTube search completed.",
                 )
+            return GoalVerificationResult(verified=False, reason="YouTube search not yet executed.")
+
+        # If goal required open, check that an open capability was executed
+        if any(term in g_lower for term in ("open", "launch")):
+            needs_file_open = any(term in g_lower for term in ("open it", "open the file", "open the saved file", "in vs code", "in code", "open file"))
+            if needs_file_open:
+                file_open_caps = ("desktop.open_file", "desktop.open_app", "apps.open")
+                if not any(c in completed_caps for c in file_open_caps):
+                    return GoalVerificationResult(verified=False, reason="File open operation not yet executed.")
+            else:
+                open_caps = ("desktop.open_file", "desktop.open_app", "desktop.launch_app", "desktop.open_url", "browser.navigate", "web.youtube.search")
+                if not any(c in completed_caps for c in open_caps):
+                    return GoalVerificationResult(verified=False, reason="Open/launch operation not yet executed.")
 
         # If goal required web page or url open
         if any(term in g_lower for term in ("github", "url", "chrome", "website")):
