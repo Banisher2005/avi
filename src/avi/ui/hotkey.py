@@ -155,6 +155,14 @@ class HotkeyManager:
 
         try:
             x11 = ctypes.CDLL(lib_name)
+            # Install no-op error handler so libX11 does not call exit(1) on key grab conflicts
+            try:
+                error_handler_t = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
+                self._c_error_handler = error_handler_t(lambda _disp, _err: 0)
+                x11.XSetErrorHandler(self._c_error_handler)
+            except Exception:
+                pass
+
             display = x11.XOpenDisplay(None)
             if not display:
                 logger.debug("Failed to connect to X11 display for hotkey listener.")
