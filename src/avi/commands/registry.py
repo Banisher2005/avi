@@ -456,9 +456,8 @@ class CommandRegistry:
         """Run health monitor and return clean CLI diagnostics."""
         from avi.reliability.health import HealthMonitor
 
-        monitor = HealthMonitor(capabilities=self.capabilities)
-        rep = monitor.run_full_diagnostics()
-        return rep.format_cli()
+        monitor = HealthMonitor()
+        return monitor.run_doctor()
 
     def _search_pdfs(self, query: str = "") -> str:
         """Locate PDF files in Downloads and Documents."""
