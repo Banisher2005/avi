@@ -35,6 +35,17 @@ class ApplicationResolution:
         """Compatibility property for installed / found status."""
         return self.installed
 
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "requested_name": self.requested_name,
+            "canonical_name": self.canonical_name,
+            "executable": self.executable,
+            "desktop_entry": self.desktop_entry,
+            "platform": self.platform,
+            "installed": self.installed,
+            "confidence": self.confidence,
+        }
+
 
 @dataclass
 class DestinationResolution:
