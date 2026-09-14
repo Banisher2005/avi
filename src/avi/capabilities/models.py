@@ -91,12 +91,15 @@ class CapabilityResult:
     data: Any = field(default_factory=dict)
     message: str = ""
     error: str | None = None
+    error_category: str | None = None
+    tool_name: str | None = None
     classification: DataClassification = DataClassification.LOCAL_ONLY
     metadata: dict[str, Any] = field(default_factory=dict)
     summary: str = ""
     observations: dict[str, Any] = field(default_factory=dict)
     artifacts: list[str] = field(default_factory=list)
     retryable: bool = True
+    recoverable: bool = True
 
     def __post_init__(self) -> None:
         """Populate default summary and artifacts if not provided."""
@@ -124,12 +127,15 @@ class CapabilityResult:
             "data": self.data,
             "message": self.message,
             "error": self.error,
+            "error_category": self.error_category,
+            "tool_name": self.tool_name,
             "classification": self.classification.value,
             "metadata": self.metadata,
             "summary": self.summary,
             "observations": self.observations,
             "artifacts": self.artifacts,
             "retryable": self.retryable,
+            "recoverable": self.recoverable,
         }
 
 
@@ -245,6 +251,9 @@ class ToolCapabilityAdapter(BaseCapability):
             data=tool_res.data,
             message=tool_res.format_display(),
             error=tool_res.error,
+            error_category=getattr(tool_res, "error_category", None),
+            tool_name=getattr(tool_res, "tool_name", self.name),
+            recoverable=getattr(tool_res, "recoverable", True),
             classification=self.data_classification,
         )
 
