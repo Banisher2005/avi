@@ -2,6 +2,7 @@
 
 import logging
 import re
+import urllib.parse
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,7 +14,7 @@ from avi.agent.executor import AgentExecutor
 from avi.agent.goal_verification import GoalVerificationResult, GoalVerifier
 from avi.agent.loop_guard import LoopGuard
 from avi.agent.observation import ObservationManager, UnifiedObservation
-from avi.agent.tool_validator import ToolCallValidator, ValidationResult
+from avi.agent.tool_validator import UNRESOLVED_ARGUMENT, ToolCallValidator, ValidationResult
 from avi.capabilities.models import CapabilityResult, ExecutionStatus, ToolContract
 from avi.capabilities.registry import CapabilityRegistry
 from avi.providers.models import ToolCall
@@ -233,7 +234,29 @@ class DynamicAgentLoop:
             # 4. Tool Call Validation
             val_result: ValidationResult = self.validator.validate(candidate_call, confirmed=confirmed)
             if not val_result.valid:
-                logger.warning("Tool call validation failed: %s", val_result.error)
+                logger.warning("Tool call validation failed: %s (reason: %s)", val_result.error, val_result.validation_reason)
+                recovery_call = self._attempt_validation_recovery(
+                    candidate_call, val_result, clean_goal, step_records, step_outputs
+                )
+                if recovery_call:
+                    rec_piped = self._pipe_dynamic_arguments(
+                        recovery_call.name,
+                        recovery_call.arguments,
+                        step_outputs,
+                        current_obs,
+                        clean_goal,
+                    )
+                    recovery_call.arguments = rec_piped
+                    rec_val = self.validator.validate(recovery_call, confirmed=confirmed)
+                    if rec_val.valid:
+                        logger.info("Validation recovery succeeded: replaced %s with %s", candidate_call.name, recovery_call.name)
+                        candidate_call = recovery_call
+                        val_result = rec_val
+
+            if not val_result.valid:
+                logger.warning("Validation rejected tool call: %s", val_result.error)
+                # Record to loop guard to prevent repeating the same invalid tool call
+                self.loop_guard.record_and_check(candidate_call.name, candidate_call.arguments)
                 self.events.emit(
                     ProgressEvent(
                         event_type=ProgressEventType.STEP_FAILED,
@@ -241,7 +264,12 @@ class DynamicAgentLoop:
                         step_index=turn,
                         capability_name=candidate_call.name,
                         message=f"Validation rejected tool call: {val_result.error}",
-                        data={"error": val_result.error},
+                        data={
+                            "error": val_result.error,
+                            "validation_reason": val_result.validation_reason,
+                            "tool_name": candidate_call.name,
+                            "parameter_name": val_result.parameter_name,
+                        },
                     )
                 )
                 return DynamicExecutionResult(
@@ -416,6 +444,23 @@ class DynamicAgentLoop:
             verification=verification_check,
         )
 
+    def _find_target_file_from_steps(self, step_records: list[StepRecord]) -> str | None:
+        """Find latest target file path produced or touched by previous step records."""
+        for rec in reversed(step_records):
+            if not rec.output_data or not isinstance(rec.output_data, dict):
+                continue
+            p = rec.output_data.get("path") or rec.output_data.get("destination") or rec.output_data.get("file")
+            if p and isinstance(p, str):
+                return p
+            files = rec.output_data.get("files")
+            if isinstance(files, list) and files:
+                f0 = files[0]
+                if isinstance(f0, dict) and f0.get("path"):
+                    return str(f0["path"])
+                elif isinstance(f0, str):
+                    return f0
+        return None
+
     def _select_next_action(
         self,
         goal: str,
@@ -441,9 +486,67 @@ class DynamicAgentLoop:
         # Discovers and connects capabilities dynamically based on goal conditions
         # -------------------------------------------------------------------
 
+        # Domain classification helpers
+        is_youtube = any(w in g_lower for w in ("youtube", "youtub", "yotube"))
+        is_browser_app = any(b in g_lower for b in ("brave", "chrome", "firefox", "edge", "safari", "browser"))
+        is_web_search = is_youtube or any(
+            term in g_lower for term in ("search the web", "search web", "web search", "google", "online", "internet")
+        )
+
+        is_explicit_file = any(
+            term in g_lower
+            for term in (
+                "file", "folder", "directory", "pdf", "txt", "document", "picture", "photo", "image",
+                "csv", "json", "report", "duplicate", "largest"
+            )
+        ) or any(ext in g_lower for ext in (".pdf", ".txt", ".py", ".png", ".jpg", ".csv", ".json", ".md"))
+
+        # Domain: YouTube search & media
+        if is_youtube:
+            yt_executed = any(
+                t in ("web.youtube.search", "web.youtube.search_results", "desktop.open_url", "browser.navigate")
+                for t in tool_names_executed
+            )
+            if not yt_executed:
+                m_yt = re.search(r"(?:search|find|look\s*up|play|watch)\s*(?:for|about|on)?\s+(.+)$", goal, re.IGNORECASE)
+                if m_yt:
+                    yt_q = m_yt.group(1).strip()
+                    yt_q = re.sub(r"\s+(?:on|in)\s+(?:youtube|youtub|yotube)$", "", yt_q, flags=re.IGNORECASE).strip().strip("\"'")
+                    if yt_q and yt_q.lower() not in ("youtube", "something", "anything", "videos", "video"):
+                        if self.registry.get("web.youtube.search"):
+                            return ToolCall(name="web.youtube.search", arguments={"query": yt_q})
+                        enc = urllib.parse.quote_plus(yt_q)
+                        yt_url = f"https://www.youtube.com/results?search_query={enc}"
+                        if self.registry.get("desktop.open_url"):
+                            return ToolCall(name="desktop.open_url", arguments={"url": yt_url})
+                        elif self.registry.get("browser.navigate"):
+                            return ToolCall(name="browser.navigate", arguments={"url": yt_url})
+                if any(w in g_lower for w in ("open", "launch", "go to")):
+                    if self.registry.get("desktop.open_url"):
+                        return ToolCall(name="desktop.open_url", arguments={"url": "https://www.youtube.com"})
+                    elif self.registry.get("browser.navigate"):
+                        return ToolCall(name="browser.navigate", arguments={"url": "https://www.youtube.com"})
+            return "FINAL"
+
+        # Domain: Application launch (e.g. Brave, Chrome, VS Code, Calculator, Terminal)
+        app_match = None
+        for app in ("brave", "firefox", "chrome", "google-chrome", "code", "vs code", "vscode", "terminal", "calculator", "gedit"):
+            if re.search(r"\b" + re.escape(app) + r"\b", g_lower):
+                app_match = "code" if app in ("vs code", "vscode") else app
+                break
+
+        is_app_open_request = any(w in g_lower for w in ("open", "launch", "start")) and app_match and not is_explicit_file
+        if is_app_open_request and "desktop.open_app" not in tool_names_executed and "apps.open" not in tool_names_executed:
+            if self.registry.get("desktop.open_app"):
+                return ToolCall(name="desktop.open_app", arguments={"app_name": app_match})
+
         # Domain A: Filesystem search & discovery
-        is_web_search = any(term in g_lower for term in ("search the web", "search web", "web search", "google", "online"))
-        needs_file_search = not is_web_search and any(term in g_lower for term in ("find", "search", "locate", "newest", "latest", "recent", "largest"))
+        needs_file_search = (
+            not is_web_search
+            and not is_browser_app
+            and (is_explicit_file or any(term in g_lower for term in ("find", "locate", "newest", "latest", "recent", "largest")))
+            and any(term in g_lower for term in ("find", "search", "locate", "newest", "latest", "recent", "largest"))
+        )
         search_executed = any(t in ("filesystem.search", "filesystem.largest_files", "filesystem.find_duplicates") for t in tool_names_executed)
 
         if needs_file_search and not search_executed:
@@ -479,10 +582,11 @@ class DynamicAgentLoop:
                                 files = dups[0]["files"]
                                 dup_target = files[1] if len(files) > 1 else files[0]
                             break
-                    return ToolCall(
-                        name="filesystem.delete",
-                        arguments={"path": dup_target},
-                    )
+                    if dup_target:
+                        return ToolCall(
+                            name="filesystem.delete",
+                            arguments={"path": dup_target},
+                        )
             return "FINAL"
 
         # Domain C: Largest files report generation
@@ -528,9 +632,10 @@ class DynamicAgentLoop:
                 raw_target = m_target.group(1)
                 new_name = raw_target.replace("<date>", today_str).replace("<today>", today_str)
 
+            file_target = self._find_target_file_from_steps(step_records)
             return ToolCall(
                 name="filesystem.rename",
-                arguments={"path": "", "new_name": new_name},
+                arguments={"path": file_target or UNRESOLVED_ARGUMENT, "new_name": new_name},
             )
 
         # Domain F: Moving file
@@ -543,20 +648,26 @@ class DynamicAgentLoop:
                 dest = "~/Projects"
             elif "notes" in g_lower:
                 dest = "~/Notes"
+            file_target = self._find_target_file_from_steps(step_records)
             return ToolCall(
                 name="filesystem.move",
-                arguments={"source": "", "destination": dest},
+                arguments={"source": file_target or UNRESOLVED_ARGUMENT, "destination": dest},
             )
 
         # Domain G: Opening file in specific app (VS Code or default)
-        needs_file_open = any(term in g_lower for term in ("open it", "open the file", "open the saved file", "in vs code", "in code", "open file")) or ("open" in g_lower and not any(w in g_lower for w in ("url", "chrome", "browser", "website", "github")))
+        needs_file_open = is_explicit_file and (
+            any(term in g_lower for term in ("open it", "open the file", "open the saved file", "in vs code", "in code", "open file", "view file"))
+            or ("open" in g_lower and not is_web_search and not is_browser_app)
+        )
         if needs_file_open:
             app_name = "code" if ("vs code" in g_lower or "code" in g_lower) else None
             if "desktop.open_file" not in tool_names_executed and "desktop.open_app" not in tool_names_executed and "apps.open" not in tool_names_executed:
-                args = {"path": ""}
-                if app_name:
-                    args["app_name"] = app_name
-                return ToolCall(name="desktop.open_file", arguments=args)
+                file_target = self._find_target_file_from_steps(step_records)
+                if file_target or any(s.capability_name in ("filesystem.search", "filesystem.write_file", "filesystem.rename", "filesystem.move") for s in step_records):
+                    args = {"path": file_target or UNRESOLVED_ARGUMENT}
+                    if app_name:
+                        args["app_name"] = app_name
+                    return ToolCall(name="desktop.open_file", arguments=args)
 
         # Domain H: Opening web URL (Chrome, GitHub, etc.)
         needs_url_open = any(term in g_lower for term in ("github", "chrome", "url", "website"))
@@ -589,8 +700,14 @@ class DynamicAgentLoop:
             if isinstance(res.data, dict):
                 p = res.data.get("path") or res.data.get("destination") or res.data.get("file")
                 if p and not latest_file_path:
-                    # If p is a directory, don't use it as a file path unless required
                     latest_file_path = str(p)
+                files = res.data.get("files")
+                if isinstance(files, list) and files and not latest_file_path:
+                    f0 = files[0]
+                    if isinstance(f0, dict) and f0.get("path"):
+                        latest_file_path = str(f0["path"])
+                    elif isinstance(f0, str):
+                        latest_file_path = f0
                 u = res.data.get("url")
                 if u and not latest_url:
                     latest_url = str(u)
@@ -611,12 +728,13 @@ class DynamicAgentLoop:
 
         # 1. Pipe path for filesystem operations
         if tool_name in ("filesystem.rename", "filesystem.move", "desktop.open_file"):
-            if not piped.get("path") and not piped.get("source"):
+            target_key = "source" if ("source" in piped or tool_name == "filesystem.move") else "path"
+            val = piped.get(target_key)
+            if not val or val == UNRESOLVED_ARGUMENT or (isinstance(val, str) and not val.strip()):
                 if latest_file_path:
-                    if "source" in piped or tool_name == "filesystem.move":
-                        piped["source"] = latest_file_path
-                    else:
-                        piped["path"] = latest_file_path
+                    piped[target_key] = latest_file_path
+                elif target_key in piped:
+                    piped[target_key] = UNRESOLVED_ARGUMENT
 
         # 2. Pipe target for launch_app (e.g. open in VS Code)
         if tool_name in ("desktop.launch_app", "apps.open", "desktop.open_app"):
@@ -738,6 +856,15 @@ class DynamicAgentLoop:
                 if not any(c in completed_caps for c in open_caps):
                     return GoalVerificationResult(verified=False, reason="Open/launch operation not yet executed.")
 
+        # If goal required youtube search
+        if any(term in g_lower for term in ("youtube", "youtub", "yotube")):
+            yt_caps = ("web.youtube.search", "web.youtube.search_results", "desktop.open_url", "browser.navigate")
+            if any(c in completed_caps for c in yt_caps):
+                return GoalVerificationResult(
+                    verified=True,
+                    reason="YouTube search completed.",
+                )
+
         # If goal required web page or url open
         if any(term in g_lower for term in ("github", "url", "chrome", "website")):
             web_caps = ("desktop.open_url", "browser.navigate")
@@ -775,7 +902,9 @@ class DynamicAgentLoop:
             return "Task finished with no actions taken."
 
         summary_parts = []
-        if any("search" in a for a in actions):
+        if any("youtube" in a for a in actions):
+            summary_parts.append("opened YouTube search")
+        if any("search" in a and "youtube" not in a for a in actions):
             summary_parts.append("searched and located target")
         if any("rename" in a for a in actions):
             summary_parts.append("renamed file")
@@ -804,8 +933,48 @@ class DynamicAgentLoop:
         """Diagnose failure and suggest recovery tool call."""
         err = (result.error or "").lower()
         if "app" in failed_call.name and ("not found" in err or "cannot find" in err):
-            # Try generic desktop open_file or system default
-            return ToolCall(name="desktop.open_file", arguments={"path": failed_call.arguments.get("target", "")})
+            tgt = failed_call.arguments.get("target")
+            if tgt:
+                return ToolCall(name="desktop.open_file", arguments={"path": str(tgt)})
+        return None
+
+    def _attempt_validation_recovery(
+        self,
+        invalid_call: ToolCall,
+        val_result: ValidationResult,
+        goal: str,
+        step_records: list[StepRecord],
+        step_outputs: list[CapabilityResult],
+    ) -> ToolCall | None:
+        """Attempt to recover from a parameter validation error by finding alternative inputs or tools."""
+        g_lower = goal.lower()
+        # Case 1: Empty or missing path for file open
+        if invalid_call.name == "desktop.open_file" and val_result.parameter_name == "path":
+            # Check if user actually requested a desktop application launch
+            for app in ("brave", "chrome", "google-chrome", "firefox", "edge", "code", "vscode", "terminal", "calculator"):
+                if re.search(r"\b" + re.escape(app) + r"\b", g_lower):
+                    app_name = "code" if app in ("code", "vscode") else app
+                    if self.registry.get("desktop.open_app"):
+                        return ToolCall(name="desktop.open_app", arguments={"app_name": app_name})
+
+            # Check if user requested a YouTube search
+            if any(w in g_lower for w in ("youtube", "youtub", "yotube")):
+                m_q = re.search(r"(?:search|find|look\s*up|play|watch)\s*(?:for\s+)?(.+)", goal, re.IGNORECASE)
+                if m_q:
+                    raw_q = re.sub(r"\s+(?:on|in)\s+(?:youtube|youtub|yotube)$", "", m_q.group(1), flags=re.IGNORECASE).strip().strip("\"'")
+                    if self.registry.get("web.youtube.search"):
+                        return ToolCall(name="web.youtube.search", arguments={"query": raw_q})
+                if self.registry.get("desktop.open_url"):
+                    return ToolCall(name="desktop.open_url", arguments={"url": "https://www.youtube.com"})
+
+            # Check if any file was produced in previous results that wasn't piped
+            for r in reversed(step_outputs):
+                if isinstance(r.data, dict) and r.data.get("files"):
+                    files = r.data["files"]
+                    if files and isinstance(files[0], dict) and files[0].get("path"):
+                        return ToolCall(name="desktop.open_file", arguments={"path": str(files[0]["path"])})
+                    elif files and isinstance(files[0], str):
+                        return ToolCall(name="desktop.open_file", arguments={"path": files[0]})
         return None
 
     def _extract_directory(self, text: str, default: str = "~/Downloads") -> str:
