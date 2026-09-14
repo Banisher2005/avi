@@ -136,6 +136,10 @@ class HotkeyManager:
 
         return False
 
+    def restore_previous_focus(self) -> bool:
+        """Alias for restore_previous_window."""
+        return self.restore_previous_window()
+
     def start(self, callback: Callable[[], None]) -> bool:
         """Start global hotkey listener thread if display server allows key grabbing."""
         self.callback = callback
