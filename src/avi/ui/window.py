@@ -490,6 +490,7 @@ class AviWindow:
             self.runtime.events.subscribe(self._on_agent_progress_event)
 
         self.command_resolver = CommandResolver()
+        self._handled_terminal_events: set[tuple[str, str]] = set()
         self.palette_widget = CommandPaletteWidget(on_execute=self._on_palette_execute)
         self.hotkey_manager = HotkeyManager(hotkey=getattr(self.config, "hotkey", "<Alt>space"))
         should_start_hotkey = (
@@ -1317,14 +1318,21 @@ class AviWindow:
                 self._show_working_line(formatted_line)
                 self._set_status(formatted_line, spinning=True, is_llm=False)
 
+            task_id = event.task_id or "default"
             if event.event_type in (ProgressEventType.TASK_COMPLETED, ProgressEventType.GOAL_COMPLETED):
-                msg = f"✓ {event.message}" if event.message else "✓ Task completed successfully."
-                self._show_assistant_response(msg, None, False)
-                self._restore_idle_state()
+                term_key = (task_id, "COMPLETED")
+                if term_key not in self._handled_terminal_events:
+                    self._handled_terminal_events.add(term_key)
+                    msg = f"✓ {event.message}" if event.message else "✓ Task completed successfully."
+                    self._show_assistant_response(msg, None, False)
+                    self._restore_idle_state()
             elif event.event_type in (ProgressEventType.TASK_FAILED, ProgressEventType.GOAL_FAILED):
-                msg = f"✗ {event.message}" if event.message else "✗ Task failed."
-                self._show_error(msg)
-                self._restore_idle_state()
+                term_key = (task_id, "FAILED")
+                if term_key not in self._handled_terminal_events:
+                    self._handled_terminal_events.add(term_key)
+                    msg = f"✗ {event.message}" if event.message else "✗ Task failed."
+                    self._show_error(msg)
+                    self._restore_idle_state()
             elif event.event_type == ProgressEventType.TASK_CANCELLED:
                 msg = f"■ {event.message}" if event.message else "■ Task cancelled."
                 self._show_assistant_response(msg, None, False)
