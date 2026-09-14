@@ -183,6 +183,23 @@ class CommandRegistry:
 
         return None
 
+    def execute_command(self, identifier: str, arg: str = "") -> str:
+        """Execute a registered command directly by ID or alias."""
+        cmd = self.get_command(identifier)
+        if cmd is None:
+            raise ValueError(f"Command '{identifier}' not found in registry.")
+
+        if cmd.handler is not None:
+            return str(cmd.handler(arg))
+
+        if cmd.capability_name is not None:
+            cap = self.capabilities.get(cmd.capability_name)
+            if cap is not None:
+                res = cap.execute(query=arg) if "query" in cap.schema else cap.execute()
+                return str(res.message or f"Executed {cmd.name}.")
+
+        return f"Command '{cmd.name}' executed."
+
     def _register_builtin_commands(self) -> None:
         """Register built-in system, calculation, diagnostic, and task commands."""
         # 1. Calculator
