@@ -510,4 +510,4 @@ class CommandRegistry:
 
     def list_all_capabilities(self) -> list[BaseCapability]:
         """Return all registered agent capabilities."""
-        return self.capabilities.list_all()
+        return self.capabilities.get_all()
