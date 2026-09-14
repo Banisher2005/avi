@@ -42,6 +42,7 @@ class Config:
     max_output_bytes: int = DEFAULT_MAX_OUTPUT_BYTES
     antigravity_bin: str | None = None
     antigravity_model: str | None = None
+    hotkey: str = "<Alt>space"
 
     @classmethod
     def load(cls, **overrides: Any) -> "Config":
@@ -108,6 +109,10 @@ class Config:
         env_provider = os.getenv("AVI_PROVIDER")
         if env_provider:
             config_data["provider"] = env_provider.strip().lower()
+
+        env_hotkey = os.getenv("AVI_HOTKEY")
+        if env_hotkey:
+            config_data["hotkey"] = env_hotkey.strip()
 
         env_ag_bin = os.getenv("AVI_ANTIGRAVITY_BIN")
         if env_ag_bin:
