@@ -490,7 +490,7 @@ class DynamicAgentLoop:
         is_youtube = any(w in g_lower for w in ("youtube", "youtub", "yotube"))
         is_browser_app = any(b in g_lower for b in ("brave", "chrome", "firefox", "edge", "safari", "browser"))
         is_web_search = is_youtube or any(
-            term in g_lower for term in ("search the web", "search web", "web search", "google", "online", "internet")
+            term in g_lower for term in ("search the web", "search web", "web search", "google", "online")
         )
 
         is_explicit_file = any(
