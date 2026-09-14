@@ -710,6 +710,9 @@ class AviWindow:
             return
 
         text = self.prompt_entry.get_text()
+        if not isinstance(text, str):
+            return
+
         if text.startswith("/"):
             results = self.command_resolver.resolve(text)
             self.palette_widget.set_results(results)
