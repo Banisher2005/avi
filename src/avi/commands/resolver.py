@@ -65,15 +65,15 @@ class CommandResolver:
         # Check if the first word directly matches a registered command definition
         direct_cmd = self.command_registry.get_command(cmd_candidate) if cmd_candidate else None
 
-        # 1. If direct command match with arguments (e.g. /calc 27 * 43, /task organize my downloads)
-        if direct_cmd is not None and arg_candidate:
+        # 1. If direct command match (e.g. /calc 27 * 43, /help, /ram, /health)
+        if direct_cmd is not None and is_slash:
             res = self._build_direct_command_result(direct_cmd, arg_candidate)
             results.append(res)
 
         # 2. Match against registered command definitions
         for cmd in self.command_registry.list_all_definitions():
             # Skip if we already produced a tailored direct command result for it
-            if direct_cmd and cmd.id == direct_cmd.id and arg_candidate:
+            if direct_cmd and cmd.id == direct_cmd.id and is_slash:
                 continue
 
             score = calculate_match_score(
@@ -220,76 +220,118 @@ class CommandResolver:
     def _build_direct_command_result(
         self, cmd: CommandDefinition, argument: str
     ) -> PaletteResult:
-        """Create an immediate preview result when a command is executed with arguments."""
+        """Create an immediate preview result when a command is executed with arguments or directly."""
         if cmd.id == "calc":
-            calculated = evaluate_safe_arithmetic(argument)
-            return PaletteResult(
-                id=f"cmd:{cmd.id}:arg",
-                title=f"Calculate: {argument}",
-                subtitle=f"= {calculated}",
-                icon=cmd.icon,
-                category=cmd.category,
-                score=1.5,  # Top priority
-                action_type="calculate",
-                payload={"command_id": cmd.id, "arg": argument, "preview": calculated},
-                actions=[
-                    ActionResult(
-                        id="calc:exec",
-                        name="Calculate",
-                        description=f"= {calculated}",
-                        action_type="calculate",
-                        payload=argument,
-                    )
-                ],
-            )
+            if argument:
+                calculated = evaluate_safe_arithmetic(argument)
+                return PaletteResult(
+                    id=f"cmd:{cmd.id}:arg",
+                    title=f"Calculate: {argument}",
+                    subtitle=f"= {calculated}",
+                    icon=cmd.icon,
+                    category=cmd.category,
+                    score=1.5,  # Top priority
+                    action_type="calculate",
+                    payload={"command_id": cmd.id, "arg": argument, "preview": calculated},
+                    actions=[
+                        ActionResult(
+                            id="calc:exec",
+                            name="Calculate",
+                            description=f"= {calculated}",
+                            action_type="calculate",
+                            payload=argument,
+                        )
+                    ],
+                )
+            else:
+                return PaletteResult(
+                    id=f"cmd:{cmd.id}:direct",
+                    title=cmd.name,
+                    subtitle="Calculate arithmetic expressions (e.g. /calc 27 * 43)",
+                    icon=cmd.icon,
+                    category=cmd.category,
+                    score=1.3,
+                    action_type="calculate",
+                    payload={"command_id": cmd.id, "arg": ""},
+                    actions=cmd.actions,
+                )
         elif cmd.id == "task":
-            return PaletteResult(
-                id=f"cmd:{cmd.id}:arg",
-                title=f"Create task: {argument}",
-                subtitle="Execute persistent autonomous agent task",
-                icon=cmd.icon,
-                category=cmd.category,
-                score=1.5,
-                action_type="task",
-                payload={"goal": argument},
-                actions=[
-                    ActionResult(
-                        id="task:exec",
-                        name="Start Task",
-                        description=f"Run task: {argument}",
-                        action_type="task",
-                        payload=argument,
-                    )
-                ],
-            )
+            if argument:
+                return PaletteResult(
+                    id=f"cmd:{cmd.id}:arg",
+                    title=f"Create task: {argument}",
+                    subtitle="Execute persistent autonomous agent task",
+                    icon=cmd.icon,
+                    category=cmd.category,
+                    score=1.5,
+                    action_type="task",
+                    payload={"goal": argument},
+                    actions=[
+                        ActionResult(
+                            id="task:exec",
+                            name="Start Task",
+                            description=f"Run task: {argument}",
+                            action_type="task",
+                            payload=argument,
+                        )
+                    ],
+                )
+            else:
+                return PaletteResult(
+                    id=f"cmd:{cmd.id}:direct",
+                    title=cmd.name,
+                    subtitle=cmd.description,
+                    icon=cmd.icon,
+                    category=cmd.category,
+                    score=1.3,
+                    action_type="task",
+                    payload={"goal": ""},
+                    actions=cmd.actions,
+                )
         elif cmd.id == "files":
-            return PaletteResult(
-                id=f"cmd:{cmd.id}:arg",
-                title=f"Search files: {argument}",
-                subtitle=f"Find files matching '{argument}'",
-                icon=cmd.icon,
-                category=cmd.category,
-                score=1.5,
-                action_type="execute",
-                payload={"command_id": "files", "arg": argument},
-                actions=[
-                    ActionResult(
-                        id="files:exec",
-                        name="Find files",
-                        description=f"Search for {argument}",
-                        action_type="execute",
-                        payload=argument,
-                    )
-                ],
-            )
+            if argument:
+                return PaletteResult(
+                    id=f"cmd:{cmd.id}:arg",
+                    title=f"Search files: {argument}",
+                    subtitle=f"Find files matching '{argument}'",
+                    icon=cmd.icon,
+                    category=cmd.category,
+                    score=1.5,
+                    action_type="execute",
+                    payload={"command_id": "files", "arg": argument},
+                    actions=[
+                        ActionResult(
+                            id="files:exec",
+                            name="Find files",
+                            description=f"Search for {argument}",
+                            action_type="execute",
+                            payload=argument,
+                        )
+                    ],
+                )
+            else:
+                return PaletteResult(
+                    id=f"cmd:{cmd.id}:direct",
+                    title=cmd.name,
+                    subtitle=cmd.description,
+                    icon=cmd.icon,
+                    category=cmd.category,
+                    score=1.3,
+                    action_type="execute",
+                    payload={"command_id": "files", "arg": ""},
+                    actions=cmd.actions,
+                )
 
+        score = 1.5 if argument else 1.3
+        title = f"{cmd.name}: {argument}" if argument else cmd.name
+        subtitle = cmd.description if not argument else f"Execute {cmd.name} with {argument}"
         return PaletteResult(
-            id=f"cmd:{cmd.id}:arg",
-            title=f"{cmd.name}: {argument}",
-            subtitle=cmd.description,
+            id=f"cmd:{cmd.id}:direct",
+            title=title,
+            subtitle=subtitle,
             icon=cmd.icon,
             category=cmd.category,
-            score=1.5,
+            score=score,
             action_type="execute",
             payload={"command_id": cmd.id, "arg": argument},
             actions=cmd.actions,
