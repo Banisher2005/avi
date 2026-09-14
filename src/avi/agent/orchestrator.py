@@ -690,13 +690,6 @@ class AgentOrchestrator:
                 if dyn_res.status == TaskStatus.COMPLETED:
                     self.events.emit(
                         ProgressEvent(
-                            event_type=ProgressEventType.GOAL_COMPLETED,
-                            task_id=context.task_id,
-                            message=dyn_res.final_response,
-                        )
-                    )
-                    self.events.emit(
-                        ProgressEvent(
                             event_type=ProgressEventType.TASK_COMPLETED,
                             task_id=context.task_id,
                             message=dyn_res.final_response,
@@ -712,13 +705,6 @@ class AgentOrchestrator:
                         )
                     )
                 elif dyn_res.status == TaskStatus.FAILED:
-                    self.events.emit(
-                        ProgressEvent(
-                            event_type=ProgressEventType.GOAL_FAILED,
-                            task_id=context.task_id,
-                            message=dyn_res.final_response,
-                        )
-                    )
                     self.events.emit(
                         ProgressEvent(
                             event_type=ProgressEventType.TASK_FAILED,
