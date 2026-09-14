@@ -492,10 +492,15 @@ class AviWindow:
         self.command_resolver = CommandResolver()
         self.palette_widget = CommandPaletteWidget(on_execute=self._on_palette_execute)
         self.hotkey_manager = HotkeyManager(hotkey=getattr(self.config, "hotkey", "<Alt>space"))
-        try:
-            self.hotkey_manager.start(self.toggle_overlay)
-        except Exception:
-            pass
+        should_start_hotkey = (
+            not os.environ.get("PYTEST_CURRENT_TEST")
+            and getattr(self.config, "enable_hotkey", True)
+        )
+        if should_start_hotkey:
+            try:
+                self.hotkey_manager.start(self.toggle_overlay)
+            except Exception:
+                pass
 
         self._build_window()
 
